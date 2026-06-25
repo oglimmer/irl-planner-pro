@@ -37,7 +37,7 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		`SELECT er.full_name, er.email, s.attending, u.first_name, u.last_name,
 		        s.arrival_day, s.arrival_time, s.arrival_mode, s.arrival_details,
 		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
-		        s.long_haul, s.extra_stay_start, s.extra_stay_end, s.allergies, s.comments,
+		        s.long_haul, s.extra_stay_start, s.extra_stay_end, u.allergies, s.comments,
 		        s.updated_at
 		   FROM event_roster er
 		   LEFT JOIN users u ON lower(u.email) = er.email

@@ -12,18 +12,19 @@ import (
 
 // findOrCreateUser upserts a user by email. The first user ever provisioned is
 // made admin (decided in SQL via NOT EXISTS so concurrent first logins can't
-// both win). The name is seeded from the IdP only when the account is first
-// created; on subsequent logins it is left untouched so a user's own profile
-// edit is never clobbered.
-func (a *App) findOrCreateUser(ctx context.Context, email, firstName, lastName string) (*User, error) {
+// both win). The name and allergies are seeded only when the account is first
+// created (from the IdP / first-login form); on subsequent logins they are left
+// untouched so a user's own profile edit is never clobbered.
+func (a *App) findOrCreateUser(ctx context.Context, email, firstName, lastName, allergies string) (*User, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	firstName = strings.TrimSpace(firstName)
 	lastName = strings.TrimSpace(lastName)
+	allergies = strings.TrimSpace(allergies)
 
 	u := &User{}
 	err := a.DB.QueryRowContext(ctx,
-		`SELECT id, email, first_name, last_name, is_admin, created_at, token_version FROM users WHERE email = $1`, email).
-		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
+		`SELECT id, email, first_name, last_name, allergies, is_admin, created_at, token_version FROM users WHERE email = $1`, email).
+		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
 	if err == nil {
 		// Existing user: keep whatever name they (or a prior login) already have.
 		u.setDisplayName()
@@ -36,12 +37,12 @@ func (a *App) findOrCreateUser(ctx context.Context, email, firstName, lastName s
 	// ON CONFLICT leaves an existing row's names untouched (a concurrent first
 	// login that lost the race must not overwrite the winner's seeded name).
 	err = a.DB.QueryRowContext(ctx,
-		`INSERT INTO users (email, first_name, last_name, is_admin)
-		 VALUES ($1, $2, $3, NOT EXISTS (SELECT 1 FROM users))
+		`INSERT INTO users (email, first_name, last_name, allergies, is_admin)
+		 VALUES ($1, $2, $3, $4, NOT EXISTS (SELECT 1 FROM users))
 		 ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
-		 RETURNING id, email, first_name, last_name, is_admin, created_at, token_version`,
-		email, firstName, lastName).
-		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
+		 RETURNING id, email, first_name, last_name, allergies, is_admin, created_at, token_version`,
+		email, firstName, lastName, allergies).
+		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -57,10 +58,12 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 type updateMeReq struct {
 	FirstName string `json:"firstName"`
 	LastName  string `json:"lastName"`
+	// Allergies / dietary preferences — free-form and optional (may be cleared).
+	Allergies string `json:"allergies"`
 }
 
-// handleUpdateMe lets a signed-in user edit their own display name (first/last).
-// Both parts are required; the name is otherwise free-form.
+// handleUpdateMe lets a signed-in user edit their own profile: display name
+// (first/last, both required) and allergies/dietary preferences (free-form).
 func (a *App) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	var req updateMeReq
@@ -70,18 +73,20 @@ func (a *App) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	}
 	req.FirstName = strings.TrimSpace(req.FirstName)
 	req.LastName = strings.TrimSpace(req.LastName)
+	req.Allergies = strings.TrimSpace(req.Allergies)
 	if req.FirstName == "" || req.LastName == "" {
 		writeErr(w, http.StatusBadRequest, "first name and last name are required")
 		return
 	}
 	if _, err := a.DB.ExecContext(r.Context(),
-		`UPDATE users SET first_name = $1, last_name = $2 WHERE id = $3`,
-		req.FirstName, req.LastName, user.ID); err != nil {
+		`UPDATE users SET first_name = $1, last_name = $2, allergies = $3 WHERE id = $4`,
+		req.FirstName, req.LastName, req.Allergies, user.ID); err != nil {
 		serverErr(w, r, err, "db error")
 		return
 	}
 	user.FirstName = req.FirstName
 	user.LastName = req.LastName
+	user.Allergies = req.Allergies
 	user.setDisplayName()
 	writeJSON(w, http.StatusOK, user)
 }
@@ -199,6 +204,8 @@ type devLoginReq struct {
 	Email     string `json:"email"`
 	FirstName string `json:"firstName"`
 	LastName  string `json:"lastName"`
+	// Allergies / dietary preferences, seeded onto the profile on account creation.
+	Allergies string `json:"allergies"`
 	// Name is a convenience for callers that only have a single name string; it
 	// is split into first/last when firstName/lastName aren't supplied.
 	Name string `json:"name"`
@@ -222,7 +229,7 @@ func (a *App) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 	if first == "" && last == "" {
 		first, last = splitName(req.Name)
 	}
-	user, err := a.findOrCreateUser(r.Context(), req.Email, first, last)
+	user, err := a.findOrCreateUser(r.Context(), req.Email, first, last, req.Allergies)
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return

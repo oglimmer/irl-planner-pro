@@ -13,6 +13,7 @@ const error = ref('')
 const email = ref('')
 const firstName = ref('')
 const lastName = ref('')
+const allergies = ref('')
 const submitting = ref(false)
 
 onMounted(async () => {
@@ -33,7 +34,7 @@ async function signInDev() {
   submitting.value = true
   error.value = ''
   try {
-    await auth.devLogin(email.value, firstName.value, lastName.value)
+    await auth.devLogin(email.value, firstName.value, lastName.value, allergies.value)
     router.replace('/')
   } catch (e) {
     error.value = errMsg(e)
@@ -55,6 +56,7 @@ async function signInDev() {
           <input v-model="email" type="email" placeholder="you@id5.io" required>
           <input v-model="firstName" type="text" placeholder="First name (optional)">
           <input v-model="lastName" type="text" placeholder="Last name (optional)">
+          <textarea v-model="allergies" rows="2" placeholder="Allergies / dietary preferences (optional)" />
           <button class="btn" type="submit" :disabled="submitting">Sign in</button>
         </form>
       </template>
@@ -105,7 +107,8 @@ form {
   flex-direction: column;
   gap: 0.6rem;
 }
-input {
+input,
+textarea {
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);

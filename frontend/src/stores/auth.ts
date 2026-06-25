@@ -91,14 +91,15 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // devLogin is the password-mode (local dev) sign-in.
-  async function devLogin(email: string, firstName: string, lastName: string) {
-    const r = await api.devLogin(email, firstName, lastName)
+  async function devLogin(email: string, firstName: string, lastName: string, allergies: string) {
+    const r = await api.devLogin(email, firstName, lastName, allergies)
     setSession(r.token, r.user)
   }
 
-  // updateProfile saves the user's edited display name and refreshes local state.
-  async function updateProfile(firstName: string, lastName: string) {
-    const u = await api.updateMe({ firstName, lastName })
+  // updateProfile saves the user's edited display name + allergies and refreshes
+  // local state.
+  async function updateProfile(firstName: string, lastName: string, allergies: string) {
+    const u = await api.updateMe({ firstName, lastName, allergies })
     localStorage.setItem('user', JSON.stringify(u))
     user.value = u
   }

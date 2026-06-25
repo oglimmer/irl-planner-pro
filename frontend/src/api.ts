@@ -87,15 +87,15 @@ export const api = {
   version: () => request<BackendBuildInfo>('/api/version'),
   authConfig: () => request<AuthConfig>('/api/auth/config'),
   me: () => request<User>('/api/me'),
-  // Self-service profile edit (display name).
+  // Self-service profile edit (display name + allergies).
   updateMe: (data: ProfileInput) =>
     request<User>('/api/me', { method: 'PUT', body: JSON.stringify(data) }),
 
   // Dev-only password-mode login (AUTH_MODE=password).
-  devLogin: (email: string, firstName: string, lastName: string) =>
+  devLogin: (email: string, firstName: string, lastName: string, allergies: string) =>
     request<{ token: string; user: User }>('/api/auth/dev-login', {
       method: 'POST',
-      body: JSON.stringify({ email, firstName, lastName }),
+      body: JSON.stringify({ email, firstName, lastName, allergies }),
     }),
 
   // Admin user management.

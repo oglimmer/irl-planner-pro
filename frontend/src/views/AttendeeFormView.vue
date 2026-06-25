@@ -38,7 +38,6 @@ const form = reactive<SubmissionInput>({
   longHaul: false,
   extraStayStart: null,
   extraStayEnd: null,
-  allergies: '',
   comments: '',
 })
 
@@ -96,7 +95,6 @@ async function load() {
         longHaul: existing.longHaul,
         extraStayStart: existing.extraStayStart,
         extraStayEnd: existing.extraStayEnd,
-        allergies: existing.allergies,
         comments: existing.comments,
       })
     }
@@ -154,10 +152,15 @@ onMounted(load)
 
     <form class="form" @submit.prevent="submit">
       <fieldset :disabled="readOnly || saving">
-        <p class="submitting-as">
-          Submitting as <strong>{{ auth.user?.name || auth.user?.email }}</strong>.
-          <RouterLink to="/profile">Edit your name</RouterLink>
-        </p>
+        <div class="submitting-as">
+          <p>Submitting as <strong>{{ auth.user?.name || auth.user?.email }}</strong>.</p>
+          <p>
+            Allergies / dietary preferences:
+            <template v-if="auth.user?.allergies">{{ auth.user.allergies }}</template>
+            <span v-else class="none">none set</span>
+          </p>
+          <RouterLink to="/profile">Edit your profile</RouterLink>
+        </div>
 
         <div class="field">
           <span class="q">Are you attending?</span>
@@ -256,9 +259,6 @@ onMounted(load)
           </div>
 
           <h2>Other</h2>
-          <label>Allergies / dietary preferences
-            <textarea v-model="form.allergies" rows="2" />
-          </label>
           <label>Comments
             <textarea v-model="form.comments" rows="2" />
           </label>
@@ -350,6 +350,12 @@ textarea {
   color: var(--muted);
   font-size: 0.9rem;
   margin: 0 0 1.25rem;
+}
+.submitting-as p {
+  margin: 0 0 0.25rem;
+}
+.submitting-as .none {
+  font-style: italic;
 }
 .row {
   display: flex;

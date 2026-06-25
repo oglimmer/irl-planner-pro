@@ -45,7 +45,11 @@ type User struct {
 	// Name is the derived display name (first + last). Read-only: set from
 	// FirstName/LastName when a row is scanned (see setDisplayName); clients edit
 	// the two parts, never this field.
-	Name      string    `json:"name"`
+	Name string `json:"name"`
+	// Allergies / dietary preferences are a property of the person, not any one
+	// event, so they live on the profile (moved off submissions in migration
+	// 0003_profile_allergies). Free-form and optional.
+	Allergies string    `json:"allergies"`
 	IsAdmin   bool      `json:"isAdmin"`
 	CreatedAt time.Time `json:"createdAt"`
 	// TokenVersion is the session-revocation counter, stamped into JWTs as the

@@ -9,7 +9,7 @@ import (
 func TestClaimReminderIdempotent(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "")
+	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
 
 	var eventID string
 	if err := a.DB.QueryRowContext(ctx,
@@ -43,7 +43,7 @@ func TestClaimReminderIdempotent(t *testing.T) {
 func TestNonResponders(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "")
+	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
 
 	var eventID string
 	if err := a.DB.QueryRowContext(ctx,
@@ -60,7 +60,7 @@ func TestNonResponders(t *testing.T) {
 		}
 	}
 	// Bob responds.
-	bob, _ := a.findOrCreateUser(ctx, "bob@id5.io", "Bob", "B")
+	bob, _ := a.findOrCreateUser(ctx, "bob@id5.io", "Bob", "B", "")
 	e, _ := a.loadEventByColumn(ctx, "id", eventID, time.Now())
 	req := &submissionReq{Attending: "no"}
 	if err := req.normalizeAndValidate(e, false); err != nil {

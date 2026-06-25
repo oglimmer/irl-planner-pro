@@ -23,13 +23,13 @@ func TestSubmissionNoBlanksTravel(t *testing.T) {
 	req := &submissionReq{
 		Attending: "no",
 		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"),
-		Allergies: "nuts", Comments: "hi", NotSureReason: "x",
+		Comments: "hi", NotSureReason: "x",
 	}
 	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if req.ArrivalDay != nil || req.ArrivalMode != nil || req.Allergies != "" || req.Comments != "" || req.NotSureReason != "" {
-		t.Errorf("No branch should blank travel/dietary/reason: %+v", req)
+	if req.ArrivalDay != nil || req.ArrivalMode != nil || req.Comments != "" || req.NotSureReason != "" {
+		t.Errorf("No branch should blank travel/comments/reason: %+v", req)
 	}
 }
 

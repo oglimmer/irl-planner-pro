@@ -7,6 +7,7 @@ const auth = useAuthStore()
 
 const firstName = ref(auth.user?.firstName ?? '')
 const lastName = ref(auth.user?.lastName ?? '')
+const allergies = ref(auth.user?.allergies ?? '')
 const saving = ref(false)
 const saved = ref(false)
 const error = ref('')
@@ -16,7 +17,7 @@ async function save() {
   saved.value = false
   error.value = ''
   try {
-    await auth.updateProfile(firstName.value.trim(), lastName.value.trim())
+    await auth.updateProfile(firstName.value.trim(), lastName.value.trim(), allergies.value.trim())
     saved.value = true
   } catch (e) {
     error.value = errMsg(e)
@@ -30,8 +31,9 @@ async function save() {
   <section class="profile">
     <h1>Your profile</h1>
     <p class="muted">
-      Your name is shown to admins on event dashboards and exports. It was set from
-      your sign-in account and you can change it here at any time.
+      Your name and dietary needs are shown to admins on event dashboards and
+      exports, and reused for every event so you only enter them once. Your name
+      was set from your sign-in account; you can change anything here at any time.
     </p>
 
     <form @submit.prevent="save">
@@ -43,6 +45,10 @@ async function save() {
         <label>First name <input v-model="firstName" type="text" required></label>
         <label>Last name <input v-model="lastName" type="text" required></label>
       </div>
+      <label>
+        Allergies / dietary preferences
+        <textarea v-model="allergies" rows="2" />
+      </label>
       <button class="btn" type="submit" :disabled="saving">Save</button>
       <span v-if="saved" class="ok">Saved.</span>
       <span v-if="error" class="error">{{ error }}</span>
@@ -76,7 +82,8 @@ label {
   gap: 0.3rem;
   font-size: 0.9rem;
 }
-input {
+input,
+textarea {
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);

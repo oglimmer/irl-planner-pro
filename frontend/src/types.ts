@@ -13,6 +13,7 @@ export interface User {
   firstName: string
   lastName: string
   name: string // derived display name (first + last); read-only
+  allergies: string // allergies / dietary preferences (profile, not per-event)
   isAdmin: boolean
   createdAt: string
 }
@@ -27,10 +28,12 @@ export interface UserSummary {
   createdAt: string
 }
 
-// ProfileInput is the self-service name edit payload (PUT /api/me).
+// ProfileInput is the self-service profile edit payload (PUT /api/me): name plus
+// allergies / dietary preferences.
 export interface ProfileInput {
   firstName: string
   lastName: string
+  allergies: string
 }
 
 export type DayType = 'travel' | 'event'
@@ -120,7 +123,7 @@ export interface Submission {
 }
 
 // SubmissionInput is the writable subset sent on create/update. The attendee's
-// name is not included — it comes from their profile.
+// name and allergies are not included — they come from their profile.
 export interface SubmissionInput {
   attending: Attending
   notSureReason: string
@@ -135,7 +138,6 @@ export interface SubmissionInput {
   longHaul: boolean
   extraStayStart: string | null
   extraStayEnd: string | null
-  allergies: string
   comments: string
 }
 

@@ -26,7 +26,8 @@ a phased implementation plan**, deliberately mirroring the conventions of the
   (default `Europe/Paris`), reminder lead days (default 3).
 - **Attendee form** — basic details + attending (Yes / No / Not sure, the last
   requiring a reason); conditional travel + long-haul (extra night before/after
-  the offsite) + dietary sections on Yes; an instructions message on No.
+  the offsite) on Yes; an instructions message on No. Dietary preferences live on
+  the user's profile, not the form.
 - **Edit, activity log & notify** — attendees may edit after submitting; every
   action is recorded in an activity log (employees see their own; admins see all,
   with after-deadline edits highlighted); admins are emailed on any change and can
@@ -202,6 +203,7 @@ CREATE TABLE users (
     email       TEXT UNIQUE NOT NULL,         -- @id5.io, lower-cased
     first_name  TEXT NOT NULL DEFAULT '',     -- seeded from OIDC given_name on first login
     last_name   TEXT NOT NULL DEFAULT '',     -- seeded from OIDC family_name on first login
+    allergies   TEXT NOT NULL DEFAULT '',     -- dietary preferences; a profile property, not per-event (migration 0003)
     is_admin    BOOLEAN NOT NULL DEFAULT false,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     token_version INTEGER NOT NULL DEFAULT 0  -- bump to revoke all sessions
@@ -216,6 +218,14 @@ name at `/profile` (`PUT /api/me`); the API also returns a derived read-only `na
 (first + last) for display. Submissions carry **no** name — every name shown on a
 dashboard, export, or activity line is read from the submitter's profile (added in
 migration `0002_profile_names`).
+
+**Allergies = a profile property too.** Allergies / dietary preferences describe
+the person rather than any one event, so they live on `users.allergies` and are
+edited at `/profile` alongside the name (the same `PUT /api/me` payload). They are
+entered once and reused for every event. The submission read shape still exposes an
+`allergies` field for dashboards/exports, but it is joined in from the submitter's
+profile, not stored per submission (moved off `submissions` in migration
+`0003_profile_allergies`, mirroring `0002`).
 
 **Admin bootstrap:** the **first user to sign in** is made admin automatically
 (`is_admin = true` when the `users` table is otherwise empty — done atomically in
@@ -305,8 +315,8 @@ CREATE TABLE submissions (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_id           UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     user_id            UUID NOT NULL REFERENCES users(id),
-    -- No name columns: the attendee's name is read from their users profile
-    -- (dropped from this table in migration 0002).
+    -- No name or allergies columns: both are read from the attendee's users
+    -- profile (name dropped in migration 0002, allergies in 0003).
     attending          TEXT NOT NULL CHECK (attending IN ('yes','no','not_sure')),
     not_sure_reason    TEXT NOT NULL DEFAULT '',  -- required when attending='not_sure'
 
@@ -333,7 +343,7 @@ CREATE TABLE submissions (
     extra_stay_start   DATE,
     extra_stay_end     DATE,
 
-    allergies          TEXT NOT NULL DEFAULT '',
+    -- allergies live on users (the profile), not here — see migration 0003.
     comments           TEXT NOT NULL DEFAULT '',
 
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -554,9 +564,10 @@ the **same rules are enforced server-side** in `submissions.go` (never trust the
 client).
 
 ### Step 1 — Basic details (always)
-- The attendee's **name is not collected here** — it comes from their profile
-  (`first_name` / `last_name`, editable at `/profile`). The form shows a read-only
-  "Submitting as …" line with a link to edit it.
+- The attendee's **name and allergies are not collected here** — they come from
+  their profile (`first_name` / `last_name` / `allergies`, editable at `/profile`).
+  The form shows a read-only "Submitting as …" block (name + dietary preferences)
+  with a single link to edit the profile.
 - **Attending?** `yes` / `no` / `not_sure`.
   - `not_sure` → `not_sure_reason` **required** (server rejects empty). Rationale
     per `plan.md`: an employee who can't commit to yes/no before the deadline must
@@ -586,18 +597,19 @@ client).
     picker* with no one-day cap, so the People team can grant 2+ extra nights at
     either end for special cases (visa stopovers, connecting flights, etc.). The
     server enforces the one-day cap only for non-admin writers.
-- **Allergies / dietary preferences** (free text).
-- **Comments** (free text).
+- **Comments** (free text). (Allergies / dietary preferences are **not** asked here
+  — they live on the profile; see Step 1.)
 
 ### Validation matrix (server-enforced)
 
 | Field | Required when |
 |---|---|
 | name | not on the submission — set on the user profile (`first_name` / `last_name` required there) |
+| allergies / dietary | not on the submission — set on the user profile (`/profile`, optional) |
 | `not_sure_reason` | `attending = 'not_sure'` |
 | `arrival_*`, `departure_*` | `attending = 'yes'` (day + mode required; details required if mode set) |
 | `extra_stay_start` / `extra_stay_end` | optional; one-day cap from event bounds for employees, unrestricted for admins |
-| dietary / comments | optional |
+| comments | optional |
 
 Fields outside the chosen branch are blanked on write so a user toggling Yes→No
 doesn't leave stale travel data.
@@ -907,9 +919,9 @@ the reference.
   not at all once the event is past); every admin route behind
   `requireAdminMiddleware`. Admin edits of others' data and past events are
   permitted but always recorded in the activity log.
-- **PII handling**: submissions contain dietary/health info (allergies) and
-  travel details — treat as sensitive; restrict export to admins, no PII in URLs
-  or logs, generic OIDC error pages.
+- **PII handling**: profiles carry dietary/health info (allergies) and submissions
+  carry travel details — treat both as sensitive; restrict export to admins, no PII
+  in URLs or logs, generic OIDC error pages.
 - **MCP surface (Phase 7)**: `/mcp` is gated by OAuth 2.1 (Authorization Code +
   PKCE), disabled unless both `MCP_OAUTH_CLIENT_*` are set, callback URIs
   allowlisted, and `/oauth/*` per-IP rate-limited (copy reference limits). MCP

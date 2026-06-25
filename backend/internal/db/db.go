@@ -18,6 +18,9 @@ var migration0001 string
 //go:embed migrations/0002_profile_names.sql
 var migration0002 string
 
+//go:embed migrations/0003_profile_allergies.sql
+var migration0003 string
+
 // Open opens the application's *sql.DB through pgx's database/sql adapter and
 // configures it for use behind a transaction-pool PgBouncer (the common HA
 // layout in front of managed Postgres).
@@ -61,6 +64,9 @@ func Migrate(db *sql.DB) error {
 	}
 	if _, err := db.Exec(migration0002); err != nil {
 		return fmt.Errorf("0002_profile_names: %w", err)
+	}
+	if _, err := db.Exec(migration0003); err != nil {
+		return fmt.Errorf("0003_profile_allergies: %w", err)
 	}
 	return nil
 }

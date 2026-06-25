@@ -39,6 +39,8 @@ type Submission struct {
 	ExtraStayStart *string `json:"extraStayStart"`
 	ExtraStayEnd   *string `json:"extraStayEnd"`
 
+	// Allergies is read-only here: it lives on the submitter's profile (see
+	// migration 0003_profile_allergies) and is joined in for display.
 	Allergies string `json:"allergies"`
 	Comments  string `json:"comments"`
 
@@ -47,7 +49,8 @@ type Submission struct {
 }
 
 // submissionReq is the create/update payload (the writable subset of Submission).
-// The attendee's name is not part of it — it lives on the user profile.
+// The attendee's name and allergies are not part of it — they live on the user
+// profile.
 type submissionReq struct {
 	Attending        string  `json:"attending"`
 	NotSureReason    string  `json:"notSureReason"`
@@ -62,7 +65,6 @@ type submissionReq struct {
 	LongHaul         bool    `json:"longHaul"`
 	ExtraStayStart   *string `json:"extraStayStart"`
 	ExtraStayEnd     *string `json:"extraStayEnd"`
-	Allergies        string  `json:"allergies"`
 	Comments         string  `json:"comments"`
 }
 
@@ -90,7 +92,7 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 		req.ArrivalTime, req.ArrivalDetails, req.DepartureTime, req.DepartureDetails = "", "", "", ""
 		req.LongHaul = false
 		req.ExtraStayStart, req.ExtraStayEnd = nil, nil
-		req.Allergies, req.Comments = "", ""
+		req.Comments = ""
 		return nil
 	}
 
@@ -314,8 +316,8 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 		`INSERT INTO submissions (event_id, user_id, attending, not_sure_reason,
 		   arrival_day, arrival_time, arrival_mode, arrival_details,
 		   departure_day, departure_time, departure_mode, departure_details,
-		   long_haul, extra_stay_start, extra_stay_end, allergies, comments)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+		   long_haul, extra_stay_start, extra_stay_end, comments)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		 ON CONFLICT (event_id, user_id) DO UPDATE SET
 		   attending=EXCLUDED.attending,
 		   not_sure_reason=EXCLUDED.not_sure_reason, arrival_day=EXCLUDED.arrival_day,
@@ -324,12 +326,12 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 		   departure_time=EXCLUDED.departure_time, departure_mode=EXCLUDED.departure_mode,
 		   departure_details=EXCLUDED.departure_details, long_haul=EXCLUDED.long_haul,
 		   extra_stay_start=EXCLUDED.extra_stay_start, extra_stay_end=EXCLUDED.extra_stay_end,
-		   allergies=EXCLUDED.allergies, comments=EXCLUDED.comments, updated_at=now()
+		   comments=EXCLUDED.comments, updated_at=now()
 		 RETURNING id`,
 		e.ID, ownerID, req.Attending, req.NotSureReason,
 		datePtr(req.ArrivalDay), req.ArrivalTime, strPtr(req.ArrivalMode), req.ArrivalDetails,
 		datePtr(req.DepartureDay), req.DepartureTime, strPtr(req.DepartureMode), req.DepartureDetails,
-		req.LongHaul, datePtr(req.ExtraStayStart), datePtr(req.ExtraStayEnd), req.Allergies, req.Comments).
+		req.LongHaul, datePtr(req.ExtraStayStart), datePtr(req.ExtraStayEnd), req.Comments).
 		Scan(&subID)
 	if err != nil {
 		metrics.SubmissionMutationsTotal.WithLabelValues("write", "error").Inc()
@@ -431,7 +433,7 @@ func (a *App) loadSubmission(ctx context.Context, eventID, userID string) (*Subm
 		`SELECT s.id, s.event_id, s.user_id, u.email, u.first_name, u.last_name, s.attending, s.not_sure_reason,
 		        s.arrival_day, s.arrival_time, s.arrival_mode, s.arrival_details,
 		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
-		        s.long_haul, s.extra_stay_start, s.extra_stay_end, s.allergies, s.comments,
+		        s.long_haul, s.extra_stay_start, s.extra_stay_end, u.allergies, s.comments,
 		        s.created_at, s.updated_at
 		   FROM submissions s JOIN users u ON u.id = s.user_id
 		  WHERE s.event_id = $1 AND s.user_id = $2`, eventID, userID).

@@ -49,7 +49,7 @@ func TestFirstUserBecomesAdmin(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
 
-	first, err := a.findOrCreateUser(ctx, "Alice@id5.io", "Alice", "")
+	first, err := a.findOrCreateUser(ctx, "Alice@id5.io", "Alice", "", "")
 	if err != nil {
 		t.Fatalf("create first: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestFirstUserBecomesAdmin(t *testing.T) {
 		t.Errorf("email not lower-cased: %q", first.Email)
 	}
 
-	second, err := a.findOrCreateUser(ctx, "bob@id5.io", "Bob", "")
+	second, err := a.findOrCreateUser(ctx, "bob@id5.io", "Bob", "", "")
 	if err != nil {
 		t.Fatalf("create second: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestFindOrCreateUserSeedsNameOnceAndIsIdempotent(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
 
-	u1, err := a.findOrCreateUser(ctx, "carol@id5.io", "Carol", "Jones")
+	u1, err := a.findOrCreateUser(ctx, "carol@id5.io", "Carol", "Jones", "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestFindOrCreateUserSeedsNameOnceAndIsIdempotent(t *testing.T) {
 	}
 
 	// Second login with a different IdP name: same user, name unchanged.
-	u2, err := a.findOrCreateUser(ctx, "carol@id5.io", "Caroline", "Smith")
+	u2, err := a.findOrCreateUser(ctx, "carol@id5.io", "Caroline", "Smith", "")
 	if err != nil {
 		t.Fatalf("re-fetch: %v", err)
 	}
@@ -101,9 +101,13 @@ func TestHandleUpdateMe(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
 
-	u, err := a.findOrCreateUser(ctx, "dave@id5.io", "Dave", "Initial")
+	u, err := a.findOrCreateUser(ctx, "dave@id5.io", "Dave", "Initial", "peanuts")
 	if err != nil {
 		t.Fatalf("create: %v", err)
+	}
+	// Allergies given at first login are seeded onto the profile.
+	if u.Allergies != "peanuts" {
+		t.Errorf("allergies not seeded on create: %q", u.Allergies)
 	}
 
 	// Empty name is rejected.
@@ -111,8 +115,8 @@ func TestHandleUpdateMe(t *testing.T) {
 		t.Errorf("blank first name: want 400, got %d", rr.Code)
 	}
 
-	// Happy path.
-	rr := a.doUpdateMe(t, u, `{"firstName":"David","lastName":"Edited"}`)
+	// Happy path: name + allergies are editable (allergies may also be cleared).
+	rr := a.doUpdateMe(t, u, `{"firstName":"David","lastName":"Edited","allergies":"shellfish"}`)
 	if rr.Code != 200 {
 		t.Fatalf("update: want 200, got %d (%s)", rr.Code, rr.Body.String())
 	}
@@ -120,11 +124,18 @@ func TestHandleUpdateMe(t *testing.T) {
 	if reloaded.FirstName != "David" || reloaded.LastName != "Edited" || reloaded.Name != "David Edited" {
 		t.Errorf("edit not persisted: %q / %q (%q)", reloaded.FirstName, reloaded.LastName, reloaded.Name)
 	}
+	if reloaded.Allergies != "shellfish" {
+		t.Errorf("allergies edit not persisted: %q", reloaded.Allergies)
+	}
 
-	// A later IdP login does not clobber the edit (first-login-only seeding).
-	again, _ := a.findOrCreateUser(ctx, "dave@id5.io", "Dave", "Initial")
+	// A later login does not clobber the edits (first-login-only seeding) — not
+	// the name, nor the allergies.
+	again, _ := a.findOrCreateUser(ctx, "dave@id5.io", "Dave", "Initial", "gluten")
 	if again.FirstName != "David" || again.LastName != "Edited" {
 		t.Errorf("login overwrote the profile edit: %q / %q", again.FirstName, again.LastName)
+	}
+	if again.Allergies != "shellfish" {
+		t.Errorf("login overwrote the allergies edit: %q", again.Allergies)
 	}
 }
 
@@ -142,7 +153,7 @@ func TestCannotDemoteLastAdmin(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
 
-	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "")
+	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
 
 	// The single admin cannot be demoted (guard via the EXISTS subquery).
 	res, err := a.DB.ExecContext(ctx,
@@ -156,7 +167,7 @@ func TestCannotDemoteLastAdmin(t *testing.T) {
 	}
 
 	// With a second admin present, the first can be demoted.
-	other, _ := a.findOrCreateUser(ctx, "admin2@id5.io", "Admin2", "")
+	other, _ := a.findOrCreateUser(ctx, "admin2@id5.io", "Admin2", "", "")
 	a.DB.ExecContext(ctx, `UPDATE users SET is_admin = true WHERE id = $1`, other.ID)
 	res, err = a.DB.ExecContext(ctx,
 		`UPDATE users SET is_admin = false
