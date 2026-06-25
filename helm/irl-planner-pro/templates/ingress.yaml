@@ -1,0 +1,62 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "irl.fullname" . }}
+  labels:
+    {{- include "irl.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- range .Values.ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- /*
+              Publish /metrics on the public ingress only when explicitly
+              opted in. Pair this with a METRICS_TOKEN in the sealed secret;
+              without one the endpoint would be world-readable. pathType
+              Exact wins over the SPA catch-all "/" so ordering is moot.
+          */}}
+          {{- if and $.Values.backend.metrics.enabled $.Values.backend.metrics.exposeOnIngress }}
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "irl.backend.fullname" $ }}
+                port:
+                  number: {{ $.Values.backend.service.port }}
+          {{- end }}
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                {{- if eq .backend "api" }}
+                name: {{ include "irl.backend.fullname" $ }}
+                port:
+                  number: {{ $.Values.backend.service.port }}
+                {{- else if eq .backend "web" }}
+                name: {{ include "irl.frontend.fullname" $ }}
+                port:
+                  number: {{ $.Values.frontend.service.port }}
+                {{- end }}
+          {{- end }}
+    {{- end }}
+{{- end }}

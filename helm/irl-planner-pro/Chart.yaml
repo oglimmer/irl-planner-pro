@@ -1,0 +1,13 @@
+apiVersion: v2
+name: irl-planner-pro
+description: ID5 IRL Attendance App (Go backend + Vue frontend + Postgres)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: Oli
+keywords:
+  - irl
+  - attendance
+  - offsite
+  - id5

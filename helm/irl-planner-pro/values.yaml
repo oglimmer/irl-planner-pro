@@ -1,0 +1,214 @@
+# Default values for irl-planner-pro
+
+# Name of an existing Secret (or SealedSecret) holding the application's
+# sensitive values. When empty, the chart resolves the name to
+# "<release>-<chart>-secret" (see irl.secretName in templates/_helpers.tpl).
+# The chart does NOT create this Secret — supply one yourself (e.g. a
+# SealedSecret in your environment overlay, or a plain Secret produced by
+# `kubectl create secret generic ...`). Required keys:
+#   - JWT_SECRET                 (>=32 chars; openssl rand -hex 32)
+#   - POSTGRES_PASSWORD          (when postgres.enabled=true)
+#   - DATABASE_URL               (when postgres.enabled=false)
+# Optional keys:
+#   - OIDC_CLIENT_SECRET         (when auth.mode=oidc)
+#   - SMTP_PASSWORD              (when smtp.host is set and the relay needs auth)
+#   - METRICS_TOKEN              (when backend.metrics.exposeOnIngress=true)
+existingSecret: ""
+
+# Public URL (HTTPS in production — OIDC redirect + cookies assume it). Exposed
+# to the backend as PUBLIC_BASE_URL and used to derive the OIDC redirect URL and
+# the CORS allowlist when those are left empty.
+publicBaseURL: "https://irl-planner.oglimmer.com"
+
+# CORS allowlist for browser cross-origin requests (sets CORS_ALLOWED_ORIGINS).
+# Leave empty and the backend locks CORS to publicBaseURL's own origin — correct
+# for the same-origin SPA. Exact scheme+host[:port] match, no trailing slash.
+corsAllowedOrigins: []
+  # - http://localhost:5173
+
+# People team. Receives "submission changed" notifications and the daily
+# activity digest (PEOPLE_TEAM_EMAIL). The FIRST user to sign in becomes admin
+# automatically; admins then promote/demote others in-app.
+peopleTeamEmail: "people@id5.io"
+
+# IANA timezone pre-filled when an admin creates a new event
+# (DEFAULT_EVENT_TIMEZONE).
+defaultEventTimezone: "Europe/Paris"
+
+# Authentication mode: "oidc" (OpenID Connect Authorization Code flow — the only
+# mode for any shared deployment) or "password" (a local-dev stub with no real
+# credential check — never enable on a shared deployment). When mode=oidc the
+# sealed secret must additionally carry OIDC_CLIENT_SECRET.
+auth:
+  mode: oidc
+  oidc:
+    issuerURL: "https://id.oglimmer.de/realms/oglimmer"
+    clientID: "irl-planner"
+    # Defaults to "${publicBaseURL}/api/auth/oidc/callback" when empty.
+    redirectURL: ""
+    scopes: "openid email profile"
+    # Google Workspace allowlist. Only enforced when the issuer is Google
+    # (https://accounts.google.com); a no-op for any other IdP, so with this
+    # Keycloak issuer it has no effect. Empty = no restriction (any realm user).
+    googleWorkspaceDomains: []
+      # - id5.io
+
+# Reminder + digest scheduler. tz-aware; idempotent across restarts.
+reminders:
+  enabled: true
+  tickInterval: 1h        # Go duration
+
+# SMTP for outbound reminders + admin notifications. Leave host empty to disable
+# email entirely — sends become best-effort no-ops. The password goes into the
+# application Secret under the SMTP_PASSWORD key (optional).
+smtp:
+  host: ""
+  port: 587
+  username: ""
+  from: "irl-noreply@id5.io"
+  useTLS: true
+
+# Backend (Go API) configuration. Stateless — no PVC; all state lives in
+# Postgres, so it scales freely.
+backend:
+  name: api
+  replicaCount: 1
+  image:
+    repository: ghcr.io/oglimmer/irl-planner-pro-backend
+    pullPolicy: Always
+    tag: ""
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  # Prometheus metrics on /metrics.
+  #   enabled          = adds prometheus.io/scrape pod annotations (cluster scrape).
+  #   exposeOnIngress  = adds /metrics to the public ingress. Only safe when a
+  #                      METRICS_TOKEN is present in the sealed secret — the
+  #                      backend then requires `Authorization: Bearer <token>`.
+  metrics:
+    enabled: true
+    exposeOnIngress: false
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  # Extra environment variables injected verbatim into the backend container.
+  extraEnv: []
+
+# Frontend (nginx serving the SPA) configuration
+frontend:
+  name: web
+  replicaCount: 1
+  image:
+    repository: ghcr.io/oglimmer/irl-planner-pro-frontend
+    pullPolicy: Always
+    tag: ""
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# Bundled Postgres (single-replica, PVC-backed). Set enabled=false to use an
+# external database — then provide the full DSN via the sealed secret's
+# DATABASE_URL key.
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  user: irl
+  database: irl
+  service:
+    port: 5432
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Ingress. cert-manager + ingress-nginx pattern. Path order matters — backend
+# paths must come BEFORE the frontend catch-all.
+ingress:
+  enabled: true
+  className: ""
+  annotations:
+    cert-manager.io/cluster-issuer: "oglimmer-com-dns"
+  hosts:
+    - host: irl-planner.oglimmer.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          backend: api
+        - path: /healthz
+          pathType: Exact
+          backend: api
+        - path: /readyz
+          pathType: Exact
+          backend: api
+        - path: /
+          pathType: Prefix
+          backend: web
+  tls:
+    - secretName: tls-irl-planner-pro-ingress-dns
+      hosts:
+        - irl-planner.oglimmer.com
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod-level security context.
+podSecurityContext:
+  fsGroup: 65532
+
+# Backend container security context. The distroless:nonroot image runs as
+# uid 65532; the Go binary needs no write access to the root filesystem.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# Frontend (nginx) container security context. Empty by default because the
+# stock nginx:alpine entrypoint needs CHOWN/SETUID/SETGID/DAC_OVERRIDE to fix
+# permissions on /var/cache/nginx and switch to the nginx user.
+frontendSecurityContext: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+deploymentAnnotations: {}
+
+imagePullSecrets: []

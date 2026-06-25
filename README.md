@@ -63,5 +63,5 @@ Built phase by phase (see DESIGN.md §16):
 - [x] Phase 3 — Attendee form + activity log (conditional form, past-event lock, timeline)
 - [x] Phase 4 — Roster + dashboard + export (CSV upload, attending filter, auto-reload)
 - [x] Phase 5 — Notifications, reminders & digest (tz-aware scheduler, idempotent, edit emails)
-- [ ] Phase 6 — Hardening & deploy
+- [~] Phase 6 — Hardening & deploy (Helm chart in `helm/` done)
 - [ ] Phase 7 — MCP server

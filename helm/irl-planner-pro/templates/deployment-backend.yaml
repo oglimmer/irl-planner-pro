@@ -1,0 +1,186 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "irl.backend.fullname" . }}
+  labels:
+    {{- include "irl.backend.labels" . | nindent 4 }}
+  {{- with .Values.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "irl.backend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- if .Values.backend.metrics.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8080"
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "irl.backend.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "irl.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: {{ .Values.backend.name }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: LISTEN_ADDR
+          value: ":8080"
+        - name: PUBLIC_BASE_URL
+          value: {{ .Values.publicBaseURL | quote }}
+        {{- with .Values.corsAllowedOrigins }}
+        - name: CORS_ALLOWED_ORIGINS
+          value: {{ join "," . | quote }}
+        {{- end }}
+        - name: PEOPLE_TEAM_EMAIL
+          value: {{ .Values.peopleTeamEmail | quote }}
+        - name: DEFAULT_EVENT_TIMEZONE
+          value: {{ .Values.defaultEventTimezone | quote }}
+        {{- if .Values.postgres.enabled }}
+        - name: POSTGRES_USER
+          value: {{ .Values.postgres.user | quote }}
+        - name: POSTGRES_DB
+          value: {{ .Values.postgres.database | quote }}
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "irl.secretName" . }}
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_HOST
+          value: {{ include "irl.postgres.fullname" . | quote }}
+        - name: DATABASE_URL
+          value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):{{ .Values.postgres.service.port }}/$(POSTGRES_DB)?sslmode=disable"
+        {{- else }}
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "irl.secretName" . }}
+              key: DATABASE_URL
+        {{- end }}
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "irl.secretName" . }}
+              key: JWT_SECRET
+        - name: AUTH_MODE
+          value: {{ .Values.auth.mode | quote }}
+        {{- if eq .Values.auth.mode "oidc" }}
+        - name: OIDC_ISSUER_URL
+          value: {{ .Values.auth.oidc.issuerURL | quote }}
+        - name: OIDC_CLIENT_ID
+          value: {{ .Values.auth.oidc.clientID | quote }}
+        - name: OIDC_REDIRECT_URL
+          value: {{ .Values.auth.oidc.redirectURL | quote }}
+        - name: OIDC_SCOPES
+          value: {{ .Values.auth.oidc.scopes | quote }}
+        {{- with .Values.auth.oidc.googleWorkspaceDomains }}
+        - name: OIDC_GOOGLE_WORKSPACE_DOMAINS
+          value: {{ join "," . | quote }}
+        {{- end }}
+        - name: OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "irl.secretName" . }}
+              key: OIDC_CLIENT_SECRET
+        {{- end }}
+        - name: REMINDERS_ENABLED
+          value: {{ .Values.reminders.enabled | quote }}
+        - name: REMINDER_TICK_INTERVAL
+          value: {{ .Values.reminders.tickInterval | default "1h" | quote }}
+        {{- if .Values.smtp.host }}
+        - name: SMTP_HOST
+          value: {{ .Values.smtp.host | quote }}
+        - name: SMTP_PORT
+          value: {{ .Values.smtp.port | default 587 | quote }}
+        - name: SMTP_USE_TLS
+          value: {{ .Values.smtp.useTLS | default true | quote }}
+        {{- with .Values.smtp.username }}
+        - name: SMTP_USERNAME
+          value: {{ . | quote }}
+        {{- end }}
+        {{- with .Values.smtp.from }}
+        - name: SMTP_FROM
+          value: {{ . | quote }}
+        {{- end }}
+        - name: SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "irl.secretName" . }}
+              key: SMTP_PASSWORD
+              optional: true
+        {{- end }}
+        {{- if .Values.backend.metrics.enabled }}
+        - name: METRICS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "irl.secretName" . }}
+              key: METRICS_TOKEN
+              optional: true
+        {{- end }}
+        {{- with .Values.backend.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 30
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.backend.resources | nindent 10 }}
+      volumes:
+      # readOnlyRootFilesystem=true leaves /tmp writable for Go's os.TempDir.
+      - name: tmp
+        emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

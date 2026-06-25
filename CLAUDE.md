@@ -13,9 +13,22 @@ and exports CSV.
 **`DESIGN.md` is the authoritative spec** — data model, API surface, conditional
 form rules, auth model, and the phased plan all live there. Read the relevant
 section before changing behavior; it explains *why*, which the code doesn't. The
-README tracks phase status (Phases 0–5 done; 6 hardening/deploy and 7 MCP not
-yet built — so `helm/`, `mcp.go`, `oauth.go` referenced in DESIGN.md do not exist
-yet).
+README tracks phase status (Phases 0–5 done; 6 hardening/deploy partly done — the
+`helm/` chart now exists — and 7 MCP not yet built, so `mcp.go`/`oauth.go`
+referenced in DESIGN.md do not exist yet).
+
+## Deploy (`helm/`)
+
+`helm/irl-planner-pro` is a self-contained chart (backend + frontend + bundled
+Postgres + ingress) deploying to `irl-planner.oglimmer.com`. The backend is
+stateless — all state lives in Postgres, so there is no backend PVC. The chart
+does not create the app Secret; supply `<release>-irl-planner-pro-secret`
+(keys: `JWT_SECRET`, `POSTGRES_PASSWORD`, `OIDC_CLIENT_SECRET`, optional
+`SMTP_PASSWORD`/`METRICS_TOKEN`). `helm/argocd/` holds the ArgoCD Applications
+and a SealedSecret template. The frontend ConfigMap ships an SPA-only nginx
+config (drops the compose `proxy_pass http://backend` blocks, which would crash
+nginx in-cluster); when adding a backend path, update BOTH the ingress `paths`
+in `values.yaml` AND `frontend/nginx.conf`.
 
 ## Commands
 
