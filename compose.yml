@@ -1,0 +1,58 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-irl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-irl}
+      POSTGRES_DB: ${POSTGRES_DB:-irl}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-irl}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-irl}:${POSTGRES_PASSWORD:-irl}@db:5432/${POSTGRES_DB:-irl}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-please-32-chars-min}
+      # Local-dev only: lets the backend boot with the insecure default above.
+      # Production must supply a real 32+ char JWT_SECRET and NOT set this.
+      ALLOW_INSECURE_JWT_SECRET: ${ALLOW_INSECURE_JWT_SECRET:-true}
+      LISTEN_ADDR: ":8080"
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      # Auth: "oidc" (production) or "password" (dev stub). Default oidc; for a
+      # zero-config local boot without a Google client, set AUTH_MODE=password.
+      AUTH_MODE: ${AUTH_MODE:-oidc}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-https://accounts.google.com}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_GOOGLE_WORKSPACE_DOMAINS: ${OIDC_GOOGLE_WORKSPACE_DOMAINS:-id5.io}
+      PEOPLE_TEAM_EMAIL: ${PEOPLE_TEAM_EMAIL:-people@id5.io}
+      DEFAULT_EVENT_TIMEZONE: ${DEFAULT_EVENT_TIMEZONE:-Europe/Paris}
+      REMINDERS_ENABLED: ${REMINDERS_ENABLED:-true}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-irl-noreply@id5.io}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  db_data:

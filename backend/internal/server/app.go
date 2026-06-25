@@ -1,0 +1,94 @@
+// Package server hosts the App-coupled HTTP layer: handlers, middleware, and
+// the data structures that flow between them. Everything in this package shares
+// the *App receiver (cfg + db + optional oidc runtime).
+package server
+
+import (
+	"database/sql"
+	"encoding/json"
+	"log"
+	"net/http"
+	"regexp"
+	"sync/atomic"
+	"time"
+
+	"github.com/go-chi/chi/v5/middleware"
+
+	"irlplanner/internal/config"
+	"irlplanner/internal/email"
+)
+
+type App struct {
+	Cfg  config.Config
+	DB   *sql.DB
+	OIDC *oidcRuntime // populated only when Cfg.AuthMode == "oidc"
+
+	// Email sends outbound notifications (reminders, digests, admin alerts).
+	// Its zero value is "not configured" — Send is a no-op guarded by callers.
+	Email email.Sender
+
+	// ready gates the readiness probe. The backend is ready as soon as the DB
+	// is migrated, so this flips true at startup.
+	ready atomic.Bool
+}
+
+func (a *App) MarkReady()    { a.ready.Store(true) }
+func (a *App) IsReady() bool { return a.ready.Load() }
+
+// User is the authenticated principal. Provisioned on first OIDC login.
+type User struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	IsAdmin   bool      `json:"isAdmin"`
+	CreatedAt time.Time `json:"createdAt"`
+	// TokenVersion is the session-revocation counter, stamped into JWTs as the
+	// "ver" claim and compared on each request. Never serialised to clients.
+	TokenVersion int `json:"-"`
+}
+
+type ctxKey string
+
+const ctxUserKey ctxKey = "user"
+
+// slugRe validates an event slug: a lowercase slug of 3–64 chars that starts
+// and ends alphanumeric.
+var slugRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$`)
+
+// currentUser pulls the *User stashed by authMiddleware, or nil.
+func currentUser(r *http.Request) *User {
+	v, _ := r.Context().Value(ctxUserKey).(*User)
+	return v
+}
+
+func writeJSON(w http.ResponseWriter, status int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// serverErr logs the underlying error tagged with the chi request ID, method,
+// and route, then responds with a generic 500 so internal detail doesn't leak.
+func serverErr(w http.ResponseWriter, r *http.Request, err error, publicMsg string) {
+	log.Printf("ERROR reqID=%s %s %s: %s: %v",
+		middleware.GetReqID(r.Context()), r.Method, r.URL.Path, publicMsg, err)
+	writeErr(w, http.StatusInternalServerError, publicMsg)
+}
+
+// AuthConfig is the unauthenticated bootstrap payload the SPA reads to render
+// the right sign-in UI and seed app-wide defaults.
+type AuthConfig struct {
+	Mode                 string `json:"mode"`
+	DefaultEventTimezone string `json:"defaultEventTimezone"`
+}
+
+func (a *App) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, AuthConfig{
+		Mode:                 a.Cfg.AuthMode,
+		DefaultEventTimezone: a.Cfg.DefaultEventTimezone,
+	})
+}
