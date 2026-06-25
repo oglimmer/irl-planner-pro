@@ -392,6 +392,69 @@ func (a *App) handleGetEventBySlug(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, e)
 }
 
+// ActiveEvent is a current (non-past) event annotated with the caller's own RSVP
+// state. It drives the prominent "upcoming offsite" card every signed-in user
+// sees right after login. Because this is a company offsite tool, every user is
+// always considered invited, so this read is available to non-admins too.
+type ActiveEvent struct {
+	Event
+	HasSubmitted bool   `json:"hasSubmitted"`
+	MyAttending  string `json:"myAttending"` // "yes" | "no" | "not_sure", or "" when not yet submitted
+}
+
+// handleListCurrentEvents returns the current (non-past) events, soonest first,
+// each annotated with the caller's RSVP state. Any signed-in user may call it.
+func (a *App) handleListCurrentEvents(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	rows, err := a.DB.QueryContext(r.Context(),
+		`SELECT e.id, e.slug, e.name, e.country, e.city, e.hotel_name, e.hotel_address,
+		        e.timezone, e.start_date, e.end_date, e.submission_deadline, s.attending
+		   FROM events e
+		   LEFT JOIN submissions s ON s.event_id = e.id AND s.user_id = $1
+		  ORDER BY e.start_date ASC`, user.ID)
+	if err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
+	defer rows.Close()
+	now := time.Now()
+	out := []ActiveEvent{}
+	for rows.Next() {
+		var ae ActiveEvent
+		var start, end, deadline time.Time
+		var attending sql.NullString
+		if err := rows.Scan(&ae.ID, &ae.Slug, &ae.Name, &ae.Country, &ae.City,
+			&ae.HotelName, &ae.HotelAddress, &ae.Timezone,
+			&start, &end, &deadline, &attending); err != nil {
+			serverErr(w, r, err, "db error")
+			return
+		}
+		loc, lerr := loadLocation(ae.Timezone)
+		if lerr != nil {
+			loc = time.UTC
+		}
+		if isEventPast(end, loc, now) {
+			continue
+		}
+		ae.StartDate = start.Format(dateLayout)
+		ae.EndDate = end.Format(dateLayout)
+		ae.SubmissionDeadline = deadline.UTC()
+		ae.SubmissionDeadlineLocal = formatLocalDateTime(deadline, loc)
+		ae.IsPast = false
+		ae.Days = []EventDay{}
+		if attending.Valid {
+			ae.HasSubmitted = true
+			ae.MyAttending = attending.String
+		}
+		out = append(out, ae)
+	}
+	if err := rows.Err(); err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 func insertDays(ctx context.Context, tx *sql.Tx, eventID string, days []EventDay) error {
 	for _, d := range days {
 		if _, err := tx.ExecContext(ctx,

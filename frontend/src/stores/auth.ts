@@ -91,9 +91,16 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // devLogin is the password-mode (local dev) sign-in.
-  async function devLogin(email: string, name: string) {
-    const r = await api.devLogin(email, name)
+  async function devLogin(email: string, firstName: string, lastName: string) {
+    const r = await api.devLogin(email, firstName, lastName)
     setSession(r.token, r.user)
+  }
+
+  // updateProfile saves the user's edited display name and refreshes local state.
+  async function updateProfile(firstName: string, lastName: string) {
+    const u = await api.updateMe({ firstName, lastName })
+    localStorage.setItem('user', JSON.stringify(u))
+    user.value = u
   }
 
   function logout() {
@@ -127,6 +134,7 @@ export const useAuthStore = defineStore('auth', () => {
     refreshUser,
     loginViaOIDC,
     devLogin,
+    updateProfile,
     logout,
     doLogout,
     setSession,

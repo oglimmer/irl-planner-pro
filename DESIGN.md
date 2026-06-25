@@ -200,12 +200,22 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE users (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email       TEXT UNIQUE NOT NULL,         -- @id5.io, lower-cased
-    name        TEXT NOT NULL DEFAULT '',     -- from OIDC profile claim
+    first_name  TEXT NOT NULL DEFAULT '',     -- seeded from OIDC given_name on first login
+    last_name   TEXT NOT NULL DEFAULT '',     -- seeded from OIDC family_name on first login
     is_admin    BOOLEAN NOT NULL DEFAULT false,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     token_version INTEGER NOT NULL DEFAULT 0  -- bump to revoke all sessions
 );
 ```
+
+**Name = a profile property.** The user's name lives on `users` as `first_name` /
+`last_name`, seeded from the OIDC `profile` scope (`given_name` / `family_name`, or
+the split `name` claim) **only when the account is created**. It is **never refreshed
+from the IdP on later logins**, so a user's own edit always wins. Users edit their
+name at `/profile` (`PUT /api/me`); the API also returns a derived read-only `name`
+(first + last) for display. Submissions carry **no** name — every name shown on a
+dashboard, export, or activity line is read from the submitter's profile (added in
+migration `0002_profile_names`).
 
 **Admin bootstrap:** the **first user to sign in** is made admin automatically
 (`is_admin = true` when the `users` table is otherwise empty — done atomically in
@@ -295,8 +305,8 @@ CREATE TABLE submissions (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_id           UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     user_id            UUID NOT NULL REFERENCES users(id),
-    first_name         TEXT NOT NULL,
-    last_name          TEXT NOT NULL,
+    -- No name columns: the attendee's name is read from their users profile
+    -- (dropped from this table in migration 0002).
     attending          TEXT NOT NULL CHECK (attending IN ('yes','no','not_sure')),
     not_sure_reason    TEXT NOT NULL DEFAULT '',  -- required when attending='not_sure'
 
@@ -402,10 +412,17 @@ The earlier `submission_revisions` table (§5.6) remains the *full-snapshot* sto
 ## 6. Authentication & access control
 
 ### 6.1 Sign-in
-- **`AUTH_MODE=oidc` only** (the reference's dev-only password mode is dropped).
-- Google as the OIDC provider; `OIDC_GOOGLE_WORKSPACE_DOMAINS=id5.io` enforces the
-  `hd` claim via the copied `workspaceauth.ValidateGoogleHD`. Anyone outside
-  `@id5.io` is rejected at callback with a generic "domain not allowed" page.
+- **Three deployment profiles** (see `.env.example`):
+  - **prod** — `AUTH_MODE=oidc`, Google as the OIDC provider, restricted to id5.io.
+  - **stage** — `AUTH_MODE=oidc` against Keycloak with `OIDC_GOOGLE_WORKSPACE_DOMAINS`
+    empty, so any Keycloak user is allowed (it's stage).
+  - **local** — `AUTH_MODE=password`, a dev stub that mints a session for any email
+    with no real credential check (`handleDevLogin`); never enable it for a shared deployment.
+- In prod, `OIDC_GOOGLE_WORKSPACE_DOMAINS=id5.io` enforces the `hd` claim via the
+  copied `workspaceauth.ValidateGoogleHD` (and is sent as the `hd` auth hint).
+  Anyone outside `@id5.io` is rejected at callback with a generic "domain not
+  allowed" page. The check only applies to the Google issuer, so stage/Keycloak is
+  unaffected.
 - On successful callback the user is **upserted** into `users` (no approval queue
   — domain restriction is sufficient). The **first** user ever provisioned is made
   admin (§5.1); everyone after is a regular employee until an admin promotes them.
@@ -474,7 +491,8 @@ GET  /api/auth/config                  { mode, ... } for the SPA
 GET  /api/auth/oidc/login              → redirect to Google
 GET  /api/auth/oidc/callback           ← Google, mints JWT, redirects to SPA
 GET  /api/auth/oidc/logout             RP-initiated logout
-GET  /api/me                           current user { id, email, name, isAdmin }
+GET  /api/me                           current user { id, email, firstName, lastName, name, isAdmin }
+PUT  /api/me                           edit own display name { firstName, lastName } (both required)
 ```
 
 ### Attendee-facing (any signed-in @id5.io user)
@@ -487,7 +505,7 @@ GET  /api/events/:slug/activity        caller's OWN activity entries for this ev
 
 ### Admin (requireAdmin)
 ```
-GET    /api/users                      list users (email, name, isAdmin)
+GET    /api/users                      list users (email, firstName, lastName, name, isAdmin)
 POST   /api/users/:id/promote          grant admin
 POST   /api/users/:id/demote           revoke admin (blocked for the last admin)
 
@@ -536,7 +554,9 @@ the **same rules are enforced server-side** in `submissions.go` (never trust the
 client).
 
 ### Step 1 — Basic details (always)
-- First name, last name (required).
+- The attendee's **name is not collected here** — it comes from their profile
+  (`first_name` / `last_name`, editable at `/profile`). The form shows a read-only
+  "Submitting as …" line with a link to edit it.
 - **Attending?** `yes` / `no` / `not_sure`.
   - `not_sure` → `not_sure_reason` **required** (server rejects empty). Rationale
     per `plan.md`: an employee who can't commit to yes/no before the deadline must
@@ -573,7 +593,7 @@ client).
 
 | Field | Required when |
 |---|---|
-| `first_name`, `last_name` | always |
+| name | not on the submission — set on the user profile (`first_name` / `last_name` required there) |
 | `not_sure_reason` | `attending = 'not_sure'` |
 | `arrival_*`, `departure_*` | `attending = 'yes'` (day + mode required; details required if mode set) |
 | `extra_stay_start` / `extra_stay_end` | optional; one-day cap from event bounds for employees, unrestricted for admins |

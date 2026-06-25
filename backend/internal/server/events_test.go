@@ -92,10 +92,15 @@ func withAdmin(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, ctxUserKey, &User{ID: id, Email: "admin@id5.io", IsAdmin: true})
 }
 
+// withUser returns ctx carrying a regular (non-admin) *User.
+func withUser(ctx context.Context, id, email string) context.Context {
+	return context.WithValue(ctx, ctxUserKey, &User{ID: id, Email: email})
+}
+
 func TestCreateEventHandlerDBRoundtrip(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin")
+	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "")
 
 	body, _ := json.Marshal(eventReq{
 		Slug: "dubrovnik-oct-2026", Name: "IRL Dubrovnik October 2026",
@@ -132,5 +137,69 @@ func TestCreateEventHandlerDBRoundtrip(t *testing.T) {
 	a.handleCreateEvent(w2, r2)
 	if w2.Code != http.StatusConflict {
 		t.Errorf("duplicate slug: want 409, got %d", w2.Code)
+	}
+}
+
+func TestListCurrentEventsAnnotatesRSVP(t *testing.T) {
+	a := testDBApp(t)
+	ctx := context.Background()
+	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "")
+	user, _ := a.findOrCreateUser(ctx, "bob@id5.io", "Bob", "Jones")
+
+	mkEvent := func(slug, start, end string) string {
+		body, _ := json.Marshal(eventReq{
+			Slug: slug, Name: slug, Timezone: "Europe/Paris",
+			StartDate: start, EndDate: end,
+			SubmissionDeadlineLocal: start + "T17:00", ReminderHour: 9,
+		})
+		r := httptest.NewRequest(http.MethodPost, "/api/admin/events", bytes.NewReader(body))
+		r = r.WithContext(withAdmin(ctx, admin.ID))
+		w := httptest.NewRecorder()
+		a.handleCreateEvent(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("create %s: status %d body %s", slug, w.Code, w.Body.String())
+		}
+		var e Event
+		if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil {
+			t.Fatalf("decode %s: %v", slug, err)
+		}
+		return e.ID
+	}
+	futureID := mkEvent("future-offsite", "2099-10-12", "2099-10-16")
+	mkEvent("past-offsite", "2000-10-12", "2000-10-16")
+
+	listAs := func(uid string) []ActiveEvent {
+		r := httptest.NewRequest(http.MethodGet, "/api/active-events", nil)
+		r = r.WithContext(withUser(ctx, uid, "bob@id5.io"))
+		w := httptest.NewRecorder()
+		a.handleListCurrentEvents(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("active-events: status %d body %s", w.Code, w.Body.String())
+		}
+		var got []ActiveEvent
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return got
+	}
+
+	// Only the upcoming event surfaces, and the user hasn't RSVP'd yet.
+	got := listAs(user.ID)
+	if len(got) != 1 || got[0].Slug != "future-offsite" {
+		t.Fatalf("want only future-offsite, got %+v", got)
+	}
+	if got[0].HasSubmitted || got[0].MyAttending != "" {
+		t.Errorf("expected no RSVP yet, got hasSubmitted=%v attending=%q", got[0].HasSubmitted, got[0].MyAttending)
+	}
+
+	// After the user RSVPs, the same card reflects their attending state.
+	if _, err := a.DB.ExecContext(ctx,
+		`INSERT INTO submissions (event_id, user_id, attending)
+		 VALUES ($1, $2, 'yes')`, futureID, user.ID); err != nil {
+		t.Fatalf("seed submission: %v", err)
+	}
+	got = listAs(user.ID)
+	if len(got) != 1 || !got[0].HasSubmitted || got[0].MyAttending != "yes" {
+		t.Fatalf("want RSVP=yes annotated, got %+v", got)
 	}
 }

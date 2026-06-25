@@ -24,7 +24,7 @@ function logout() {
           <RouterLink to="/admin/events" class="nav-link">Events</RouterLink>
           <RouterLink to="/admin/users" class="nav-link">Users</RouterLink>
         </template>
-        <span class="who">{{ auth.user.name || auth.user.email }}</span>
+        <RouterLink to="/profile" class="who">{{ auth.user.name || auth.user.email }}</RouterLink>
         <button class="link-btn" @click="logout">Sign out</button>
       </nav>
     </header>
@@ -61,6 +61,10 @@ function logout() {
 .who {
   color: var(--muted);
   font-size: 0.9rem;
+  text-decoration: none;
+}
+.who:hover {
+  text-decoration: underline;
 }
 .link-btn {
   background: none;

@@ -34,7 +34,7 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	filter := parseAttendingFilter(r.URL.Query().Get("attending"))
 
 	rows, err := a.DB.QueryContext(r.Context(),
-		`SELECT er.full_name, er.email, s.attending, s.first_name, s.last_name,
+		`SELECT er.full_name, er.email, s.attending, u.first_name, u.last_name,
 		        s.arrival_day, s.arrival_time, s.arrival_mode, s.arrival_details,
 		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
 		        s.long_haul, s.extra_stay_start, s.extra_stay_end, s.allergies, s.comments,

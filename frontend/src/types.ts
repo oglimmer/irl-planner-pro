@@ -10,7 +10,9 @@ export interface AuthConfig {
 export interface User {
   id: string
   email: string
-  name: string
+  firstName: string
+  lastName: string
+  name: string // derived display name (first + last); read-only
   isAdmin: boolean
   createdAt: string
 }
@@ -18,9 +20,17 @@ export interface User {
 export interface UserSummary {
   id: string
   email: string
-  name: string
+  firstName: string
+  lastName: string
+  name: string // derived display name (first + last); read-only
   isAdmin: boolean
   createdAt: string
+}
+
+// ProfileInput is the self-service name edit payload (PUT /api/me).
+export interface ProfileInput {
+  firstName: string
+  lastName: string
 }
 
 export type DayType = 'travel' | 'event'
@@ -51,6 +61,13 @@ export interface Event {
   days: EventDay[]
   createdAt: string
   updatedAt: string
+}
+
+// ActiveEvent is a current (non-past) event plus the caller's own RSVP state,
+// returned by GET /api/active-events to drive the post-login landing card.
+export interface ActiveEvent extends Event {
+  hasSubmitted: boolean
+  myAttending: Attending | '' // '' when the caller hasn't responded yet
 }
 
 // EventInput is the create/update payload (subset of Event plus the local
@@ -102,10 +119,9 @@ export interface Submission {
   updatedAt: string
 }
 
-// SubmissionInput is the writable subset sent on create/update.
+// SubmissionInput is the writable subset sent on create/update. The attendee's
+// name is not included — it comes from their profile.
 export interface SubmissionInput {
-  firstName: string
-  lastName: string
   attending: Attending
   notSureReason: string
   arrivalDay: string | null

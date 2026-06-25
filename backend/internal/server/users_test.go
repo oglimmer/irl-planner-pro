@@ -3,7 +3,10 @@ package server
 import (
 	"context"
 	"database/sql"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"irlplanner/internal/config"
@@ -46,7 +49,7 @@ func TestFirstUserBecomesAdmin(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
 
-	first, err := a.findOrCreateUser(ctx, "Alice@id5.io", "Alice")
+	first, err := a.findOrCreateUser(ctx, "Alice@id5.io", "Alice", "")
 	if err != nil {
 		t.Fatalf("create first: %v", err)
 	}
@@ -57,7 +60,7 @@ func TestFirstUserBecomesAdmin(t *testing.T) {
 		t.Errorf("email not lower-cased: %q", first.Email)
 	}
 
-	second, err := a.findOrCreateUser(ctx, "bob@id5.io", "Bob")
+	second, err := a.findOrCreateUser(ctx, "bob@id5.io", "Bob", "")
 	if err != nil {
 		t.Fatalf("create second: %v", err)
 	}
@@ -66,31 +69,80 @@ func TestFirstUserBecomesAdmin(t *testing.T) {
 	}
 }
 
-func TestFindOrCreateUserIsIdempotentAndRefreshesName(t *testing.T) {
+// The IdP seeds the name only on first login; a later login must not overwrite
+// what the user (or that first login) already set, so a profile edit always wins.
+func TestFindOrCreateUserSeedsNameOnceAndIsIdempotent(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
 
-	u1, err := a.findOrCreateUser(ctx, "carol@id5.io", "Carol")
+	u1, err := a.findOrCreateUser(ctx, "carol@id5.io", "Carol", "Jones")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	u2, err := a.findOrCreateUser(ctx, "carol@id5.io", "Carol Smith")
+	if u1.FirstName != "Carol" || u1.LastName != "Jones" || u1.Name != "Carol Jones" {
+		t.Errorf("unexpected seeded name: %q / %q (%q)", u1.FirstName, u1.LastName, u1.Name)
+	}
+
+	// Second login with a different IdP name: same user, name unchanged.
+	u2, err := a.findOrCreateUser(ctx, "carol@id5.io", "Caroline", "Smith")
 	if err != nil {
 		t.Fatalf("re-fetch: %v", err)
 	}
 	if u1.ID != u2.ID {
 		t.Errorf("expected same user id, got %s vs %s", u1.ID, u2.ID)
 	}
-	if u2.Name != "Carol Smith" {
-		t.Errorf("name not refreshed: %q", u2.Name)
+	if u2.FirstName != "Carol" || u2.LastName != "Jones" {
+		t.Errorf("name should not be refreshed from the IdP: %q / %q", u2.FirstName, u2.LastName)
 	}
+}
+
+// handleUpdateMe lets the user change their own name; a subsequent login keeps it.
+func TestHandleUpdateMe(t *testing.T) {
+	a := testDBApp(t)
+	ctx := context.Background()
+
+	u, err := a.findOrCreateUser(ctx, "dave@id5.io", "Dave", "Initial")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Empty name is rejected.
+	if rr := a.doUpdateMe(t, u, `{"firstName":"  ","lastName":"x"}`); rr.Code != 400 {
+		t.Errorf("blank first name: want 400, got %d", rr.Code)
+	}
+
+	// Happy path.
+	rr := a.doUpdateMe(t, u, `{"firstName":"David","lastName":"Edited"}`)
+	if rr.Code != 200 {
+		t.Fatalf("update: want 200, got %d (%s)", rr.Code, rr.Body.String())
+	}
+	reloaded, _ := a.userByID(ctx, u.ID)
+	if reloaded.FirstName != "David" || reloaded.LastName != "Edited" || reloaded.Name != "David Edited" {
+		t.Errorf("edit not persisted: %q / %q (%q)", reloaded.FirstName, reloaded.LastName, reloaded.Name)
+	}
+
+	// A later IdP login does not clobber the edit (first-login-only seeding).
+	again, _ := a.findOrCreateUser(ctx, "dave@id5.io", "Dave", "Initial")
+	if again.FirstName != "David" || again.LastName != "Edited" {
+		t.Errorf("login overwrote the profile edit: %q / %q", again.FirstName, again.LastName)
+	}
+}
+
+// doUpdateMe drives handleUpdateMe with user stashed in context, returning the recorder.
+func (a *App) doUpdateMe(t *testing.T, user *User, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodPut, "/api/me", strings.NewReader(body))
+	r = r.WithContext(context.WithValue(r.Context(), ctxUserKey, user))
+	rr := httptest.NewRecorder()
+	a.handleUpdateMe(rr, r)
+	return rr
 }
 
 func TestCannotDemoteLastAdmin(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
 
-	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin")
+	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "")
 
 	// The single admin cannot be demoted (guard via the EXISTS subquery).
 	res, err := a.DB.ExecContext(ctx,
@@ -104,7 +156,7 @@ func TestCannotDemoteLastAdmin(t *testing.T) {
 	}
 
 	// With a second admin present, the first can be demoted.
-	other, _ := a.findOrCreateUser(ctx, "admin2@id5.io", "Admin2")
+	other, _ := a.findOrCreateUser(ctx, "admin2@id5.io", "Admin2", "")
 	a.DB.ExecContext(ctx, `UPDATE users SET is_admin = true WHERE id = $1`, other.ID)
 	res, err = a.DB.ExecContext(ctx,
 		`UPDATE users SET is_admin = false

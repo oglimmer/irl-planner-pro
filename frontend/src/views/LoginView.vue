@@ -11,7 +11,8 @@ const error = ref('')
 
 // Dev (password-mode) form state.
 const email = ref('')
-const name = ref('')
+const firstName = ref('')
+const lastName = ref('')
 const submitting = ref(false)
 
 onMounted(async () => {
@@ -32,7 +33,7 @@ async function signInDev() {
   submitting.value = true
   error.value = ''
   try {
-    await auth.devLogin(email.value, name.value)
+    await auth.devLogin(email.value, firstName.value, lastName.value)
     router.replace('/')
   } catch (e) {
     error.value = errMsg(e)
@@ -52,7 +53,8 @@ async function signInDev() {
         <p class="lede">Local dev sign-in.</p>
         <form @submit.prevent="signInDev">
           <input v-model="email" type="email" placeholder="you@id5.io" required>
-          <input v-model="name" type="text" placeholder="Your name (optional)">
+          <input v-model="firstName" type="text" placeholder="First name (optional)">
+          <input v-model="lastName" type="text" placeholder="Last name (optional)">
           <button class="btn" type="submit" :disabled="submitting">Sign in</button>
         </form>
       </template>

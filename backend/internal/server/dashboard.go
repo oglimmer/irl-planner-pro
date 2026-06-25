@@ -101,12 +101,12 @@ func (a *App) dashboardRoster(r *http.Request, eventID string) ([]DashboardRoste
 
 func (a *App) dashboardOffRoster(r *http.Request, eventID string) ([]DashboardOffRoster, error) {
 	rows, err := a.DB.QueryContext(r.Context(),
-		`SELECT s.first_name, s.last_name, u.email, s.attending
+		`SELECT u.first_name, u.last_name, u.email, s.attending
 		   FROM submissions s
 		   JOIN users u ON u.id = s.user_id
 		  WHERE s.event_id = $1
 		    AND lower(u.email) NOT IN (SELECT email FROM event_roster WHERE event_id = $1)
-		  ORDER BY s.first_name`, eventID)
+		  ORDER BY u.first_name`, eventID)
 	if err != nil {
 		return nil, err
 	}

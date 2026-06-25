@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -37,14 +38,26 @@ func (a *App) IsReady() bool { return a.ready.Load() }
 
 // User is the authenticated principal. Provisioned on first OIDC login.
 type User struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	// Name is the derived display name (first + last). Read-only: set from
+	// FirstName/LastName when a row is scanned (see setDisplayName); clients edit
+	// the two parts, never this field.
 	Name      string    `json:"name"`
 	IsAdmin   bool      `json:"isAdmin"`
 	CreatedAt time.Time `json:"createdAt"`
 	// TokenVersion is the session-revocation counter, stamped into JWTs as the
 	// "ver" claim and compared on each request. Never serialised to clients.
 	TokenVersion int `json:"-"`
+}
+
+// setDisplayName recomputes the derived Name from FirstName/LastName. Call after
+// scanning a user row so the SPA header and the OIDC redirect payload have a
+// ready display name without every caller re-joining the two parts.
+func (u *User) setDisplayName() {
+	u.Name = strings.TrimSpace(u.FirstName + " " + u.LastName)
 }
 
 type ctxKey string

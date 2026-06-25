@@ -69,8 +69,10 @@ func NewRouter(app *App) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(app.authMiddleware)
 			r.Get("/me", app.handleMe)
+			r.Put("/me", app.handleUpdateMe)
 
-			// Attendee-facing (the shareable URL). Any signed-in user.
+			// Attendee-facing. Any signed-in user (everyone is invited).
+			r.Get("/active-events", app.handleListCurrentEvents)
 			r.Get("/events/{slug}", app.handleGetEventBySlug)
 			r.Get("/events/{slug}/submission", app.handleGetMySubmission)
 			r.Put("/events/{slug}/submission", app.handlePutMySubmission)

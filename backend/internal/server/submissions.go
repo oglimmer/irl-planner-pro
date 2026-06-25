@@ -47,9 +47,8 @@ type Submission struct {
 }
 
 // submissionReq is the create/update payload (the writable subset of Submission).
+// The attendee's name is not part of it — it lives on the user profile.
 type submissionReq struct {
-	FirstName        string  `json:"firstName"`
-	LastName         string  `json:"lastName"`
 	Attending        string  `json:"attending"`
 	NotSureReason    string  `json:"notSureReason"`
 	ArrivalDay       *string `json:"arrivalDay"`
@@ -73,11 +72,6 @@ var validTravelModes = map[string]bool{"flight": true, "car": true, "train": tru
 // blanks fields outside the chosen branch. isAdmin relaxes the one-day extra-
 // night cap and the arrival/departure date window. It mutates req in place.
 func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
-	req.FirstName = strings.TrimSpace(req.FirstName)
-	req.LastName = strings.TrimSpace(req.LastName)
-	if req.FirstName == "" || req.LastName == "" {
-		return errors.New("first name and last name are required")
-	}
 	switch req.Attending {
 	case "yes", "no", "not_sure":
 	default:
@@ -284,15 +278,22 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 	}
 	defer tx.Rollback()
 
-	// Owner must exist (admin edit targets an arbitrary user id).
-	var ownerEmail string
-	if err := tx.QueryRowContext(ctx, `SELECT email FROM users WHERE id = $1`, ownerID).Scan(&ownerEmail); err != nil {
+	// Owner must exist (admin edit targets an arbitrary user id). The name is read
+	// from the profile here — it drives the activity summary below.
+	var ownerEmail, ownerFirst, ownerLast string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT email, first_name, last_name FROM users WHERE id = $1`, ownerID).
+		Scan(&ownerEmail, &ownerFirst, &ownerLast); err != nil {
 		if err == sql.ErrNoRows {
 			writeErr(w, http.StatusNotFound, "user not found")
 			return
 		}
 		serverErr(w, r, err, "db error")
 		return
+	}
+	ownerName := strings.TrimSpace(ownerFirst + " " + ownerLast)
+	if ownerName == "" {
+		ownerName = ownerEmail
 	}
 
 	// Was there a prior submission? (create vs update + attending-change detect)
@@ -310,13 +311,13 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 
 	var subID string
 	err = tx.QueryRowContext(ctx,
-		`INSERT INTO submissions (event_id, user_id, first_name, last_name, attending, not_sure_reason,
+		`INSERT INTO submissions (event_id, user_id, attending, not_sure_reason,
 		   arrival_day, arrival_time, arrival_mode, arrival_details,
 		   departure_day, departure_time, departure_mode, departure_details,
 		   long_haul, extra_stay_start, extra_stay_end, allergies, comments)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		 ON CONFLICT (event_id, user_id) DO UPDATE SET
-		   first_name=EXCLUDED.first_name, last_name=EXCLUDED.last_name, attending=EXCLUDED.attending,
+		   attending=EXCLUDED.attending,
 		   not_sure_reason=EXCLUDED.not_sure_reason, arrival_day=EXCLUDED.arrival_day,
 		   arrival_time=EXCLUDED.arrival_time, arrival_mode=EXCLUDED.arrival_mode,
 		   arrival_details=EXCLUDED.arrival_details, departure_day=EXCLUDED.departure_day,
@@ -325,7 +326,7 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 		   extra_stay_start=EXCLUDED.extra_stay_start, extra_stay_end=EXCLUDED.extra_stay_end,
 		   allergies=EXCLUDED.allergies, comments=EXCLUDED.comments, updated_at=now()
 		 RETURNING id`,
-		e.ID, ownerID, req.FirstName, req.LastName, req.Attending, req.NotSureReason,
+		e.ID, ownerID, req.Attending, req.NotSureReason,
 		datePtr(req.ArrivalDay), req.ArrivalTime, strPtr(req.ArrivalMode), req.ArrivalDetails,
 		datePtr(req.DepartureDay), req.DepartureTime, strPtr(req.DepartureMode), req.DepartureDetails,
 		req.LongHaul, datePtr(req.ExtraStayStart), datePtr(req.ExtraStayEnd), req.Allergies, req.Comments).
@@ -350,7 +351,7 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 	// Activity log. after_deadline is stamped when the change lands past the
 	// event's submission deadline — the flag the admin timeline highlights.
 	afterDeadline := time.Now().After(e.SubmissionDeadline)
-	action, summary := submissionActivity(existed, isAdmin, ownerEmail, actor, req, prevAttending)
+	action, summary := submissionActivity(existed, isAdmin, ownerName, actor, req, prevAttending)
 	actorID := actor.ID
 	if err := a.logActivity(ctx, tx, e.ID, &actorID, actor.Email, ownerEmail, action, summary, nil, afterDeadline); err != nil {
 		serverErr(w, r, err, "db error")
@@ -383,8 +384,9 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 }
 
 // submissionActivity builds the action code and human-readable summary line.
-func submissionActivity(existed, isAdmin bool, ownerEmail string, actor *User, req submissionReq, prevAttending string) (string, string) {
-	who := req.FirstName + " " + req.LastName
+// who is the submission owner's profile display name (falls back to their email
+// when the profile name is blank).
+func submissionActivity(existed, isAdmin bool, who string, actor *User, req submissionReq, prevAttending string) (string, string) {
 	switch {
 	case isAdmin:
 		return actionAdminEditedSubmission,
@@ -426,7 +428,7 @@ func (a *App) loadSubmission(ctx context.Context, eventID, userID string) (*Subm
 	var arrivalDay, departureDay, extraStart, extraEnd sql.NullTime
 	var arrivalMode, departureMode sql.NullString
 	err := a.DB.QueryRowContext(ctx,
-		`SELECT s.id, s.event_id, s.user_id, u.email, s.first_name, s.last_name, s.attending, s.not_sure_reason,
+		`SELECT s.id, s.event_id, s.user_id, u.email, u.first_name, u.last_name, s.attending, s.not_sure_reason,
 		        s.arrival_day, s.arrival_time, s.arrival_mode, s.arrival_details,
 		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
 		        s.long_haul, s.extra_stay_start, s.extra_stay_end, s.allergies, s.comments,

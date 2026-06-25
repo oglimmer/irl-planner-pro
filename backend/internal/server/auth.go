@@ -145,11 +145,12 @@ func (a *App) requireAdminMiddleware(next http.Handler) http.Handler {
 func (a *App) userByID(ctx context.Context, id string) (*User, error) {
 	u := &User{}
 	err := a.DB.QueryRowContext(ctx,
-		`SELECT id, email, name, is_admin, created_at, token_version FROM users WHERE id = $1`, id).
-		Scan(&u.ID, &u.Email, &u.Name, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
+		`SELECT id, email, first_name, last_name, is_admin, created_at, token_version FROM users WHERE id = $1`, id).
+		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
 	if err != nil {
 		return nil, err
 	}
+	u.setDisplayName()
 	return u, nil
 }
 

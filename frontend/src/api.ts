@@ -1,4 +1,5 @@
 import type {
+  ActiveEvent,
   ActivityEntry,
   AuthConfig,
   BackendBuildInfo,
@@ -7,6 +8,7 @@ import type {
   EventInput,
   RosterEntry,
   RosterUploadResult,
+  ProfileInput,
   Submission,
   SubmissionInput,
   User,
@@ -85,12 +87,15 @@ export const api = {
   version: () => request<BackendBuildInfo>('/api/version'),
   authConfig: () => request<AuthConfig>('/api/auth/config'),
   me: () => request<User>('/api/me'),
+  // Self-service profile edit (display name).
+  updateMe: (data: ProfileInput) =>
+    request<User>('/api/me', { method: 'PUT', body: JSON.stringify(data) }),
 
   // Dev-only password-mode login (AUTH_MODE=password).
-  devLogin: (email: string, name: string) =>
+  devLogin: (email: string, firstName: string, lastName: string) =>
     request<{ token: string; user: User }>('/api/auth/dev-login', {
       method: 'POST',
-      body: JSON.stringify({ email, name }),
+      body: JSON.stringify({ email, firstName, lastName }),
     }),
 
   // Admin user management.
@@ -99,6 +104,10 @@ export const api = {
     request<void>(`/api/users/${id}/promote`, { method: 'POST' }),
   demoteUser: (id: string) =>
     request<void>(`/api/users/${id}/demote`, { method: 'POST' }),
+
+  // Current (non-past) events for the post-login landing, annotated with the
+  // caller's RSVP state. Every signed-in user is invited (company offsite tool).
+  activeEvents: () => request<ActiveEvent[]>('/api/active-events'),
 
   // Attendee-facing event read (the shareable URL).
   getEventBySlug: (slug: string) => request<Event>(`/api/events/${slug}`),

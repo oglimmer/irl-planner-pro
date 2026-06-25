@@ -136,6 +136,8 @@ type oidcClaims struct {
 	Email         string `json:"email"`
 	EmailVerified *bool  `json:"email_verified"`
 	Name          string `json:"name"`
+	GivenName     string `json:"given_name"`  // from the `profile` scope
+	FamilyName    string `json:"family_name"` // from the `profile` scope
 	Nonce         string `json:"nonce"`
 	HD            string `json:"hd"` // Google Workspace hosted-domain claim
 }
@@ -213,7 +215,13 @@ func (a *App) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := a.findOrCreateUser(r.Context(), email, claims.Name)
+	// Prefer the split given/family names from the `profile` scope; fall back to
+	// splitting the combined `name` (some IdPs, e.g. Keycloak, may send only that).
+	first, last := strings.TrimSpace(claims.GivenName), strings.TrimSpace(claims.FamilyName)
+	if first == "" && last == "" {
+		first, last = splitName(claims.Name)
+	}
+	user, err := a.findOrCreateUser(r.Context(), email, first, last)
 	if err != nil {
 		log.Printf("ERROR: oidc user provisioning: %v", err)
 		a.oidcFail(w, r, oidcErrAccount)

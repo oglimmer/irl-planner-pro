@@ -9,7 +9,7 @@ func sampleEvent() *Event {
 func strp(s string) *string { return &s }
 
 func TestSubmissionNotSureRequiresReason(t *testing.T) {
-	req := &submissionReq{FirstName: "A", LastName: "B", Attending: "not_sure"}
+	req := &submissionReq{Attending: "not_sure"}
 	if err := req.normalizeAndValidate(sampleEvent(), false); err == nil {
 		t.Fatal("expected error: not_sure without reason")
 	}
@@ -21,7 +21,7 @@ func TestSubmissionNotSureRequiresReason(t *testing.T) {
 
 func TestSubmissionNoBlanksTravel(t *testing.T) {
 	req := &submissionReq{
-		FirstName: "A", LastName: "B", Attending: "no",
+		Attending: "no",
 		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"),
 		Allergies: "nuts", Comments: "hi", NotSureReason: "x",
 	}
@@ -34,7 +34,7 @@ func TestSubmissionNoBlanksTravel(t *testing.T) {
 }
 
 func TestSubmissionYesRequiresTravel(t *testing.T) {
-	req := &submissionReq{FirstName: "A", LastName: "B", Attending: "yes"}
+	req := &submissionReq{Attending: "yes"}
 	if err := req.normalizeAndValidate(sampleEvent(), false); err == nil {
 		t.Fatal("expected error: yes without arrival")
 	}
@@ -42,7 +42,7 @@ func TestSubmissionYesRequiresTravel(t *testing.T) {
 
 func TestSubmissionYesModeRequiresDetails(t *testing.T) {
 	req := &submissionReq{
-		FirstName: "A", LastName: "B", Attending: "yes",
+		Attending: "yes",
 		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "",
 		DepartureDay: strp("2026-10-16"), DepartureMode: strp("flight"), DepartureDetails: "BA123",
 	}
@@ -53,7 +53,7 @@ func TestSubmissionYesModeRequiresDetails(t *testing.T) {
 
 func TestSubmissionValidYes(t *testing.T) {
 	req := &submissionReq{
-		FirstName: "A", LastName: "B", Attending: "yes",
+		Attending: "yes",
 		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
 		DepartureDay: strp("2026-10-16"), DepartureMode: strp("train"), DepartureDetails: "TGV 9876",
 	}
@@ -64,7 +64,7 @@ func TestSubmissionValidYes(t *testing.T) {
 
 func TestSubmissionArrivalDayOutOfRange(t *testing.T) {
 	req := &submissionReq{
-		FirstName: "A", LastName: "B", Attending: "yes",
+		Attending: "yes",
 		ArrivalDay: strp("2026-09-01"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
 		DepartureDay: strp("2026-10-16"), DepartureMode: strp("flight"), DepartureDetails: "BA200",
 	}
@@ -79,7 +79,7 @@ func TestSubmissionArrivalDayOutOfRange(t *testing.T) {
 
 func baseYes() *submissionReq {
 	return &submissionReq{
-		FirstName: "A", LastName: "B", Attending: "yes",
+		Attending: "yes",
 		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
 		DepartureDay: strp("2026-10-16"), DepartureMode: strp("flight"), DepartureDetails: "BA200",
 		LongHaul: true,

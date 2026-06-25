@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api, errMsg } from '../api'
+import { useAuthStore } from '../stores/auth'
 import { formatDate, formatInZone } from '../lib/datetime'
 import ActivityLog from '../components/ActivityLog.vue'
 import type { ActivityEntry, Attending, Event, SubmissionInput, TravelMode } from '../types'
+
+const auth = useAuthStore()
 
 const props = defineProps<{ slug: string }>()
 
@@ -22,8 +25,6 @@ const TRAVEL_MODES: { value: TravelMode; label: string }[] = [
 ]
 
 const form = reactive<SubmissionInput>({
-  firstName: '',
-  lastName: '',
   attending: '' as Attending,
   notSureReason: '',
   arrivalDay: null,
@@ -82,8 +83,6 @@ async function load() {
     const existing = await api.getMySubmission(props.slug)
     if (existing) {
       Object.assign(form, {
-        firstName: existing.firstName,
-        lastName: existing.lastName,
         attending: existing.attending,
         notSureReason: existing.notSureReason,
         arrivalDay: existing.arrivalDay,
@@ -155,10 +154,10 @@ onMounted(load)
 
     <form class="form" @submit.prevent="submit">
       <fieldset :disabled="readOnly || saving">
-        <div class="row">
-          <label>First name <input v-model="form.firstName" type="text" required></label>
-          <label>Last name <input v-model="form.lastName" type="text" required></label>
-        </div>
+        <p class="submitting-as">
+          Submitting as <strong>{{ auth.user?.name || auth.user?.email }}</strong>.
+          <RouterLink to="/profile">Edit your name</RouterLink>
+        </p>
 
         <div class="field">
           <span class="q">Are you attending?</span>
@@ -346,6 +345,11 @@ textarea {
   border-radius: var(--radius);
   font: inherit;
   color: var(--text);
+}
+.submitting-as {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0 0 1.25rem;
 }
 .row {
   display: flex;

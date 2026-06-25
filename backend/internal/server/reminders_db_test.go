@@ -9,7 +9,7 @@ import (
 func TestClaimReminderIdempotent(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin")
+	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "")
 
 	var eventID string
 	if err := a.DB.QueryRowContext(ctx,
@@ -43,7 +43,7 @@ func TestClaimReminderIdempotent(t *testing.T) {
 func TestNonResponders(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin")
+	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "")
 
 	var eventID string
 	if err := a.DB.QueryRowContext(ctx,
@@ -60,15 +60,15 @@ func TestNonResponders(t *testing.T) {
 		}
 	}
 	// Bob responds.
-	bob, _ := a.findOrCreateUser(ctx, "bob@id5.io", "Bob")
+	bob, _ := a.findOrCreateUser(ctx, "bob@id5.io", "Bob", "B")
 	e, _ := a.loadEventByColumn(ctx, "id", eventID, time.Now())
-	req := &submissionReq{FirstName: "Bob", LastName: "B", Attending: "no"}
+	req := &submissionReq{Attending: "no"}
 	if err := req.normalizeAndValidate(e, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.DB.ExecContext(ctx,
-		`INSERT INTO submissions (event_id, user_id, first_name, last_name, attending)
-		 VALUES ($1,$2,'Bob','B','no')`, eventID, bob.ID); err != nil {
+		`INSERT INTO submissions (event_id, user_id, attending)
+		 VALUES ($1,$2,'no')`, eventID, bob.ID); err != nil {
 		t.Fatal(err)
 	}
 
