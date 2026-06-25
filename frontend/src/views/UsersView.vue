@@ -2,9 +2,11 @@
 import { onMounted, ref } from 'vue'
 import { api, errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
+import { useConfirm } from '../composables/useConfirm'
 import type { UserSummary } from '../types'
 
 const auth = useAuthStore()
+const { confirm } = useConfirm()
 const users = ref<UserSummary[]>([])
 const loading = ref(true)
 const error = ref('')
@@ -23,6 +25,16 @@ async function load() {
 }
 
 async function setAdmin(u: UserSummary, makeAdmin: boolean) {
+  const who = u.name || u.email
+  const ok = await confirm({
+    title: makeAdmin ? 'Grant admin access?' : 'Remove admin access?',
+    message: makeAdmin
+      ? `${who} will be able to create and edit events, upload rosters, view all responses, and manage other users.`
+      : `${who} will lose access to event management and all admin tools.`,
+    confirmLabel: makeAdmin ? 'Make admin' : 'Remove admin',
+    danger: !makeAdmin,
+  })
+  if (!ok) return
   busyId.value = u.id
   error.value = ''
   try {

@@ -3,11 +3,14 @@ import { computed, onMounted, ref } from 'vue'
 import { api, errMsg } from '../api'
 import { formatDate } from '../lib/datetime'
 import { useAutoReload } from '../composables/useAutoReload'
+import { useConfirm } from '../composables/useConfirm'
 import ActivityLog from '../components/ActivityLog.vue'
 import AttendingFilter from '../components/AttendingFilter.vue'
 import type { ActivityEntry, AttendingState, Dashboard, Event, RosterEntry } from '../types'
 
 const props = defineProps<{ id: string }>()
+
+const { confirm } = useConfirm()
 
 const event = ref<Event | null>(null)
 const error = ref('')
@@ -97,6 +100,19 @@ function onFile(ev: globalThis.Event) {
 
 async function submitRoster() {
   if (!uploadFile.value) return
+  // Re-uploading replaces the whole roster transactionally — guard it when there
+  // is an existing roster to overwrite. The first upload has nothing to destroy.
+  if (roster.value.length > 0) {
+    const ok = await confirm({
+      title: 'Replace roster?',
+      message: `This replaces the current roster (${roster.value.length} ${
+        roster.value.length === 1 ? 'person' : 'people'
+      }) for “${event.value?.name ?? 'this event'}” with the uploaded file. This cannot be undone.`,
+      confirmLabel: 'Replace roster',
+      danger: true,
+    })
+    if (!ok) return
+  }
   uploading.value = true
   uploadMsg.value = ''
   try {

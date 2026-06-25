@@ -55,3 +55,12 @@ button {
   background: transparent;
   color: var(--accent);
 }
+.btn.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #fff;
+}
+.btn.danger:hover {
+  border-color: #a82a3f;
+  background: #a82a3f;
+}

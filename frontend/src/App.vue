@@ -2,6 +2,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { computed } from 'vue'
 import { useAuthStore } from './stores/auth'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,6 +31,7 @@ function logout() {
     <main class="app-main">
       <RouterView />
     </main>
+    <ConfirmDialog />
   </div>
 </template>
 
