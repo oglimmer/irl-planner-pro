@@ -58,22 +58,22 @@ type Submission struct {
 // The attendee's name and allergies are not part of it — they live on the user
 // profile.
 type submissionReq struct {
-	Attending        string  `json:"attending"`
-	NotSureReason    string  `json:"notSureReason"`
-	ArrivalDay       *string `json:"arrivalDay"`
-	ArrivalTime      string  `json:"arrivalTime"`
-	ArrivalMode      *string `json:"arrivalMode"`
-	ArrivalDetails   string  `json:"arrivalDetails"`
-	DepartureDay     *string `json:"departureDay"`
-	DepartureTime    string  `json:"departureTime"`
+	Attending            string  `json:"attending"`
+	NotSureReason        string  `json:"notSureReason"`
+	ArrivalDay           *string `json:"arrivalDay"`
+	ArrivalTime          string  `json:"arrivalTime"`
+	ArrivalMode          *string `json:"arrivalMode"`
+	ArrivalDetails       string  `json:"arrivalDetails"`
+	DepartureDay         *string `json:"departureDay"`
+	DepartureTime        string  `json:"departureTime"`
 	DepartureMode        *string `json:"departureMode"`
 	DepartureDetails     string  `json:"departureDetails"`
 	ArrivalIndependent   bool    `json:"arrivalIndependent"`
 	DepartureIndependent bool    `json:"departureIndependent"`
 	LongHaul             bool    `json:"longHaul"`
-	ExtraStayStart    *string `json:"extraStayStart"`
-	ExtraStayEnd      *string `json:"extraStayEnd"`
-	Comments          string  `json:"comments"`
+	ExtraStayStart       *string `json:"extraStayStart"`
+	ExtraStayEnd         *string `json:"extraStayEnd"`
+	Comments             string  `json:"comments"`
 }
 
 var validTravelModes = map[string]bool{"flight": true, "car": true, "train": true, "other": true}

@@ -85,7 +85,7 @@ func TestSubmissionArrivalIndependentDepartureBooked(t *testing.T) {
 // A leg flagged independent must not be rejected for missing day/mode/details.
 func TestSubmissionDepartureIndependentNeedsNoDetails(t *testing.T) {
 	req := &submissionReq{
-		Attending: "yes",
+		Attending:  "yes",
 		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
 		DepartureIndependent: true,
 	}
