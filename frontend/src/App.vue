@@ -1,41 +1,33 @@
 <script setup lang="ts">
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { computed } from 'vue'
 import { useAuthStore } from './stores/auth'
 import ConfirmDialog from './components/ConfirmDialog.vue'
+import UserMenu from './components/UserMenu.vue'
 import ThemeSwitcher from './components/ThemeSwitcher.vue'
 import Id5Logo from './components/Id5Logo.vue'
 
 const route = useRoute()
-const router = useRouter()
 const auth = useAuthStore()
 const showChrome = computed(() => !route.meta.hideChrome)
-
-function logout() {
-  const navigated = auth.doLogout()
-  if (!navigated) router.push('/login')
-}
 </script>
 
 <template>
   <div class="app">
     <nav v-if="showChrome" class="top">
-      <RouterLink to="/" class="brand" aria-label="ID5 IRL home">
-        <Id5Logo class="brand-logo" />
-        <em>IRL</em>
-      </RouterLink>
-      <div class="links">
-        <template v-if="auth.user">
-          <template v-if="auth.user.isAdmin">
-            <RouterLink to="/admin/events">Events</RouterLink>
-            <RouterLink to="/admin/users">Users</RouterLink>
-          </template>
-          <RouterLink to="/profile" class="who">
-            <span class="who-at">@</span>{{ auth.user.name || auth.user.email }}
-          </RouterLink>
-          <button class="signout" @click="logout">Sign out</button>
-        </template>
-        <ThemeSwitcher />
+      <div class="nav-left">
+        <RouterLink to="/" class="brand" aria-label="ID5 IRL home">
+          <Id5Logo class="brand-logo" />
+          <em>IRL</em>
+        </RouterLink>
+        <div v-if="auth.user?.isAdmin" class="links">
+          <RouterLink to="/admin/events">Events</RouterLink>
+          <RouterLink to="/admin/users">Users</RouterLink>
+        </div>
+      </div>
+      <div class="nav-right">
+        <UserMenu v-if="auth.user" />
+        <ThemeSwitcher v-else />
       </div>
     </nav>
     <main>
@@ -60,6 +52,15 @@ nav.top {
   -webkit-backdrop-filter: blur(10px) saturate(140%);
           backdrop-filter: blur(10px) saturate(140%);
   border-bottom: 1px solid var(--border);
+}
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+}
+.nav-right {
+  display: flex;
+  align-items: center;
 }
 .brand {
   display: inline-flex;
@@ -105,38 +106,6 @@ nav.top {
   border-bottom-color: var(--accent);
 }
 
-/* Identity chip — the username links to the profile. */
-.who {
-  text-transform: none !important;
-  letter-spacing: 0.04em !important;
-  font-size: 11.5px !important;
-  color: var(--text-soft);
-  padding-left: 16px !important;
-  border-left: 1px solid var(--border);
-}
-.who-at { color: var(--accent); margin-right: 1px; }
-
-/* Sign-out — strip the global editorial button chrome down to a quiet link. */
-button.signout {
-  background: none;
-  border: 0;
-  border-bottom: 1px solid transparent;
-  border-radius: 0;
-  padding: 4px 0;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--text-soft);
-  transition: color 0.2s ease, border-color 0.2s ease;
-}
-button.signout:hover {
-  background: none;
-  color: var(--text);
-  border-bottom-color: var(--accent);
-}
-
 main {
   width: 100%;
   max-width: 1080px;
@@ -147,8 +116,9 @@ main {
 }
 
 @media (max-width: 720px) {
-  nav.top { padding: 14px 18px; flex-wrap: wrap; gap: 10px; }
-  .links { gap: 14px; flex-wrap: wrap; }
+  nav.top { padding: 14px 18px; gap: 10px; }
+  .nav-left { gap: 16px; }
+  .links { gap: 14px; }
   main { padding: 32px 18px 64px; }
 }
 </style>
