@@ -15,6 +15,10 @@ const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
 const saved = ref(false)
+const hasSubmitted = ref(false)
+// Snapshot of hasSubmitted *before* the current save, so the success message can
+// say "Saved" for a first submission and "Updated" for a later edit.
+const savedWasUpdate = ref(false)
 const activity = ref<ActivityEntry[]>([])
 
 const TRAVEL_MODES: { value: TravelMode; label: string }[] = [
@@ -105,17 +109,83 @@ const departureTimeLabel = computed(() =>
 
 const readOnly = computed(() => event.value?.isPast ?? false)
 
-// Whole days remaining until the submission deadline, for the countdown shown
-// next to it. Rounds up so a deadline later today still reads "1 day left".
-const deadlineCountdown = computed(() => {
+// One-line location summary ("Lisbon, Portugal" / "Lisbon" / ""), mirrors HomeView.
+const placeLine = computed(() =>
+  [event.value?.city, event.value?.country].filter(Boolean).join(', '),
+)
+
+// Trip length in whole calendar days, inclusive of both ends.
+const tripLength = computed(() => {
+  const e = event.value
+  if (!e) return 0
+  const s = new Date(`${e.startDate}T00:00:00Z`).getTime()
+  const en = new Date(`${e.endDate}T00:00:00Z`).getTime()
+  return Math.round((en - s) / 86_400_000) + 1
+})
+
+// Compact, editorial date range — "27–31 Jul 2026" when same month, else two
+// full dates. Plain calendar dates parsed as UTC to avoid timezone drift.
+const dateRange = computed(() => {
   const e = event.value
   if (!e) return ''
+  const s = new Date(`${e.startDate}T00:00:00Z`)
+  const en = new Date(`${e.endDate}T00:00:00Z`)
+  const dmy = (d: Date) =>
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric' }).format(d)
+  if (e.startDate === e.endDate) return dmy(s)
+  const sameMonth = s.getUTCFullYear() === en.getUTCFullYear() && s.getUTCMonth() === en.getUTCMonth()
+  if (!sameMonth) return `${dmy(s)} – ${dmy(en)}`
+  const day = (d: Date) => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: '2-digit' }).format(d)
+  const monthYear = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'short', year: 'numeric' }).format(s)
+  return `${day(s)}–${day(en)} ${monthYear}`
+})
+
+// Just the RSVP deadline's calendar date, in the event timezone.
+const rsvpDate = computed(() => {
+  const e = event.value
+  if (!e) return ''
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: e.timezone,
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }).format(new Date(e.submissionDeadline))
+  } catch {
+    return formatInZone(e.submissionDeadline, e.timezone)
+  }
+})
+
+// The focal countdown block, mirroring HomeView's feature card — but counting
+// down to the RSVP deadline (the urgency on this page), not the event start.
+const deadlineBlock = computed<{ value: string; caption: string }>(() => {
+  const e = event.value
+  if (!e) return { value: '', caption: '' }
+  if (readOnly.value) return { value: 'Ended', caption: 'event closed' }
   const ms = new Date(e.submissionDeadline).getTime() - Date.now()
-  if (isNaN(ms)) return ''
+  if (isNaN(ms)) return { value: '', caption: '' }
   const days = Math.ceil(ms / 86_400_000)
-  if (days > 1) return `${days} days left`
-  if (days === 1) return '1 day left'
-  return 'deadline passed'
+  if (days > 1) return { value: String(days), caption: 'days to RSVP' }
+  if (days === 1) return { value: '1', caption: 'day to RSVP' }
+  if (days === 0) return { value: 'Today', caption: 'RSVP closes' }
+  return { value: 'Closed', caption: 'deadline passed' }
+})
+
+// Live RSVP status chip — tracks the radio selection as the user picks, reusing
+// HomeView's status--* color tokens.
+type StatusKey = 'none' | Attending
+const statusKey = computed<StatusKey>(() => (form.attending || 'none') as StatusKey)
+const statusLabel = computed(() => {
+  switch (form.attending) {
+    case 'yes':
+      return "You're going"
+    case 'no':
+      return 'Not attending'
+    case 'not_sure':
+      return 'Still deciding'
+    default:
+      return 'Awaiting your RSVP'
+  }
 })
 
 function addDays(ymd: string, n: number): string {
@@ -156,6 +226,7 @@ async function load() {
     event.value = await api.getEventBySlug(props.slug)
     const existing = await api.getMySubmission(props.slug)
     if (existing) {
+      hasSubmitted.value = true
       Object.assign(form, {
         attending: existing.attending,
         notSureReason: existing.notSureReason,
@@ -189,7 +260,9 @@ async function submit() {
   saved.value = false
   try {
     await api.putMySubmission(props.slug, { ...form })
+    savedWasUpdate.value = hasSubmitted.value
     saved.value = true
+    hasSubmitted.value = true
     activity.value = await api.myActivity(props.slug)
   } catch (e) {
     error.value = errMsg(e)
@@ -209,37 +282,51 @@ onMounted(load)
   </section>
 
   <section v-else class="attendee">
-    <header class="ev-head">
-      <h1>{{ event.name }}</h1>
-      <p class="muted">
-        {{ event.city }}{{ event.city && event.country ? ', ' : '' }}{{ event.country }}
-        · {{ formatDate(event.startDate) }} → {{ formatDate(event.endDate) }}
-      </p>
-      <p v-if="event.hotelName" class="muted small">
-        {{ event.hotelName }}<span v-if="event.hotelAddress"> · {{ event.hotelAddress }}</span>
-      </p>
-      <p class="deadline">
-        Please respond by {{ formatInZone(event.submissionDeadline, event.timezone) }}
-        <span v-if="deadlineCountdown" class="countdown">— {{ deadlineCountdown }}</span>
-      </p>
-      <p v-if="readOnly" class="locked">
-        This event has ended — your response can no longer be edited. Contact the
-        People team if something needs changing.
-      </p>
+    <!-- Cover header: mirrors HomeView's feature card, with the RSVP deadline
+         countdown as the focal point. -->
+    <header class="feature" :class="{ ended: readOnly }">
+      <div class="feature-body">
+        <p class="eyebrow">{{ readOnly ? 'Event closed' : 'Your RSVP' }}</p>
+        <h1 class="dest">{{ event.name }}</h1>
+        <p v-if="placeLine" class="place">{{ placeLine }}</p>
+        <p v-if="event.hotelName" class="lodging">
+          Staying at {{ event.hotelName }}<span v-if="event.hotelAddress"> · {{ event.hotelAddress }}</span>
+        </p>
+
+        <dl class="stats">
+          <div class="stat">
+            <dt>Dates</dt>
+            <dd>{{ dateRange }}</dd>
+          </div>
+          <div class="stat">
+            <dt>Trip length</dt>
+            <dd>{{ tripLength }} {{ tripLength === 1 ? 'day' : 'days' }}</dd>
+          </div>
+          <div class="stat">
+            <dt>RSVP by</dt>
+            <dd>{{ rsvpDate }}</dd>
+          </div>
+        </dl>
+
+        <div class="feature-foot">
+          <span class="status" :class="`status--${statusKey}`">{{ statusLabel }}</span>
+          <span class="deadline-note">Closes {{ formatInZone(event.submissionDeadline, event.timezone) }}</span>
+        </div>
+      </div>
+
+      <aside class="countdown" aria-hidden="true">
+        <span class="count-num">{{ deadlineBlock.value }}</span>
+        <span class="count-caption">{{ deadlineBlock.caption }}</span>
+      </aside>
     </header>
+
+    <p v-if="readOnly" class="locked">
+      This event has ended — your response can no longer be edited. Contact the
+      People team if something needs changing.
+    </p>
 
     <form class="form" @submit.prevent="submit">
       <fieldset :disabled="readOnly || saving">
-        <div class="submitting-as">
-          <p>Submitting as <strong>{{ auth.user?.name || auth.user?.email }}</strong>.</p>
-          <p>
-            Allergies / dietary preferences:
-            <template v-if="auth.user?.allergies">{{ auth.user.allergies }}</template>
-            <span v-else class="none">none set</span>
-          </p>
-          <RouterLink :to="{ path: '/profile', query: { redirect: `/events/${slug}` } }">Edit your profile</RouterLink>
-        </div>
-
         <div class="field">
           <span class="q">Are you attending?</span>
           <div class="radios">
@@ -273,7 +360,7 @@ onMounted(load)
 
         <!-- Yes -->
         <template v-if="form.attending === 'yes'">
-          <h2>Travel</h2>
+          <h3 class="section-head">Travel</h3>
           <div class="leg">
             <h3>Arrival</h3>
             <div class="row">
@@ -334,7 +421,7 @@ onMounted(load)
 
           <template v-if="needsTravelSupport">
             <div class="field">
-              <h3>Company-Paid Accommodation for Long-Haul Travellers</h3>
+              <h3 class="sub">Company-Paid Accommodation for Long-Haul Travellers</h3>
               <p class="field-note">
                 See the
                 <a
@@ -362,19 +449,29 @@ onMounted(load)
             </div>
           </template>
 
-          <h2>Other</h2>
+          <h3 class="section-head">Other</h3>
           <label>Comments
             <textarea v-model="form.comments" rows="2" />
           </label>
         </template>
 
         <p v-if="error" class="error">{{ error }}</p>
-        <p v-if="saved" class="ok">Saved. Thank you!</p>
+        <p v-if="saved" class="ok">{{ savedWasUpdate ? 'Updated. Thank you!' : 'Saved. Thank you!' }}</p>
 
         <div v-if="!readOnly" class="actions">
           <button class="btn" type="submit" :disabled="saving || !form.attending">
-            {{ saving ? 'Saving…' : 'Submit' }}
+            {{ saving ? 'Saving…' : hasSubmitted ? 'Update' : 'Submit' }}
           </button>
+        </div>
+
+        <div class="submitting-as">
+          <p>Submitting as <strong>{{ auth.user?.name || auth.user?.email }}</strong>.</p>
+          <p>
+            Allergies / dietary preferences:
+            <template v-if="auth.user?.allergies">{{ auth.user.allergies }}</template>
+            <span v-else class="none">none set</span>
+          </p>
+          <RouterLink :to="{ path: '/profile', query: { redirect: `/events/${slug}` } }">Edit your profile</RouterLink>
         </div>
       </fieldset>
     </form>
@@ -388,143 +485,380 @@ onMounted(load)
 
 <style scoped>
 .attendee {
-  max-width: 640px;
+  max-width: 720px;
 }
-.ev-head h1 {
-  margin-bottom: 0.25rem;
+
+/* Cover header / feature card — shared visual language with HomeView ── */
+.feature {
+  display: grid;
+  grid-template-columns: 1fr minmax(170px, 0.4fr);
+  margin-bottom: 28px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--accent);
+  background:
+    linear-gradient(180deg, rgb(var(--accent-rgb) / 0.05), transparent 38%),
+    var(--panel);
 }
-.muted {
+.feature.ended {
+  border-top-color: var(--muted);
+}
+.feature-body {
+  padding: 28px 32px 26px;
+  min-width: 0;
+}
+.eyebrow {
+  margin: 0 0 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+}
+.feature.ended .eyebrow {
   color: var(--muted);
 }
-.small {
-  font-size: 0.85rem;
+.dest {
+  margin: 0;
+  font-style: normal;
+  font-weight: 420;
+  font-size: clamp(28px, 4vw, 44px);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
 }
-.deadline {
-  margin-top: 0.75rem;
+.place {
+  margin: 10px 0 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+}
+.lodging {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 24px 0 0;
+  border-top: 1px solid var(--border-soft);
+}
+.stat {
+  flex: 1;
+  min-width: 110px;
+  padding: 16px 22px 4px 0;
+  margin-right: 22px;
+  border-right: 1px solid var(--border-soft);
+}
+.stat:last-child {
+  border-right: 0;
+  margin-right: 0;
+}
+.stat dt {
+  font-family: var(--mono);
+  font-size: 10px;
   font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
-.deadline .countdown {
-  color: var(--accent);
+.stat dd {
+  margin: 6px 0 0;
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 420;
+  color: var(--text);
 }
+
+.feature-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin-top: 24px;
+}
+.status {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border: 1px solid currentcolor;
+}
+.status--none {
+  color: var(--accent-2);
+}
+.status--yes {
+  color: var(--success);
+}
+.status--not_sure {
+  color: var(--blue);
+}
+.status--no {
+  color: var(--muted);
+}
+.deadline-note {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+/* Countdown — the focal point */
+.countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  border-left: 1px solid var(--border);
+  background: rgb(var(--accent-rgb) / 0.06);
+}
+.feature.ended .countdown {
+  background: rgb(var(--text-rgb) / 0.04);
+}
+.count-num {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 360;
+  font-size: clamp(48px, 8vw, 88px);
+  line-height: 0.9;
+  letter-spacing: -0.03em;
+  color: var(--accent-2);
+}
+.feature.ended .count-num {
+  color: var(--muted);
+}
+.count-caption {
+  margin-top: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .locked {
-  background: rgb(var(--accent-rgb) / 0.10);
-  border: 1px solid rgb(var(--accent-rgb) / 0.4);
-  border-radius: var(--radius);
-  padding: 0.6rem 0.8rem;
-  font-size: 0.9rem;
+  background: rgb(var(--accent-rgb) / 0.08);
+  border-left: 2px solid var(--accent);
+  padding: 12px 16px;
+  margin: 0 0 24px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-soft);
 }
+
+/* Form ─────────────────────────────────────────────────────── */
 .form fieldset {
   border: none;
   padding: 0;
-  margin: 1.5rem 0 0;
+  margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.1rem;
 }
-h2 {
-  font-size: 1.1rem;
-  margin: 0.5rem 0 0;
+.section-head {
+  margin: 14px 0 4px;
+  padding-top: 18px;
   border-top: 1px solid var(--border);
-  padding-top: 1rem;
 }
-h3 {
-  font-size: 0.95rem;
-  margin: 0 0 0.5rem;
-  color: var(--muted);
+.section-head:first-of-type {
+  /* the first section sits right under the leg cards; no double rule needed */
 }
 label {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.9rem;
+  gap: 0.35rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   color: var(--muted);
 }
 label.check {
   flex-direction: row;
   align-items: center;
-  gap: 0.5rem;
-}
-input,
-select,
-textarea {
-  padding: 0.5rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font: inherit;
+  gap: 0.55rem;
+  font-size: 13px;
+  letter-spacing: 0;
   color: var(--text);
 }
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+}
+
 .submitting-as {
-  color: var(--muted);
-  font-size: 0.9rem;
-  margin: 0 0 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  border-left: 2px solid var(--border);
+  padding: 2px 0 2px 16px;
+  margin: 0.75rem 0 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text-soft);
 }
 .submitting-as p {
-  margin: 0 0 0.25rem;
+  margin: 0;
+}
+.submitting-as strong {
+  color: var(--text);
 }
 .submitting-as .none {
   font-style: italic;
+  color: var(--muted);
 }
+
 .row {
   display: flex;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 .row > label {
   flex: 1;
 }
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
 .field .q {
   display: block;
-  font-size: 0.9rem;
-  color: var(--text);
-  margin-bottom: 0.4rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-soft);
 }
 .field-note {
-  font-size: 0.85rem;
+  font-size: 12.5px;
   color: var(--muted);
-  margin: 0 0 0.6rem;
+  margin: 0;
 }
+
+/* Attendance radios as segmented editorial chips */
 .radios {
   display: flex;
-  gap: 1.25rem;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 .radios label {
   flex-direction: row;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.5rem;
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+.radios label:hover {
+  border-color: var(--accent);
+}
+.radios label:has(input:checked) {
+  border-color: var(--accent);
+  background: rgb(var(--accent-rgb) / 0.08);
   color: var(--text);
 }
+
 .leg {
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1rem;
+  padding: 18px 20px;
+  background: var(--panel);
 }
-.extra {
-  background: rgb(var(--accent-rgb) / 0.10);
-  border: 1px solid rgb(var(--accent-rgb) / 0.4);
-  border-radius: var(--radius);
-  padding: 0.8rem 1rem;
+.leg h3 {
+  margin-top: 0;
 }
+/* Long, sentence-style subheads read better as serif than all-caps mono. */
+.sub {
+  margin: 0 0 2px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--text);
+}
+
+.extra,
 .notice {
   background: rgb(var(--accent-rgb) / 0.07);
-  border: 1px solid rgb(var(--accent-rgb) / 0.3);
-  border-radius: var(--radius);
-  padding: 0.8rem 1rem;
+  border-left: 2px solid var(--accent);
+  padding: 14px 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+.notice p {
+  margin: 0;
 }
 .notice ol {
   margin: 0.5rem 0 0;
   padding-left: 1.2rem;
 }
-.error {
-  color: var(--danger);
+.notice ol li {
+  margin: 0.15rem 0;
 }
+
 .ok {
-  color: var(--ok);
+  color: var(--success);
+  font-family: var(--mono);
+  font-size: 13px;
 }
 .actions {
   margin-top: 0.5rem;
 }
+
 .my-activity {
   margin-top: 2.5rem;
   border-top: 1px solid var(--border);
   padding-top: 1.25rem;
+}
+
+@media (max-width: 640px) {
+  .feature {
+    grid-template-columns: 1fr;
+  }
+  .feature-body {
+    padding: 22px 20px 20px;
+  }
+  .countdown {
+    flex-direction: row;
+    gap: 14px;
+    padding: 16px 20px;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .count-num {
+    font-size: 46px;
+  }
+  .count-caption {
+    margin-top: 0;
+  }
+  .stat {
+    border-right: 0;
+    margin-right: 0;
+    padding-right: 0;
+    flex-basis: 45%;
+  }
+  .row {
+    flex-direction: column;
+    gap: 0.9rem;
+  }
 }
 </style>
