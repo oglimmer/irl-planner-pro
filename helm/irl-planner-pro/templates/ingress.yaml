@@ -43,6 +43,23 @@ spec:
                 port:
                   number: {{ $.Values.backend.service.port }}
           {{- end }}
+          {{- /*
+              Phase 7 MCP surface. Routed to the backend only when mcp.enabled;
+              listed before the SPA catch-all "/" so they win. The backend still
+              404s these unless MCP_OAUTH_CLIENT_* are set, so routing them is
+              harmless on a deployment that hasn't fully opted in.
+          */}}
+          {{- if $.Values.mcp.enabled }}
+          {{- range $p := list "/mcp" "/oauth" "/.well-known/oauth-authorization-server" "/.well-known/oauth-protected-resource" }}
+          - path: {{ $p }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "irl.backend.fullname" $ }}
+                port:
+                  number: {{ $.Values.backend.service.port }}
+          {{- end }}
+          {{- end }}
           {{- range .paths }}
           - path: {{ .path }}
             pathType: {{ .pathType }}

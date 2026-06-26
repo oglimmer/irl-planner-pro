@@ -18,6 +18,14 @@ defineProps<{
         <span class="summary">{{ e.summary }}</span>
         <span v-if="e.afterDeadline" class="badge">after deadline</span>
       </div>
+      <ul v-if="e.detail?.changes?.length" class="changes">
+        <li v-for="(c, i) in e.detail.changes" :key="i">
+          <span class="field">{{ c.field }}</span>
+          <span class="from">{{ c.from || '—' }}</span>
+          <span class="arrow">→</span>
+          <span class="to">{{ c.to || '—' }}</span>
+        </li>
+      </ul>
       <div class="meta">
         {{ formatInZone(e.createdAt, timezone) }}
         <span v-if="showActor && e.actorEmail"> · {{ e.actorEmail }}</span>
@@ -36,12 +44,41 @@ defineProps<{
   flex-direction: column;
   gap: 0.6rem;
 }
-.timeline li {
+.timeline > li {
   border-left: 3px solid var(--border);
   padding: 0.3rem 0 0.3rem 0.85rem;
 }
-.timeline li.late {
+.timeline > li.late {
   border-left-color: var(--danger);
+}
+.changes {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.85rem;
+}
+.changes li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+.changes .field {
+  color: var(--muted);
+  min-width: 9rem;
+}
+.changes .from {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.changes .arrow {
+  color: var(--muted);
+}
+.changes .to {
+  color: var(--text);
 }
 .line {
   display: flex;
@@ -55,7 +92,7 @@ defineProps<{
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  background: #fdecef;
+  background: rgb(var(--rust-rgb) / 0.10);
   color: var(--danger);
   padding: 0.1rem 0.45rem;
   border-radius: 999px;

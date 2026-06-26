@@ -37,7 +37,7 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		`SELECT er.full_name, er.email, s.attending, u.first_name, u.last_name,
 		        s.arrival_day, s.arrival_time, s.arrival_mode, s.arrival_details,
 		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
-		        s.long_haul, s.extra_stay_start, s.extra_stay_end, u.allergies, s.comments,
+		        s.arrival_independent, s.departure_independent, s.long_haul, s.extra_stay_start, s.extra_stay_end, u.allergies, s.comments,
 		        s.updated_at
 		   FROM event_roster er
 		   LEFT JOIN users u ON lower(u.email) = er.email
@@ -58,7 +58,7 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	_ = cw.Write([]string{
 		"name", "email", "attending", "arrival_day", "arrival_time", "arrival_mode",
 		"arrival_details", "departure_day", "departure_time", "departure_mode",
-		"departure_details", "long_haul", "extra_night_before", "extra_night_after",
+		"departure_details", "arrival_independent", "departure_independent", "long_haul", "extra_night_before", "extra_night_after",
 		"allergies", "comments", "last_updated",
 	})
 
@@ -67,11 +67,11 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		var attending, firstName, lastName, arrTime, arrMode, arrDetails sql.NullString
 		var depTime, depMode, depDetails, allergies, comments sql.NullString
 		var arrDay, depDay, extraStart, extraEnd, updatedAt sql.NullTime
-		var longHaul sql.NullBool
+		var arrivalIndependent, departureIndependent, longHaul sql.NullBool
 		if err := rows.Scan(&fullName, &email, &attending, &firstName, &lastName,
 			&arrDay, &arrTime, &arrMode, &arrDetails,
 			&depDay, &depTime, &depMode, &depDetails,
-			&longHaul, &extraStart, &extraEnd, &allergies, &comments, &updatedAt); err != nil {
+			&arrivalIndependent, &departureIndependent, &longHaul, &extraStart, &extraEnd, &allergies, &comments, &updatedAt); err != nil {
 			serverErr(w, r, err, "db error")
 			return
 		}
@@ -90,7 +90,7 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 			name, email, state,
 			dateOrEmpty(arrDay), arrTime.String, arrMode.String, arrDetails.String,
 			dateOrEmpty(depDay), depTime.String, depMode.String, depDetails.String,
-			boolOrEmpty(longHaul), dateOrEmpty(extraStart), dateOrEmpty(extraEnd),
+			boolOrEmpty(arrivalIndependent), boolOrEmpty(departureIndependent), boolOrEmpty(longHaul), dateOrEmpty(extraStart), dateOrEmpty(extraEnd),
 			allergies.String, comments.String, timeInZoneOrEmpty(updatedAt, loc),
 		})
 	}

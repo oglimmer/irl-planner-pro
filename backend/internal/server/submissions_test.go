@@ -21,7 +21,7 @@ func TestSubmissionNotSureRequiresReason(t *testing.T) {
 
 func TestSubmissionNoBlanksTravel(t *testing.T) {
 	req := &submissionReq{
-		Attending: "no",
+		Attending:  "no",
 		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"),
 		Comments: "hi", NotSureReason: "x",
 	}
@@ -40,20 +40,103 @@ func TestSubmissionYesRequiresTravel(t *testing.T) {
 	}
 }
 
-func TestSubmissionYesModeRequiresDetails(t *testing.T) {
+func TestSubmissionBothLegsIndependentSkipsAndBlanksEverything(t *testing.T) {
+	// Both legs self-arranged: the legs, long-haul, and extra-night dates are all
+	// blanked and leg validation is skipped (the old all-or-nothing case).
+	req := &submissionReq{
+		Attending:          "yes",
+		ArrivalIndependent: true, DepartureIndependent: true,
+		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
+		DepartureTime: "18:00", LongHaul: true, ExtraStayStart: strp("2026-10-11"),
+	}
+	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
+		t.Fatalf("fully independent travel should not require travel legs: %v", err)
+	}
+	if req.ArrivalDay != nil || req.ArrivalMode != nil || req.DepartureDay != nil ||
+		req.ArrivalDetails != "" || req.DepartureTime != "" || req.LongHaul ||
+		req.ExtraStayStart != nil || req.ExtraStayEnd != nil {
+		t.Errorf("fully independent travel should blank all travel fields: %+v", req)
+	}
+	if !req.ArrivalIndependent || !req.DepartureIndependent {
+		t.Error("both independent flags should stay true on a yes submission")
+	}
+}
+
+// Independence is per-leg: an attendee can self-arrange arrival but still need
+// the return booked. The independent leg is blanked; the other is still validated.
+func TestSubmissionArrivalIndependentDepartureBooked(t *testing.T) {
+	req := &submissionReq{
+		Attending:          "yes",
+		ArrivalIndependent: true,
+		ArrivalDay:         strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
+		DepartureDay: strp("2026-10-16"), DepartureMode: strp("train"), DepartureDetails: "TGV 9876",
+	}
+	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
+		t.Fatalf("arrival-independent + booked departure should be valid: %v", err)
+	}
+	if req.ArrivalDay != nil || req.ArrivalMode != nil || req.ArrivalDetails != "" {
+		t.Errorf("the independent arrival leg should be blanked: %+v", req)
+	}
+	if req.DepartureDay == nil || req.DepartureMode == nil || req.DepartureDetails == "" {
+		t.Errorf("the booked departure leg should be preserved: %+v", req)
+	}
+}
+
+// A leg flagged independent must not be rejected for missing day/mode/details.
+func TestSubmissionDepartureIndependentNeedsNoDetails(t *testing.T) {
 	req := &submissionReq{
 		Attending: "yes",
-		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "",
-		DepartureDay: strp("2026-10-16"), DepartureMode: strp("flight"), DepartureDetails: "BA123",
+		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
+		DepartureIndependent: true,
 	}
-	if err := req.normalizeAndValidate(sampleEvent(), false); err == nil {
-		t.Fatal("expected error: arrival mode set but no details")
+	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
+		t.Fatalf("departure-independent should not require departure details: %v", err)
+	}
+}
+
+// Long-haul accommodation survives when only one leg is independent (the People
+// team still handles the other), but is dropped only when both are independent.
+func TestSubmissionLongHaulKeptWhenOneLegBooked(t *testing.T) {
+	req := &submissionReq{
+		Attending:          "yes",
+		ArrivalIndependent: true,
+		DepartureDay:       strp("2026-10-16"), DepartureMode: strp("flight"), DepartureDetails: "BA200",
+		LongHaul: true, ExtraStayStart: strp("2026-10-11"),
+	}
+	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !req.LongHaul || req.ExtraStayStart == nil {
+		t.Errorf("long-haul/extra night should be kept when a leg is still booked: %+v", req)
+	}
+}
+
+func TestSubmissionIndependentTravelClearedWhenNotYes(t *testing.T) {
+	req := &submissionReq{Attending: "no", ArrivalIndependent: true, DepartureIndependent: true}
+	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.ArrivalIndependent || req.DepartureIndependent {
+		t.Error("independent flags should be cleared when not attending")
+	}
+}
+
+// Details (flight number / free text) are optional: a leg with a day + mode but
+// no details is valid.
+func TestSubmissionYesModeAllowsEmptyDetails(t *testing.T) {
+	req := &submissionReq{
+		Attending:  "yes",
+		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "",
+		DepartureDay: strp("2026-10-16"), DepartureMode: strp("flight"), DepartureDetails: "",
+	}
+	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
+		t.Fatalf("empty details should be allowed: %v", err)
 	}
 }
 
 func TestSubmissionValidYes(t *testing.T) {
 	req := &submissionReq{
-		Attending: "yes",
+		Attending:  "yes",
 		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
 		DepartureDay: strp("2026-10-16"), DepartureMode: strp("train"), DepartureDetails: "TGV 9876",
 	}
@@ -64,7 +147,7 @@ func TestSubmissionValidYes(t *testing.T) {
 
 func TestSubmissionArrivalDayOutOfRange(t *testing.T) {
 	req := &submissionReq{
-		Attending: "yes",
+		Attending:  "yes",
 		ArrivalDay: strp("2026-09-01"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
 		DepartureDay: strp("2026-10-16"), DepartureMode: strp("flight"), DepartureDetails: "BA200",
 	}
@@ -79,7 +162,7 @@ func TestSubmissionArrivalDayOutOfRange(t *testing.T) {
 
 func baseYes() *submissionReq {
 	return &submissionReq{
-		Attending: "yes",
+		Attending:  "yes",
 		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
 		DepartureDay: strp("2026-10-16"), DepartureMode: strp("flight"), DepartureDetails: "BA200",
 		LongHaul: true,
@@ -118,5 +201,58 @@ func TestExtraStayClearedWhenNotLongHaul(t *testing.T) {
 	}
 	if req.ExtraStayStart != nil || req.ExtraStayEnd != nil {
 		t.Error("extra stay should be cleared when long_haul is false")
+	}
+}
+
+func TestDiffSubmissionReqReportsChangedFields(t *testing.T) {
+	prev := submissionReq{
+		Attending:   "yes",
+		ArrivalDay:  strp("2026-10-12"),
+		ArrivalTime: "09:00",
+		ArrivalMode: strp("flight"),
+		Comments:    "old",
+	}
+	next := submissionReq{
+		Attending:   "yes",
+		ArrivalDay:  strp("2026-10-13"),
+		ArrivalTime: "09:00",
+		ArrivalMode: strp("train"),
+		Comments:    "old",
+	}
+	changes := diffSubmissionReq(prev, next)
+	if len(changes) != 2 {
+		t.Fatalf("expected 2 changes, got %d: %+v", len(changes), changes)
+	}
+	if changes[0].Field != "Arrival day" || changes[0].From != "2026-10-12" || changes[0].To != "2026-10-13" {
+		t.Errorf("unexpected arrival-day change: %+v", changes[0])
+	}
+	if changes[1].Field != "Arrival mode" || changes[1].From != "flight" || changes[1].To != "train" {
+		t.Errorf("unexpected arrival-mode change: %+v", changes[1])
+	}
+}
+
+func TestDiffSubmissionReqNoChanges(t *testing.T) {
+	req := submissionReq{Attending: "yes", ArrivalDay: strp("2026-10-12")}
+	if changes := diffSubmissionReq(req, req); len(changes) != 0 {
+		t.Fatalf("expected no changes, got %+v", changes)
+	}
+}
+
+func TestDiffSubmissionReqClearedFieldShowsEmptyTo(t *testing.T) {
+	prev := submissionReq{Attending: "yes", ArrivalDetails: "Terminal 2"}
+	next := submissionReq{Attending: "no"}
+	changes := diffSubmissionReq(prev, next)
+	// Attending yes→no and the cleared arrival details.
+	var sawCleared bool
+	for _, c := range changes {
+		if c.Field == "Arrival details" {
+			sawCleared = true
+			if c.From != "Terminal 2" || c.To != "" {
+				t.Errorf("expected details cleared to empty, got %+v", c)
+			}
+		}
+	}
+	if !sawCleared {
+		t.Error("expected a cleared Arrival details change")
 	}
 }

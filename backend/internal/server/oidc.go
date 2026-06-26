@@ -109,16 +109,14 @@ func clearOIDCCookie(w http.ResponseWriter, name string) {
 	})
 }
 
-func (a *App) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
-	state, err := randHex(16)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "state error")
-		return
-	}
+// initiateOIDCFlow generates a nonce, sets the OIDC state/nonce cookies, and
+// redirects the browser to the OIDC provider. The state value is caller-supplied
+// so both the normal login path (plain hex) and the Phase 7 OAuth-initiated path
+// ("oauth:<key>") share the same redirect machinery.
+func (a *App) initiateOIDCFlow(w http.ResponseWriter, r *http.Request, state string) error {
 	nonce, err := randHex(16)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "nonce error")
-		return
+		return err
 	}
 	a.setShortLivedCookie(w, oidcStateCookie, state)
 	a.setShortLivedCookie(w, oidcNonceCookie, nonce)
@@ -129,6 +127,18 @@ func (a *App) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		opts = append(opts, oauth2.SetAuthURLParam("hd", a.Cfg.AllowedGoogleWorkspaceDomains[0]))
 	}
 	http.Redirect(w, r, a.OIDC.oauth2.AuthCodeURL(state, opts...), http.StatusFound)
+	return nil
+}
+
+func (a *App) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
+	state, err := randHex(16)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "state error")
+		return
+	}
+	if err := a.initiateOIDCFlow(w, r, state); err != nil {
+		writeErr(w, http.StatusInternalServerError, "oidc init error")
+	}
 }
 
 type oidcClaims struct {
@@ -153,42 +163,72 @@ func (a *App) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		a.oidcFail(w, r, oidcErrProvider)
 		return
 	}
+
+	// Phase 7: detect an OAuth-initiated flow and atomically consume the pending
+	// OAuth context early, so every downstream failure can redirect the OAuth
+	// client correctly (rather than bouncing to the SPA).
+	var pending *oauthPendingRow
+	if strings.HasPrefix(stateCookie.Value, "oauth:") {
+		stateKey := strings.TrimPrefix(stateCookie.Value, "oauth:")
+		pending, err = a.loadAndDeleteOAuthPending(r.Context(), stateKey)
+		if err != nil || pending == nil {
+			a.oidcFail(w, r, oidcErrProvider)
+			return
+		}
+	}
+
 	clearOIDCCookie(w, oidcStateCookie)
 	clearOIDCCookie(w, oidcNonceCookie)
 
+	// fail routes a reason code to the OAuth client when in an OAuth flow,
+	// otherwise to the SPA callback. Policy/identity reasons map to OAuth
+	// access_denied; everything else is server_error.
+	fail := func(reason string) {
+		if pending != nil {
+			metrics.LoginsTotal.WithLabelValues("oidc", "failure").Inc()
+			oauthErr := "server_error"
+			if reason == oidcErrDomain {
+				oauthErr = "access_denied"
+			}
+			oauthRedirectErr(w, r, pending.RedirectURI, pending.OAuthState, oauthErr, reason)
+			return
+		}
+		a.oidcFail(w, r, reason) // increments the oidc failure metric internally
+	}
+
 	if errParam := r.URL.Query().Get("error"); errParam != "" {
 		log.Printf("INFO: oidc provider returned error=%q", errParam)
-		a.oidcFail(w, r, oidcErrProvider)
+		fail(oidcErrProvider)
 		return
 	}
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		a.oidcFail(w, r, oidcErrProvider)
+		fail(oidcErrProvider)
 		return
 	}
 
 	tok, err := a.OIDC.oauth2.Exchange(r.Context(), code)
 	if err != nil {
-		a.oidcFail(w, r, oidcErrProvider)
+		fail(oidcErrProvider)
 		return
 	}
 	rawIDToken, ok := tok.Extra("id_token").(string)
 	if !ok || rawIDToken == "" {
-		a.oidcFail(w, r, oidcErrProvider)
+		fail(oidcErrProvider)
 		return
 	}
 	idToken, err := a.OIDC.verifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
-		a.oidcFail(w, r, oidcErrProvider)
+		fail(oidcErrProvider)
 		return
 	}
 	var claims oidcClaims
 	if err := idToken.Claims(&claims); err != nil {
-		a.oidcFail(w, r, oidcErrProvider)
+		fail(oidcErrProvider)
 		return
 	}
 	if claims.Nonce != nonceCookie.Value || claims.Sub == "" {
-		a.oidcFail(w, r, oidcErrProvider)
+		fail(oidcErrProvider)
 		return
 	}
 
@@ -197,13 +237,13 @@ func (a *App) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if err := workspaceauth.ValidateGoogleHD(idToken.Issuer, claims.HD, a.Cfg.AllowedGoogleWorkspaceDomains); err != nil {
 		log.Printf("WARN: oidc workspace domain rejected: hd=%q email=%q sub=%q issuer=%q",
 			claims.HD, claims.Email, claims.Sub, idToken.Issuer)
-		a.oidcFail(w, r, oidcErrDomain)
+		fail(oidcErrDomain)
 		return
 	}
 
 	email := strings.ToLower(strings.TrimSpace(claims.Email))
 	if email == "" {
-		a.oidcFail(w, r, oidcErrProvider)
+		fail(oidcErrProvider)
 		return
 	}
 	// Require a verified email: we key accounts on email, so an unverified one
@@ -211,7 +251,7 @@ func (a *App) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	// always sets email_verified.
 	if claims.EmailVerified != nil && !*claims.EmailVerified {
 		log.Printf("WARN: oidc email not verified: email=%q", email)
-		a.oidcFail(w, r, oidcErrDomain)
+		fail(oidcErrDomain)
 		return
 	}
 
@@ -224,11 +264,28 @@ func (a *App) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	user, err := a.findOrCreateUser(r.Context(), email, first, last, "")
 	if err != nil {
 		log.Printf("ERROR: oidc user provisioning: %v", err)
-		a.oidcFail(w, r, oidcErrAccount)
+		fail(oidcErrAccount)
 		return
 	}
 
 	metrics.LoginsTotal.WithLabelValues("oidc", "success").Inc()
+
+	if pending != nil {
+		// OAuth-initiated flow: issue an authorization code and redirect back to
+		// the OAuth client's redirect_uri instead of forwarding to the SPA.
+		authCode, err := a.issueAuthCode(r.Context(), user.ID, pending.RedirectURI, pending.CodeChallenge)
+		if err != nil {
+			log.Printf("ERROR: issue auth code (oauth/oidc): %v", err)
+			oauthRedirectErr(w, r, pending.RedirectURI, pending.OAuthState, "server_error", "auth code issuance failed")
+			return
+		}
+		q := url.Values{"code": {authCode}}
+		if pending.OAuthState != "" {
+			q.Set("state", pending.OAuthState)
+		}
+		http.Redirect(w, r, redirectWithParams(pending.RedirectURI, q), http.StatusFound)
+		return
+	}
 
 	jwtStr, err := a.issueToken(user.ID, user.TokenVersion)
 	if err != nil {

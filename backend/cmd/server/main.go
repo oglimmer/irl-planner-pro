@@ -65,6 +65,9 @@ func main() {
 	// Reminder + daily-digest scheduler.
 	app.StartReminders(rootCtx, &bg)
 
+	// Phase 7 — periodic GC of expired OAuth rows. No-op unless MCP is configured.
+	app.StartOAuthGC(rootCtx, &bg)
+
 	app.MarkReady()
 
 	srv := &http.Server{

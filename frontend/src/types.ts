@@ -14,6 +14,7 @@ export interface User {
   lastName: string
   name: string // derived display name (first + last); read-only
   allergies: string // allergies / dietary preferences (profile, not per-event)
+  profileConfirmed: boolean // false until the user reviews their profile once (first-login confirm step)
   isAdmin: boolean
   createdAt: string
 }
@@ -113,6 +114,8 @@ export interface Submission {
   departureTime: string
   departureMode: TravelMode | null
   departureDetails: string
+  arrivalIndependent: boolean
+  departureIndependent: boolean
   longHaul: boolean
   extraStayStart: string | null
   extraStayEnd: string | null
@@ -135,10 +138,18 @@ export interface SubmissionInput {
   departureTime: string
   departureMode: TravelMode | null
   departureDetails: string
+  arrivalIndependent: boolean
+  departureIndependent: boolean
   longHaul: boolean
   extraStayStart: string | null
   extraStayEnd: string | null
   comments: string
+}
+
+export interface ActivityChange {
+  field: string
+  from: string
+  to: string
 }
 
 export interface ActivityEntry {
@@ -147,6 +158,7 @@ export interface ActivityEntry {
   subjectEmail: string
   action: string
   summary: string
+  detail?: { changes?: ActivityChange[] }
   afterDeadline: boolean
   createdAt: string
 }

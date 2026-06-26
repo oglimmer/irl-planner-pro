@@ -35,6 +35,24 @@ func (a *App) issueToken(userID string, tokenVersion int) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(a.Cfg.JWTSecret))
 }
 
+// issueMCPAccessToken mints a 1-hour OAuth access token tagged with the
+// mcp_access "typ" claim. Used only by the OAuth token endpoint; the claim
+// confines the token to the /mcp gate (resolveToken rejects it elsewhere). It
+// also carries "ver" so a session revocation invalidates outstanding MCP access
+// tokens — the client then silently refreshes and is re-issued one stamped with
+// the new version.
+func (a *App) issueMCPAccessToken(userID string, tokenVersion int) (string, error) {
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"sub": userID,
+		"typ": tokenTypeMCPAccess,
+		"ver": tokenVersion,
+		"iat": now.Unix(),
+		"exp": now.Add(time.Hour).Unix(),
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(a.Cfg.JWTSecret))
+}
+
 // parseToken validates a JWT and returns its subject, "typ", and "ver" claim.
 // typ is empty for ordinary session tokens and "mcp_access" for OAuth tokens.
 func (a *App) parseToken(tok string) (sub, typ string, ver int, err error) {
@@ -142,11 +160,36 @@ func (a *App) requireAdminMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// mcpTokenGateMiddleware authenticates the /mcp endpoint (Phase 7). It accepts
+// the OAuth mcp_access bearer token (allowMCPScope=true) and stashes the *User
+// in context for tool handlers (userFromCtx). On failure it sends a Bearer
+// WWW-Authenticate challenge carrying the RFC 9728 resource-metadata pointer so
+// MCP clients can discover where to run the OAuth flow.
+func (a *App) mcpTokenGateMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, msg, err := a.authenticateRequest(r, true)
+		if err != nil {
+			serverErr(w, r, err, "auth lookup error")
+			return
+		}
+		if u == nil {
+			w.Header().Set("WWW-Authenticate", a.mcpAuthChallenge())
+			if msg == "" {
+				msg = "authentication required"
+			}
+			writeErr(w, http.StatusUnauthorized, msg)
+			return
+		}
+		ctx := context.WithValue(r.Context(), ctxUserKey, u)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func (a *App) userByID(ctx context.Context, id string) (*User, error) {
 	u := &User{}
 	err := a.DB.QueryRowContext(ctx,
-		`SELECT id, email, first_name, last_name, allergies, is_admin, created_at, token_version FROM users WHERE id = $1`, id).
-		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
+		`SELECT id, email, first_name, last_name, allergies, profile_confirmed, is_admin, created_at, token_version FROM users WHERE id = $1`, id).
+		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.ProfileConfirmed, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
 	if err != nil {
 		return nil, err
 	}

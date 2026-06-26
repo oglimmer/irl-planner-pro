@@ -36,6 +36,13 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      // First-login confirm step. requiresAuth so the guard loads a fresh user;
+      // hideChrome to keep the onboarding screen focused.
+      path: '/welcome',
+      component: () => import('./views/WelcomeView.vue'),
+      meta: { requiresAuth: true, hideChrome: true },
+    },
+    {
       path: '/profile',
       component: () => import('./views/ProfileView.vue'),
       meta: { requiresAuth: true },
@@ -99,6 +106,11 @@ router.beforeEach(async (to) => {
   }
   if (!auth.token) {
     return { path: '/login', query: { redirect: to.fullPath } }
+  }
+  // First-login profile confirmation: a user who hasn't reviewed their
+  // IdP-seeded name/allergies is sent to /welcome before anything else.
+  if (auth.user && !auth.user.profileConfirmed && to.path !== '/welcome') {
+    return { path: '/welcome', query: { redirect: to.fullPath } }
   }
   if (to.meta.requiresAdmin && !auth.user?.isAdmin) {
     return { path: '/error', query: { code: '403' } }

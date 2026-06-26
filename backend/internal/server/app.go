@@ -49,9 +49,13 @@ type User struct {
 	// Allergies / dietary preferences are a property of the person, not any one
 	// event, so they live on the profile (moved off submissions in migration
 	// 0003_profile_allergies). Free-form and optional.
-	Allergies string    `json:"allergies"`
-	IsAdmin   bool      `json:"isAdmin"`
-	CreatedAt time.Time `json:"createdAt"`
+	Allergies string `json:"allergies"`
+	// ProfileConfirmed is false until the user has reviewed the IdP-seeded name
+	// and allergies once (via PUT /api/me). The SPA routes an unconfirmed user
+	// through a one-time welcome/confirm step before anything else.
+	ProfileConfirmed bool      `json:"profileConfirmed"`
+	IsAdmin          bool      `json:"isAdmin"`
+	CreatedAt        time.Time `json:"createdAt"`
 	// TokenVersion is the session-revocation counter, stamped into JWTs as the
 	// "ver" claim and compared on each request. Never serialised to clients.
 	TokenVersion int `json:"-"`

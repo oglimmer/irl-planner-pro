@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api, errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { formatDate, formatInZone } from '../lib/datetime'
@@ -35,13 +35,88 @@ const form = reactive<SubmissionInput>({
   departureTime: '',
   departureMode: null,
   departureDetails: '',
+  arrivalIndependent: false,
+  departureIndependent: false,
   longHaul: false,
   extraStayStart: null,
   extraStayEnd: null,
   comments: '',
 })
 
+// Sentinel value for the "no travel support needed" option at the top of each
+// leg's Day dropdown. Travel to and from the offsite are independent: selecting
+// it on a leg sets that leg's *_independent flag and hides only that leg's
+// fields. The long-haul section is hidden only when BOTH legs are independent.
+const INDEPENDENT_TRAVEL = '__independent__'
+
+// Each leg's Day <select> binds to its own computed so the independent sentinel
+// and the real date value can share one control.
+const arrivalDaySelection = computed<string | null>({
+  get: () => (form.arrivalIndependent ? INDEPENDENT_TRAVEL : form.arrivalDay),
+  set: (v) => {
+    if (v === INDEPENDENT_TRAVEL) {
+      form.arrivalIndependent = true
+      // Clear any arrival detail the user may have entered before switching.
+      form.arrivalDay = null
+      form.arrivalTime = ''
+      form.arrivalMode = null
+      form.arrivalDetails = ''
+    } else {
+      form.arrivalIndependent = false
+      form.arrivalDay = v
+    }
+  },
+})
+
+const departureDaySelection = computed<string | null>({
+  get: () => (form.departureIndependent ? INDEPENDENT_TRAVEL : form.departureDay),
+  set: (v) => {
+    if (v === INDEPENDENT_TRAVEL) {
+      form.departureIndependent = true
+      form.departureDay = null
+      form.departureTime = ''
+      form.departureMode = null
+      form.departureDetails = ''
+    } else {
+      form.departureIndependent = false
+      form.departureDay = v
+    }
+  },
+})
+
+// Long-haul accommodation only applies when the People team books at least one
+// leg. When the attendee self-arranges both, clear and hide that whole block
+// (mirrors the server rule in submissions.go).
+const needsTravelSupport = computed(() => !(form.arrivalIndependent && form.departureIndependent))
+watch(needsTravelSupport, (needs) => {
+  if (!needs) {
+    form.longHaul = false
+    form.extraStayStart = null
+    form.extraStayEnd = null
+  }
+})
+
+const arrivalTimeLabel = computed(() =>
+  form.arrivalMode === 'flight' ? 'Flight arrival time' : 'Time',
+)
+const departureTimeLabel = computed(() =>
+  form.departureMode === 'flight' ? 'Flight departure time' : 'Time',
+)
+
 const readOnly = computed(() => event.value?.isPast ?? false)
+
+// Whole days remaining until the submission deadline, for the countdown shown
+// next to it. Rounds up so a deadline later today still reads "1 day left".
+const deadlineCountdown = computed(() => {
+  const e = event.value
+  if (!e) return ''
+  const ms = new Date(e.submissionDeadline).getTime() - Date.now()
+  if (isNaN(ms)) return ''
+  const days = Math.ceil(ms / 86_400_000)
+  if (days > 1) return `${days} days left`
+  if (days === 1) return '1 day left'
+  return 'deadline passed'
+})
 
 function addDays(ymd: string, n: number): string {
   const d = new Date(`${ymd}T00:00:00Z`)
@@ -92,6 +167,8 @@ async function load() {
         departureTime: existing.departureTime,
         departureMode: existing.departureMode,
         departureDetails: existing.departureDetails,
+        arrivalIndependent: existing.arrivalIndependent,
+        departureIndependent: existing.departureIndependent,
         longHaul: existing.longHaul,
         extraStayStart: existing.extraStayStart,
         extraStayEnd: existing.extraStayEnd,
@@ -143,6 +220,7 @@ onMounted(load)
       </p>
       <p class="deadline">
         Please respond by {{ formatInZone(event.submissionDeadline, event.timezone) }}
+        <span v-if="deadlineCountdown" class="countdown">— {{ deadlineCountdown }}</span>
       </p>
       <p v-if="readOnly" class="locked">
         This event has ended — your response can no longer be edited. Contact the
@@ -159,7 +237,7 @@ onMounted(load)
             <template v-if="auth.user?.allergies">{{ auth.user.allergies }}</template>
             <span v-else class="none">none set</span>
           </p>
-          <RouterLink to="/profile">Edit your profile</RouterLink>
+          <RouterLink :to="{ path: '/profile', query: { redirect: `/events/${slug}` } }">Edit your profile</RouterLink>
         </div>
 
         <div class="field">
@@ -173,6 +251,11 @@ onMounted(load)
 
         <!-- Not sure -->
         <div v-if="form.attending === 'not_sure'" class="field">
+          <p class="notice">
+            Use this option only if you cannot make a yes/no call before the deadline
+            ends. Let us know what you currently think, what the decision depends on,
+            and when you might be able to tell us the final decision.
+          </p>
           <label>
             Why aren't you sure yet?
             <textarea v-model="form.notSureReason" rows="2" required />
@@ -195,21 +278,26 @@ onMounted(load)
             <h3>Arrival</h3>
             <div class="row">
               <label>Day
-                <select v-model="form.arrivalDay" required>
+                <select v-model="arrivalDaySelection" required>
                   <option :value="null" disabled>Select a day</option>
+                  <option :value="INDEPENDENT_TRAVEL">
+                    I arrange my own travel here, no support needed
+                  </option>
                   <option v-for="d in travelDates" :key="d" :value="d">{{ formatDate(d) }}</option>
                 </select>
               </label>
-              <label>Time <input v-model="form.arrivalTime" type="text" placeholder="14:30"></label>
+              <label v-if="!form.arrivalIndependent">{{ arrivalTimeLabel }}
+                <input v-model="form.arrivalTime" type="time">
+              </label>
             </div>
-            <div class="row">
+            <div v-if="!form.arrivalIndependent" class="row">
               <label>Travel mode
                 <select v-model="form.arrivalMode" required>
                   <option :value="null" disabled>Select</option>
                   <option v-for="m in TRAVEL_MODES" :key="m.value" :value="m.value">{{ m.label }}</option>
                 </select>
               </label>
-              <label>Flight number / details
+              <label>Flight number / details (optional)
                 <input v-model="form.arrivalDetails" type="text" placeholder="BA123, or other info">
               </label>
             </div>
@@ -219,44 +307,60 @@ onMounted(load)
             <h3>Departure</h3>
             <div class="row">
               <label>Day
-                <select v-model="form.departureDay" required>
+                <select v-model="departureDaySelection" required>
                   <option :value="null" disabled>Select a day</option>
+                  <option :value="INDEPENDENT_TRAVEL">
+                    I arrange my own travel here, no support needed
+                  </option>
                   <option v-for="d in travelDates" :key="d" :value="d">{{ formatDate(d) }}</option>
                 </select>
               </label>
-              <label>Time <input v-model="form.departureTime" type="text" placeholder="18:00"></label>
+              <label v-if="!form.departureIndependent">{{ departureTimeLabel }}
+                <input v-model="form.departureTime" type="time">
+              </label>
             </div>
-            <div class="row">
+            <div v-if="!form.departureIndependent" class="row">
               <label>Travel mode
                 <select v-model="form.departureMode" required>
                   <option :value="null" disabled>Select</option>
                   <option v-for="m in TRAVEL_MODES" :key="m.value" :value="m.value">{{ m.label }}</option>
                 </select>
               </label>
-              <label>Flight number / details
+              <label>Flight number / details (optional)
                 <input v-model="form.departureDetails" type="text" placeholder="BA456, or other info">
               </label>
             </div>
           </div>
 
-          <div class="field">
-            <label class="check">
-              <input v-model="form.longHaul" type="checkbox">
-              I'm a long-haul traveller (international flight of 7+ hours)
-            </label>
-          </div>
+          <template v-if="needsTravelSupport">
+            <div class="field">
+              <h3>Company-Paid Accommodation for Long-Haul Travellers</h3>
+              <p class="field-note">
+                See the
+                <a
+                  href="https://app.notion.com/p/id5technology/Traveling-to-the-IRL-388334ab4b6a8027a829f184455c1eeb"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >Traveling to the IRL policy</a>.
+              </p>
+              <label class="check">
+                <input v-model="form.longHaul" type="checkbox">
+                I'm a long-haul traveller (international flight of 7+ hours)
+              </label>
+            </div>
 
-          <div v-if="form.longHaul" class="field extra">
-            <span class="q">Would you require an extra night?</span>
-            <label class="check">
-              <input v-model="extraNightBefore" type="checkbox">
-              Extra night before — {{ formatDate(beforeDate) }}
-            </label>
-            <label class="check">
-              <input v-model="extraNightAfter" type="checkbox">
-              Extra night after — {{ formatDate(afterDate) }}
-            </label>
-          </div>
+            <div v-if="form.longHaul" class="field extra">
+              <span class="q">Would you require an extra night?</span>
+              <label class="check">
+                <input v-model="extraNightBefore" type="checkbox">
+                Extra night before — {{ formatDate(beforeDate) }}
+              </label>
+              <label class="check">
+                <input v-model="extraNightAfter" type="checkbox">
+                Extra night after — {{ formatDate(afterDate) }}
+              </label>
+            </div>
+          </template>
 
           <h2>Other</h2>
           <label>Comments
@@ -299,9 +403,12 @@ onMounted(load)
   margin-top: 0.75rem;
   font-weight: 600;
 }
+.deadline .countdown {
+  color: var(--accent);
+}
 .locked {
-  background: #fdf6e3;
-  border: 1px solid #e8d9a8;
+  background: rgb(var(--accent-rgb) / 0.10);
+  border: 1px solid rgb(var(--accent-rgb) / 0.4);
   border-radius: var(--radius);
   padding: 0.6rem 0.8rem;
   font-size: 0.9rem;
@@ -370,6 +477,11 @@ textarea {
   color: var(--text);
   margin-bottom: 0.4rem;
 }
+.field-note {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0 0 0.6rem;
+}
 .radios {
   display: flex;
   gap: 1.25rem;
@@ -386,14 +498,14 @@ textarea {
   padding: 1rem;
 }
 .extra {
-  background: #fdf6e3;
-  border: 1px solid #e8d9a8;
+  background: rgb(var(--accent-rgb) / 0.10);
+  border: 1px solid rgb(var(--accent-rgb) / 0.4);
   border-radius: var(--radius);
   padding: 0.8rem 1rem;
 }
 .notice {
-  background: #eef0ff;
-  border: 1px solid #d4d9ff;
+  background: rgb(var(--accent-rgb) / 0.07);
+  border: 1px solid rgb(var(--accent-rgb) / 0.3);
   border-radius: var(--radius);
   padding: 0.8rem 1rem;
 }

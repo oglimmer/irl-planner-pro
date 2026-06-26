@@ -134,11 +134,11 @@ onMounted(load)
   border-radius: 999px;
 }
 .badge.admin {
-  background: #eef0ff;
+  background: rgb(var(--accent-rgb) / 0.07);
   color: var(--accent);
 }
 .badge.member {
-  background: #f0f1f4;
+  background: var(--bg-2);
   color: var(--muted);
 }
 .actions {

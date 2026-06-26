@@ -64,7 +64,7 @@ function clearAll() {
 .chip.active {
   border-color: var(--accent);
   color: var(--accent);
-  background: #eef0ff;
+  background: rgb(var(--accent-rgb) / 0.07);
 }
 .count {
   font-variant-numeric: tabular-nums;

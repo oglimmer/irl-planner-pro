@@ -35,6 +35,12 @@ type Submission struct {
 	DepartureMode    *string `json:"departureMode"`
 	DepartureDetails string  `json:"departureDetails"`
 
+	// ArrivalIndependent / DepartureIndependent: the attendee self-arranges that
+	// leg and wants no support, so its fields are blank. The two legs are
+	// independent; when both are set the long-haul/accommodation block is blank too.
+	ArrivalIndependent   bool `json:"arrivalIndependent"`
+	DepartureIndependent bool `json:"departureIndependent"`
+
 	LongHaul       bool    `json:"longHaul"`
 	ExtraStayStart *string `json:"extraStayStart"`
 	ExtraStayEnd   *string `json:"extraStayEnd"`
@@ -60,12 +66,14 @@ type submissionReq struct {
 	ArrivalDetails   string  `json:"arrivalDetails"`
 	DepartureDay     *string `json:"departureDay"`
 	DepartureTime    string  `json:"departureTime"`
-	DepartureMode    *string `json:"departureMode"`
-	DepartureDetails string  `json:"departureDetails"`
-	LongHaul         bool    `json:"longHaul"`
-	ExtraStayStart   *string `json:"extraStayStart"`
-	ExtraStayEnd     *string `json:"extraStayEnd"`
-	Comments         string  `json:"comments"`
+	DepartureMode        *string `json:"departureMode"`
+	DepartureDetails     string  `json:"departureDetails"`
+	ArrivalIndependent   bool    `json:"arrivalIndependent"`
+	DepartureIndependent bool    `json:"departureIndependent"`
+	LongHaul             bool    `json:"longHaul"`
+	ExtraStayStart    *string `json:"extraStayStart"`
+	ExtraStayEnd      *string `json:"extraStayEnd"`
+	Comments          string  `json:"comments"`
 }
 
 var validTravelModes = map[string]bool{"flight": true, "car": true, "train": true, "other": true}
@@ -90,37 +98,49 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 		// Clear the whole travel/other block on No / Not sure.
 		req.ArrivalDay, req.ArrivalMode, req.DepartureDay, req.DepartureMode = nil, nil, nil, nil
 		req.ArrivalTime, req.ArrivalDetails, req.DepartureTime, req.DepartureDetails = "", "", "", ""
+		req.ArrivalIndependent, req.DepartureIndependent = false, false
 		req.LongHaul = false
 		req.ExtraStayStart, req.ExtraStayEnd = nil, nil
 		req.Comments = ""
 		return nil
 	}
 
-	// attending == yes
 	start, _ := parseDate(e.StartDate)
 	end, _ := parseDate(e.EndDate)
 
-	if err := validateTravelLeg("arrival", &req.ArrivalDay, &req.ArrivalMode, &req.ArrivalDetails, start, end, isAdmin); err != nil {
+	// Each leg is independent: a self-arranged leg is blanked and not validated;
+	// otherwise the leg's day/mode/details are required.
+	if req.ArrivalIndependent {
+		req.ArrivalDay, req.ArrivalMode, req.ArrivalTime, req.ArrivalDetails = nil, nil, "", ""
+	} else if err := validateTravelLeg("arrival", &req.ArrivalDay, &req.ArrivalMode, &req.ArrivalDetails, start, end, isAdmin); err != nil {
 		return err
 	}
-	if err := validateTravelLeg("departure", &req.DepartureDay, &req.DepartureMode, &req.DepartureDetails, start, end, isAdmin); err != nil {
+	if req.DepartureIndependent {
+		req.DepartureDay, req.DepartureMode, req.DepartureTime, req.DepartureDetails = nil, nil, "", ""
+	} else if err := validateTravelLeg("departure", &req.DepartureDay, &req.DepartureMode, &req.DepartureDetails, start, end, isAdmin); err != nil {
 		return err
 	}
 
-	if !req.LongHaul {
+	// Long-haul accommodation only applies when the People team handles at least
+	// one leg; a fully self-arranging attendee gets no accommodation block (this
+	// is the old single-flag behavior, now keyed on both legs being independent).
+	if req.ArrivalIndependent && req.DepartureIndependent {
+		req.LongHaul = false
 		req.ExtraStayStart, req.ExtraStayEnd = nil, nil
-	} else {
-		if err := validateExtraStay(&req.ExtraStayStart, &req.ExtraStayEnd, start, end, isAdmin); err != nil {
-			return err
-		}
+	} else if !req.LongHaul {
+		req.ExtraStayStart, req.ExtraStayEnd = nil, nil
+	} else if err := validateExtraStay(&req.ExtraStayStart, &req.ExtraStayEnd, start, end, isAdmin); err != nil {
+		return err
 	}
 	return nil
 }
 
 // validateTravelLeg checks one arrival/departure leg: a day and mode are
-// required; details are required once a mode is set. The day must fall in the
-// allowed window (event range ±1 day for employees, unrestricted for admins).
-func validateTravelLeg(label string, day **string, mode **string, details *string, start, end time.Time, isAdmin bool) error {
+// required; details (flight number / free text) are optional. The day must fall
+// in the allowed window (event range ±1 day for employees, unrestricted for
+// admins). The details param is accepted for signature symmetry with the other
+// leg fields but is intentionally not validated.
+func validateTravelLeg(label string, day **string, mode **string, _ *string, start, end time.Time, isAdmin bool) error {
 	if *day == nil || strings.TrimSpace(**day) == "" {
 		return errors.New(label + " day is required")
 	}
@@ -146,9 +166,6 @@ func validateTravelLeg(label string, day **string, mode **string, details *strin
 		return errors.New(label + " travel mode is invalid")
 	}
 	*mode = &m
-	if strings.TrimSpace(*details) == "" {
-		return errors.New(label + " details are required (flight number or other travel info)")
-	}
 	return nil
 }
 
@@ -298,40 +315,56 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 		ownerName = ownerEmail
 	}
 
-	// Was there a prior submission? (create vs update + attending-change detect)
-	var prevAttending string
+	// Prior submission state, for create-vs-update detection and the field-level
+	// diff recorded in the activity detail.
+	var prev submissionReq
 	existed := true
+	var pArrDay, pDepDay, pExtraStart, pExtraEnd sql.NullTime
+	var pArrMode, pDepMode sql.NullString
 	err = tx.QueryRowContext(ctx,
-		`SELECT attending FROM submissions WHERE event_id = $1 AND user_id = $2`, e.ID, ownerID).
-		Scan(&prevAttending)
+		`SELECT attending, not_sure_reason, arrival_day, arrival_time, arrival_mode, arrival_details,
+		        departure_day, departure_time, departure_mode, departure_details,
+		        arrival_independent, departure_independent, long_haul, extra_stay_start, extra_stay_end, comments
+		   FROM submissions WHERE event_id = $1 AND user_id = $2`, e.ID, ownerID).
+		Scan(&prev.Attending, &prev.NotSureReason, &pArrDay, &prev.ArrivalTime, &pArrMode, &prev.ArrivalDetails,
+			&pDepDay, &prev.DepartureTime, &pDepMode, &prev.DepartureDetails,
+			&prev.ArrivalIndependent, &prev.DepartureIndependent, &prev.LongHaul, &pExtraStart, &pExtraEnd, &prev.Comments)
 	if err == sql.ErrNoRows {
 		existed = false
 	} else if err != nil {
 		serverErr(w, r, err, "db error")
 		return
 	}
+	prev.ArrivalDay = nullDateStr(pArrDay)
+	prev.DepartureDay = nullDateStr(pDepDay)
+	prev.ExtraStayStart = nullDateStr(pExtraStart)
+	prev.ExtraStayEnd = nullDateStr(pExtraEnd)
+	prev.ArrivalMode = nullStr(pArrMode)
+	prev.DepartureMode = nullStr(pDepMode)
 
 	var subID string
 	err = tx.QueryRowContext(ctx,
 		`INSERT INTO submissions (event_id, user_id, attending, not_sure_reason,
 		   arrival_day, arrival_time, arrival_mode, arrival_details,
 		   departure_day, departure_time, departure_mode, departure_details,
-		   long_haul, extra_stay_start, extra_stay_end, comments)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+		   arrival_independent, departure_independent, long_haul, extra_stay_start, extra_stay_end, comments)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		 ON CONFLICT (event_id, user_id) DO UPDATE SET
 		   attending=EXCLUDED.attending,
 		   not_sure_reason=EXCLUDED.not_sure_reason, arrival_day=EXCLUDED.arrival_day,
 		   arrival_time=EXCLUDED.arrival_time, arrival_mode=EXCLUDED.arrival_mode,
 		   arrival_details=EXCLUDED.arrival_details, departure_day=EXCLUDED.departure_day,
 		   departure_time=EXCLUDED.departure_time, departure_mode=EXCLUDED.departure_mode,
-		   departure_details=EXCLUDED.departure_details, long_haul=EXCLUDED.long_haul,
+		   departure_details=EXCLUDED.departure_details,
+		   arrival_independent=EXCLUDED.arrival_independent,
+		   departure_independent=EXCLUDED.departure_independent, long_haul=EXCLUDED.long_haul,
 		   extra_stay_start=EXCLUDED.extra_stay_start, extra_stay_end=EXCLUDED.extra_stay_end,
 		   comments=EXCLUDED.comments, updated_at=now()
 		 RETURNING id`,
 		e.ID, ownerID, req.Attending, req.NotSureReason,
 		datePtr(req.ArrivalDay), req.ArrivalTime, strPtr(req.ArrivalMode), req.ArrivalDetails,
 		datePtr(req.DepartureDay), req.DepartureTime, strPtr(req.DepartureMode), req.DepartureDetails,
-		req.LongHaul, datePtr(req.ExtraStayStart), datePtr(req.ExtraStayEnd), req.Comments).
+		req.ArrivalIndependent, req.DepartureIndependent, req.LongHaul, datePtr(req.ExtraStayStart), datePtr(req.ExtraStayEnd), req.Comments).
 		Scan(&subID)
 	if err != nil {
 		metrics.SubmissionMutationsTotal.WithLabelValues("write", "error").Inc()
@@ -353,9 +386,17 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 	// Activity log. after_deadline is stamped when the change lands past the
 	// event's submission deadline — the flag the admin timeline highlights.
 	afterDeadline := time.Now().After(e.SubmissionDeadline)
-	action, summary := submissionActivity(existed, isAdmin, ownerName, actor, req, prevAttending)
+	action, summary := submissionActivity(existed, isAdmin, ownerName, actor, req, prev.Attending)
+	// On an update, record exactly which fields changed so the timeline shows
+	// what was edited, not just that something was. Omitted on first response.
+	var detail any
+	if existed {
+		if changes := diffSubmissionReq(prev, req); len(changes) > 0 {
+			detail = map[string]any{"changes": changes}
+		}
+	}
 	actorID := actor.ID
-	if err := a.logActivity(ctx, tx, e.ID, &actorID, actor.Email, ownerEmail, action, summary, nil, afterDeadline); err != nil {
+	if err := a.logActivity(ctx, tx, e.ID, &actorID, actor.Email, ownerEmail, action, summary, detail, afterDeadline); err != nil {
 		serverErr(w, r, err, "db error")
 		return
 	}
@@ -404,6 +445,57 @@ func submissionActivity(existed, isAdmin bool, who string, actor *User, req subm
 	}
 }
 
+// fieldChange is one before/after pair recorded in an update's activity detail.
+type fieldChange struct {
+	Field string `json:"field"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+}
+
+// diffSubmissionReq lists the fields that differ between the prior persisted
+// state and the new (already normalized) request, in form order. Values are
+// rendered for display; empty means "not set". Both sides are post-normalization,
+// so out-of-branch fields blanked by normalizeAndValidate show up as cleared.
+func diffSubmissionReq(prev, next submissionReq) []fieldChange {
+	var changes []fieldChange
+	add := func(field, from, to string) {
+		if from != to {
+			changes = append(changes, fieldChange{Field: field, From: from, To: to})
+		}
+	}
+	add("Attending", attendingLabel(prev.Attending), attendingLabel(next.Attending))
+	add("Not-sure reason", prev.NotSureReason, next.NotSureReason)
+	add("Arrival day", optStr(prev.ArrivalDay), optStr(next.ArrivalDay))
+	add("Arrival time", prev.ArrivalTime, next.ArrivalTime)
+	add("Arrival mode", optStr(prev.ArrivalMode), optStr(next.ArrivalMode))
+	add("Arrival details", prev.ArrivalDetails, next.ArrivalDetails)
+	add("Departure day", optStr(prev.DepartureDay), optStr(next.DepartureDay))
+	add("Departure time", prev.DepartureTime, next.DepartureTime)
+	add("Departure mode", optStr(prev.DepartureMode), optStr(next.DepartureMode))
+	add("Departure details", prev.DepartureDetails, next.DepartureDetails)
+	add("Arrival self-arranged", boolStr(prev.ArrivalIndependent), boolStr(next.ArrivalIndependent))
+	add("Departure self-arranged", boolStr(prev.DepartureIndependent), boolStr(next.DepartureIndependent))
+	add("Long-haul travel", boolStr(prev.LongHaul), boolStr(next.LongHaul))
+	add("Extra stay start", optStr(prev.ExtraStayStart), optStr(next.ExtraStayStart))
+	add("Extra stay end", optStr(prev.ExtraStayEnd), optStr(next.ExtraStayEnd))
+	add("Comments", prev.Comments, next.Comments)
+	return changes
+}
+
+func optStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
 func attendingLabel(a string) string {
 	switch a {
 	case "yes":
@@ -433,14 +525,14 @@ func (a *App) loadSubmission(ctx context.Context, eventID, userID string) (*Subm
 		`SELECT s.id, s.event_id, s.user_id, u.email, u.first_name, u.last_name, s.attending, s.not_sure_reason,
 		        s.arrival_day, s.arrival_time, s.arrival_mode, s.arrival_details,
 		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
-		        s.long_haul, s.extra_stay_start, s.extra_stay_end, u.allergies, s.comments,
+		        s.arrival_independent, s.departure_independent, s.long_haul, s.extra_stay_start, s.extra_stay_end, u.allergies, s.comments,
 		        s.created_at, s.updated_at
 		   FROM submissions s JOIN users u ON u.id = s.user_id
 		  WHERE s.event_id = $1 AND s.user_id = $2`, eventID, userID).
 		Scan(&s.ID, &s.EventID, &s.UserID, &s.Email, &s.FirstName, &s.LastName, &s.Attending, &s.NotSureReason,
 			&arrivalDay, &s.ArrivalTime, &arrivalMode, &s.ArrivalDetails,
 			&departureDay, &s.DepartureTime, &departureMode, &s.DepartureDetails,
-			&s.LongHaul, &extraStart, &extraEnd, &s.Allergies, &s.Comments,
+			&s.ArrivalIndependent, &s.DepartureIndependent, &s.LongHaul, &extraStart, &extraEnd, &s.Allergies, &s.Comments,
 			&s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		return nil, err

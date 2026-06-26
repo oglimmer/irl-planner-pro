@@ -3,6 +3,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { computed } from 'vue'
 import { useAuthStore } from './stores/auth'
 import ConfirmDialog from './components/ConfirmDialog.vue'
+import ThemeSwitcher from './components/ThemeSwitcher.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,18 +18,23 @@ function logout() {
 
 <template>
   <div class="app">
-    <header v-if="showChrome" class="app-header">
-      <RouterLink to="/" class="brand">ID5 IRL Attendance</RouterLink>
-      <nav v-if="auth.user" class="nav">
-        <template v-if="auth.user.isAdmin">
-          <RouterLink to="/admin/events" class="nav-link">Events</RouterLink>
-          <RouterLink to="/admin/users" class="nav-link">Users</RouterLink>
+    <nav v-if="showChrome" class="top">
+      <RouterLink to="/" class="brand">ID5 <em>IRL</em></RouterLink>
+      <div class="links">
+        <template v-if="auth.user">
+          <template v-if="auth.user.isAdmin">
+            <RouterLink to="/admin/events">Events</RouterLink>
+            <RouterLink to="/admin/users">Users</RouterLink>
+          </template>
+          <RouterLink to="/profile" class="who">
+            <span class="who-at">@</span>{{ auth.user.name || auth.user.email }}
+          </RouterLink>
+          <button class="signout" @click="logout">Sign out</button>
         </template>
-        <RouterLink to="/profile" class="who">{{ auth.user.name || auth.user.email }}</RouterLink>
-        <button class="link-btn" @click="logout">Sign out</button>
-      </nav>
-    </header>
-    <main class="app-main">
+        <ThemeSwitcher />
+      </div>
+    </nav>
+    <main>
       <RouterView />
     </main>
     <ConfirmDialog />
@@ -36,46 +42,99 @@ function logout() {
 </template>
 
 <style scoped>
-.app-header {
+/* Editorial sticky header — blurred backdrop, mono uppercase links. */
+nav.top {
+  position: sticky;
+  top: 0;
+  z-index: 50;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.85rem 1.5rem;
+  gap: 16px;
+  padding: 16px 32px;
+  background: rgb(var(--bg-rgb) / 0.82);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+          backdrop-filter: blur(10px) saturate(140%);
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
 }
 .brand {
-  font-weight: 650;
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
   color: var(--text);
-  text-decoration: none;
 }
-.nav {
+.brand em {
+  font-style: italic;
+  color: var(--accent-2);
+}
+.brand:hover { color: var(--text); }
+
+.links {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 22px;
 }
-.nav-link {
-  text-decoration: none;
-  color: var(--accent);
+.links a {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  padding: 4px 0;
+  border-bottom: 1px solid transparent;
+  transition: color 0.2s ease, border-color 0.2s ease;
 }
+.links a:hover,
+.links a.router-link-active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* Identity chip — the username links to the profile. */
 .who {
-  color: var(--muted);
-  font-size: 0.9rem;
-  text-decoration: none;
+  text-transform: none !important;
+  letter-spacing: 0.04em !important;
+  font-size: 11.5px !important;
+  color: var(--text-soft);
+  padding-left: 16px !important;
+  border-left: 1px solid var(--border);
 }
-.who:hover {
-  text-decoration: underline;
-}
-.link-btn {
+.who-at { color: var(--accent); margin-right: 1px; }
+
+/* Sign-out — strip the global editorial button chrome down to a quiet link. */
+button.signout {
   background: none;
-  border: none;
-  color: var(--muted);
-  text-decoration: underline;
-  padding: 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  padding: 4px 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  transition: color 0.2s ease, border-color 0.2s ease;
 }
-.app-main {
-  max-width: 960px;
+button.signout:hover {
+  background: none;
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+main {
+  width: 100%;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 1.5rem;
+  padding: 48px 32px 96px;
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 720px) {
+  nav.top { padding: 14px 18px; flex-wrap: wrap; gap: 10px; }
+  .links { gap: 14px; flex-wrap: wrap; }
+  main { padding: 32px 18px 64px; }
 }
 </style>

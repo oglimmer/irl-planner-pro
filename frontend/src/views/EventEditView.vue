@@ -286,12 +286,12 @@ legend {
   cursor: pointer;
 }
 .day.travel {
-  border-color: #c9a227;
-  background: #fdf6e3;
+  border-color: var(--accent);
+  background: rgb(var(--accent-rgb) / 0.10);
 }
 .day.event {
   border-color: var(--accent);
-  background: #eef0ff;
+  background: rgb(var(--accent-rgb) / 0.07);
 }
 .day-type {
   font-size: 0.72rem;

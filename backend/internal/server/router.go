@@ -22,10 +22,19 @@ func NewRouter(app *App) http.Handler {
 	r.Use(metrics.HTTPMiddleware)
 	r.Use(securityHeaders)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   app.Cfg.AllowedOrigins,
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Authorization", "Content-Type", "Accept"},
-		ExposedHeaders:   []string{"Link"},
+		AllowedOrigins: app.Cfg.AllowedOrigins,
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		// Authorization + Content-Type cover the REST API. The Mcp-* and
+		// Last-Event-ID request headers are sent by browser-based MCP Streamable
+		// HTTP clients (e.g. the MCP Inspector); without them the CORS preflight
+		// for /mcp fails even when the origin is allowed.
+		AllowedHeaders: []string{
+			"Authorization", "Content-Type", "Accept",
+			"Mcp-Session-Id", "Mcp-Protocol-Version", "Last-Event-ID",
+		},
+		// Mcp-Session-Id must be readable by MCP clients so they can carry a
+		// session across requests.
+		ExposedHeaders:   []string{"Link", "Mcp-Session-Id"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
@@ -46,6 +55,33 @@ func NewRouter(app *App) http.Handler {
 		w.Write([]byte("ok"))
 	})
 	r.Method("GET", "/metrics", metrics.Handler(app.Cfg.MetricsToken))
+
+	// Phase 7 — MCP server + OAuth 2.1. Mounted only when MCP_OAUTH_CLIENT_* are
+	// configured, so an opt-out deployment exposes none of this surface. The /mcp
+	// gate accepts the OAuth mcp_access bearer token (not the SPA's JWT); tool
+	// handlers enforce admin authorization themselves.
+	if app.Cfg.MCPEnabled() {
+		r.Group(func(r chi.Router) {
+			r.Use(app.mcpTokenGateMiddleware)
+			r.Mount("/mcp", app.mcpHandler())
+		})
+
+		// Discovery is cheap JSON read by clients during setup — left unthrottled.
+		r.Get("/.well-known/oauth-authorization-server", app.handleOAuthMeta)
+		r.Get("/.well-known/oauth-protected-resource", app.handleOAuthProtectedResource)
+		r.Get("/.well-known/oauth-protected-resource/mcp", app.handleOAuthProtectedResource)
+
+		// authorize/token handle auth codes, refresh tokens, and the client
+		// secret, so throttle them per client IP (RealIP-keyed). 60/min is far
+		// above any real MCP client but caps abusive loops; volumetric DoS stays
+		// the edge's job.
+		r.Group(func(r chi.Router) {
+			r.Use(httprate.LimitByIP(60, time.Minute))
+			r.Get("/oauth/authorize", app.handleOAuthAuthorize)
+			r.Post("/oauth/authorize", app.handleOAuthAuthorizeSubmit)
+			r.Post("/oauth/token", app.handleOAuthToken)
+		})
+	}
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/version", app.handleVersion)

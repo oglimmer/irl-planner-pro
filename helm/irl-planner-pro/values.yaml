@@ -13,6 +13,7 @@
 #   - OIDC_CLIENT_SECRET         (when auth.mode=oidc)
 #   - SMTP_PASSWORD              (when smtp.host is set and the relay needs auth)
 #   - METRICS_TOKEN              (when backend.metrics.exposeOnIngress=true)
+#   - MCP_OAUTH_CLIENT_SECRET    (when mcp.enabled=true — the Phase 7 MCP surface)
 existingSecret: ""
 
 # Public URL (HTTPS in production — OIDC redirect + cookies assume it). Exposed
@@ -57,6 +58,22 @@ auth:
 reminders:
   enabled: true
   tickInterval: 1h        # Go duration
+
+# MCP server (Phase 7) — an additive, OAuth-gated, admin-scoped /mcp surface for
+# MCP clients (e.g. Claude). Off by default and entirely inert unless enabled:
+# the backend only wires up /mcp + /oauth + /.well-known when BOTH the client id
+# (here) and client secret (in the sealed secret, key MCP_OAUTH_CLIENT_SECRET)
+# are present. When enabled, the ingress also needs the /mcp, /oauth, and
+# /.well-known paths added below (see ingress.hosts[].paths).
+mcp:
+  enabled: false
+  oauth:
+    # Public OAuth client id for the MCP connector.
+    clientID: "irl-planner-mcp"
+    # Allowlisted OAuth callback URIs (exact match). Defaults to Claude's
+    # connector callback.
+    redirectURIs:
+      - https://claude.ai/api/mcp/auth_callback
 
 # SMTP for outbound reminders + admin notifications. Leave host empty to disable
 # email entirely — sends become best-effort no-ops. The password goes into the

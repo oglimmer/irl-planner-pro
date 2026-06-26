@@ -21,6 +21,18 @@ var migration0002 string
 //go:embed migrations/0003_profile_allergies.sql
 var migration0003 string
 
+//go:embed migrations/0004_oauth.sql
+var migration0004 string
+
+//go:embed migrations/0005_travel_independent.sql
+var migration0005 string
+
+//go:embed migrations/0006_profile_confirmed.sql
+var migration0006 string
+
+//go:embed migrations/0007_travel_independent_per_leg.sql
+var migration0007 string
+
 // Open opens the application's *sql.DB through pgx's database/sql adapter and
 // configures it for use behind a transaction-pool PgBouncer (the common HA
 // layout in front of managed Postgres).
@@ -67,6 +79,18 @@ func Migrate(db *sql.DB) error {
 	}
 	if _, err := db.Exec(migration0003); err != nil {
 		return fmt.Errorf("0003_profile_allergies: %w", err)
+	}
+	if _, err := db.Exec(migration0004); err != nil {
+		return fmt.Errorf("0004_oauth: %w", err)
+	}
+	if _, err := db.Exec(migration0005); err != nil {
+		return fmt.Errorf("0005_travel_independent: %w", err)
+	}
+	if _, err := db.Exec(migration0006); err != nil {
+		return fmt.Errorf("0006_profile_confirmed: %w", err)
+	}
+	if _, err := db.Exec(migration0007); err != nil {
+		return fmt.Errorf("0007_travel_independent_per_leg: %w", err)
 	}
 	return nil
 }

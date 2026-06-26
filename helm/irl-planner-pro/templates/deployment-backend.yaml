@@ -138,6 +138,21 @@ spec:
               key: METRICS_TOKEN
               optional: true
         {{- end }}
+        {{- if .Values.mcp.enabled }}
+        # Phase 7 MCP server. Both the client id (here) and the secret (from the
+        # app Secret) must be present for the backend to wire up /mcp + /oauth.
+        - name: MCP_OAUTH_CLIENT_ID
+          value: {{ .Values.mcp.oauth.clientID | quote }}
+        {{- with .Values.mcp.oauth.redirectURIs }}
+        - name: MCP_OAUTH_REDIRECT_URIS
+          value: {{ join "," . | quote }}
+        {{- end }}
+        - name: MCP_OAUTH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "irl.secretName" . }}
+              key: MCP_OAUTH_CLIENT_SECRET
+        {{- end }}
         {{- with .Values.backend.extraEnv }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

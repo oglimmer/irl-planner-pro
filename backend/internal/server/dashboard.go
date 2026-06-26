@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 
@@ -46,12 +47,12 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rosterEntries, counts, err := a.dashboardRoster(r, id)
+	rosterEntries, counts, err := a.dashboardRoster(r.Context(), id)
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return
 	}
-	offRoster, err := a.dashboardOffRoster(r, id)
+	offRoster, err := a.dashboardOffRoster(r.Context(), id)
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return
@@ -65,8 +66,8 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *App) dashboardRoster(r *http.Request, eventID string) ([]DashboardRosterEntry, map[string]int, error) {
-	rows, err := a.DB.QueryContext(r.Context(),
+func (a *App) dashboardRoster(ctx context.Context, eventID string) ([]DashboardRosterEntry, map[string]int, error) {
+	rows, err := a.DB.QueryContext(ctx,
 		`SELECT er.full_name, er.email, s.attending,
 		        (s.id IS NOT NULL AND s.updated_at > e.submission_deadline) AS after_deadline_edit
 		   FROM event_roster er
@@ -99,8 +100,8 @@ func (a *App) dashboardRoster(r *http.Request, eventID string) ([]DashboardRoste
 	return entries, counts, rows.Err()
 }
 
-func (a *App) dashboardOffRoster(r *http.Request, eventID string) ([]DashboardOffRoster, error) {
-	rows, err := a.DB.QueryContext(r.Context(),
+func (a *App) dashboardOffRoster(ctx context.Context, eventID string) ([]DashboardOffRoster, error) {
+	rows, err := a.DB.QueryContext(ctx,
 		`SELECT u.first_name, u.last_name, u.email, s.attending
 		   FROM submissions s
 		   JOIN users u ON u.id = s.user_id

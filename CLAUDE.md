@@ -14,8 +14,9 @@ and exports CSV.
 form rules, auth model, and the phased plan all live there. Read the relevant
 section before changing behavior; it explains *why*, which the code doesn't. The
 README tracks phase status (Phases 0–5 done; 6 hardening/deploy partly done — the
-`helm/` chart now exists — and 7 MCP not yet built, so `mcp.go`/`oauth.go`
-referenced in DESIGN.md do not exist yet).
+`helm/` chart now exists — and 7 MCP now built: `mcp.go` (Streamable HTTP server
++ admin tools) and `oauth.go` (OAuth 2.1 + PKCE) exist, gated by
+`mcpTokenGateMiddleware` and mounted only when `MCP_OAUTH_CLIENT_*` are set).
 
 ## Deploy (`helm/`)
 
@@ -29,6 +30,26 @@ and a SealedSecret template. The frontend ConfigMap ships an SPA-only nginx
 config (drops the compose `proxy_pass http://backend` blocks, which would crash
 nginx in-cluster); when adding a backend path, update BOTH the ingress `paths`
 in `values.yaml` AND `frontend/nginx.conf`.
+
+**Deploying a change (`./oglimmer.sh build …` + `kubectl rollout restart`).**
+The chart runs images by the **floating `:latest` tag** with `pullPolicy: Always`,
+and `oglimmer.sh` builds/pushes `:latest` (no version tag). So a `rollout restart`
+only ships new code if a fresh `:latest` was actually pushed first. Two traps that
+have each burned a session:
+- **The build can no-op or fail silently.** `oglimmer.sh` suppresses all command
+  output unless `-v`, and even with `-v` a push error scrolls past. A failed build
+  leaves the *old* `:latest`, so the restart faithfully re-pulls stale code. Always
+  run with `-v`, confirm the `[SUCCESS] … image pushed` line, **and** verify the
+  registry digest actually changed before restarting:
+  `docker buildx imagetools inspect ghcr.io/oglimmer/irl-planner-pro-frontend:latest | grep Digest`
+- **Verify on the cluster, don't assume.** Compare the running pod's `imageID`
+  digest to the registry `:latest` digest; if equal, the cluster is current and
+  any "staleness" is a browser cache (hard-refresh) or the change never made it
+  into the image. To prove the image's content, grep the built asset inside the
+  pod, e.g. `kubectl … exec <pod> -- grep -r "<new string>" /usr/share/nginx/html`.
+  A backend schema change also needs the new column verified in Postgres
+  (`psql -U irl -d irl -c '\d submissions'`) — a green boot does **not** prove the
+  migration ran (see Migrations above).
 
 ## Commands
 
@@ -79,9 +100,19 @@ root context that every background goroutine derives from, tracked by a
 - **`internal/{config,db,email,metrics,workspaceauth,buildinfo}`** are leaf
   packages with no server deps.
 - **Migrations** are embedded `.sql` files (`internal/db/migrations/NNNN_*.sql`)
-  run sequentially by `db.Migrate` — no external migration tool. Add a new
-  numbered file; never edit an applied one. `db.Open` uses `QueryExecModeExec`
-  with no statement cache (PgBouncer-safe) — keep that pool config verbatim.
+  run by `db.Migrate` — no external migration tool. There is **no glob and no
+  `schema_migrations` tracking table**: each file is wired in by hand in
+  `db.go` and **every migration runs on every boot**. Adding a migration is a
+  three-step change — miss any one and the backend boots green while the schema
+  silently stays behind (this exact trap cost a debugging session):
+  1. Create the numbered file (never edit an applied one).
+  2. Add a `//go:embed migrations/NNNN_*.sql` directive + `var migrationNNNN string` in `db.go`.
+  3. Add a `db.Exec(migrationNNNN)` line to `Migrate()` in the right order.
+  Because it re-runs on every boot, **every statement must be idempotent** —
+  `ADD COLUMN IF NOT EXISTS`, `DROP COLUMN IF EXISTS`, `DO $$…$$` guards for
+  backfills (see 0002/0003). A bare `ALTER TABLE … ADD COLUMN` fails on the
+  second boot. `db.Open` uses `QueryExecModeExec` with no statement cache
+  (PgBouncer-safe) — keep that pool config verbatim.
 
 **Routing & auth** (`router.go`): three nested groups under `/api` —
 (1) public (`/version`, `/auth/config`, the rate-limited login endpoints),

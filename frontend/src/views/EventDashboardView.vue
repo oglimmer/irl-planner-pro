@@ -51,7 +51,7 @@ async function copyShareUrl() {
     copied.value = true
     setTimeout(() => (copied.value = false), 2000)
   } catch {
-    // clipboard unavailable — selectable input is the fallback
+    // clipboard unavailable — nothing to do
   }
 }
 
@@ -156,14 +156,9 @@ onMounted(async () => {
             <span v-if="event.isPast" class="badge past">Past</span>
           </p>
         </div>
-        <RouterLink :to="`/admin/events/${event.id}/edit`" class="btn secondary">Edit</RouterLink>
-      </div>
-
-      <div class="share">
-        <label for="share-url">Shareable link for attendees</label>
-        <div class="share-row">
-          <input id="share-url" class="share-input" :value="shareUrl" readonly @focus="($event.target as HTMLInputElement).select()">
-          <button type="button" class="btn" @click="copyShareUrl">{{ copied ? 'Copied!' : 'Copy link' }}</button>
+        <div class="head-actions">
+          <button type="button" class="btn secondary" @click="copyShareUrl">{{ copied ? 'Copied!' : 'Copy link' }}</button>
+          <RouterLink :to="`/admin/events/${event.id}/edit`" class="btn secondary">Edit</RouterLink>
         </div>
       </div>
 
@@ -267,7 +262,7 @@ onMounted(async () => {
 .badge.past {
   font-size: 0.7rem;
   text-transform: uppercase;
-  background: #f0f1f4;
+  background: var(--bg-2);
   color: var(--muted);
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
@@ -276,35 +271,15 @@ onMounted(async () => {
 .badge.late {
   font-size: 0.7rem;
   text-transform: uppercase;
-  background: #fdecef;
+  background: rgb(var(--rust-rgb) / 0.12);
   color: var(--danger);
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
 }
-.share {
-  margin: 1.25rem 0;
-  padding: 1rem 1.1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-.share > label {
-  display: block;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  margin-bottom: 0.5rem;
-}
-.share-row { display: flex; gap: 0.5rem; }
-.share-input {
-  flex: 1;
-  padding: 0.5rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-family: ui-monospace, monospace;
-  background: var(--bg);
-  color: var(--text);
+.head-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 .tabs {
   display: flex;
@@ -369,10 +344,10 @@ onMounted(async () => {
   padding: 0.15rem 0.55rem;
   border-radius: 999px;
 }
-.pill.yes { background: #e7f7ee; color: var(--ok); }
-.pill.no { background: #fdecef; color: var(--danger); }
-.pill.not_sure { background: #fdf6e3; color: #9a7b1a; }
-.pill.no_response { background: #f0f1f4; color: var(--muted); }
+.pill.yes { background: rgb(var(--success-rgb) / 0.14); color: var(--ok); }
+.pill.no { background: rgb(var(--rust-rgb) / 0.12); color: var(--danger); }
+.pill.not_sure { background: rgb(var(--accent-rgb) / 0.15); color: var(--accent-2); }
+.pill.no_response { background: var(--bg-2); color: var(--muted); }
 .offroster {
   margin-top: 1.5rem;
 }

@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ID5 IRL Attendance</title>
+    <!-- Pre-boot theme application to avoid a flash-of-wrong-theme before the
+         JS bundle loads. Mirrors theme.ts — keep the id list in sync. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('theme');
+          var ok = ['light', 'dark', 'midnight', 'sepia', 'contrast'];
+          document.documentElement.dataset.theme = ok.indexOf(t) >= 0 ? t : 'light';
+        } catch (e) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

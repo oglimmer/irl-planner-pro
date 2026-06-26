@@ -1,78 +1,70 @@
-# ID5 IRL Attendance App — Design & Implementation Document
+# ID5 IRL Attendance App — Architecture & Reference
 
-Status: Draft for review
-Author: generated from `plan.md`
-Reference architecture: `/Users/ozimpasser/dev/plugin-skill-hosting`
+Technical documentation for the IRL Attendance App: a web app for collecting
+attendee information ahead of company offsites ("IRLs"). It describes the
+architecture, data model, API surface, authentication model, conditional form
+rules, and operational setup as they exist today.
 
 ---
 
-## 1. Purpose & scope
+## 1. Overview
 
-A web app for collecting attendee information ahead of company offsites ("IRLs").
-An **admin** (People team) configures an event once; **employees** sign in with
-Google SSO and submit their attendance + travel details via a form with
+An **admin** (the People team) configures an event once; **employees** sign in
+with Google SSO and submit their attendance + travel details through a form with
 conditional logic. The app tracks non-responders against an uploaded employee
 roster, sends automated reminders, notifies admins on edits, and exports
-responses.
+responses as CSV.
 
-This document fixes the **tech stack, architecture, data model, API surface, and
-a phased implementation plan**, deliberately mirroring the conventions of the
-`plugin-skill-hosting` project so the two codebases feel like siblings.
-
-### Functional summary (from `plan.md`)
+### What the app does
 
 - **Admin setup** — event name, dates (per-day travel/event type), location
   (country + city), hotel (name + address), submission deadline, **timezone**
-  (default `Europe/Paris`), reminder lead days (default 3).
-- **Attendee form** — basic details + attending (Yes / No / Not sure, the last
-  requiring a reason); conditional travel + long-haul (extra night before/after
-  the offsite) on Yes; an instructions message on No. Dietary preferences live on
-  the user's profile, not the form.
+  (default `Europe/Paris`), and reminder lead days (default 3).
+- **Attendee form** — attendance (Yes / No / Not sure, the last requiring a
+  reason); conditional travel + long-haul (extra night before/after the offsite)
+  on Yes; an instructions message on No. Name and dietary preferences live on the
+  user's profile, not the form.
 - **Edit, activity log & notify** — attendees may edit after submitting; every
   action is recorded in an activity log (employees see their own; admins see all,
   with after-deadline edits highlighted); admins are emailed on any change and can
   enable a per-event daily activity digest.
 - **Access** — Google SSO restricted to `@id5.io`; each event has a shareable URL.
-- **Roster + dashboard** — admin uploads a CSV (name + work email) per event; the
+- **Roster + dashboard** — admins upload a CSV (name + work email) per event; the
   dashboard buckets everyone by attending state (yes / no / not sure / no
   response), filterable, and auto-reloads (5s / 15s / 1m / 5m / off).
 - **Lifecycle** — events are never deleted; past events move to a separate area
   and stay admin-editable.
-- **Export** — CSV export of responses.
-- **Reminders** — automated emails to non-responders: 1/week plus configurable
-  daily emails in the run-up to the deadline; admin-configurable timing, evaluated
-  in the event timezone.
+- **Export** — CSV export of responses, following the active dashboard filter.
+- **Reminders** — automated emails to non-responders: one per week plus
+  configurable daily emails in the run-up to the deadline; timing is
+  admin-configurable and evaluated in the event timezone.
+- **MCP** — an optional, OAuth-gated MCP server lets an admin query and manage
+  events from an MCP client (e.g. Claude). Disabled unless configured (§16).
 
 ---
 
-## 2. Tech stack (inherited from the reference)
+## 2. Technology stack
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Backend language | **Go 1.26** | single module, `internal/` packages |
-| HTTP router | **go-chi/chi v5** + middleware (`RequestID`, `RealIP`, `Recoverer`, `cors`, `httprate`) | same router composition as reference |
-| Database | **PostgreSQL 16** via **pgx/v5** through the `database/sql` adapter | `QueryExecModeExec`, no statement cache (PgBouncer-safe) — copy `db.Open` verbatim |
+| Backend language | **Go 1.26** | single module (`irlplanner`), `internal/` packages |
+| HTTP router | **go-chi/chi v5** + middleware (`RequestID`, `RealIP`, `Recoverer`, `cors`, `httprate`) | |
+| Database | **PostgreSQL 16** via **pgx/v5** through the `database/sql` adapter | `QueryExecModeExec`, no statement cache (PgBouncer-safe) |
 | Migrations | Embedded `.sql` files run sequentially in `db.Migrate` | `//go:embed migrations/NNNN_*.sql`; no external migration tool |
 | Auth | **OIDC** (`coreos/go-oidc/v3`) + **JWT** sessions (`golang-jwt/jwt/v5`) | Google Workspace `hd`-claim domain restriction → `id5.io` |
-| Email | stdlib `net/smtp` wrapper (`internal/email`) | copy the reference `email.Sender` as-is |
-| Metrics | **Prometheus** (`/metrics`), `/healthz`, `/readyz` | reuse `internal/metrics` |
-| Background jobs | goroutines bound to a root `context`, tracked by a `sync.WaitGroup`; `time.Ticker` schedulers | reminder scheduler mirrors `StartSkillAudit` |
-| MCP (Phase 7) | **`modelcontextprotocol/go-sdk`** Streamable HTTP server at `/mcp` + **OAuth 2.1** (PKCE) | admin-facing tools; copy `mcp.go` + `oauth.go` patterns |
+| Email | stdlib `net/smtp` wrapper (`internal/email`) | best-effort; empty `SMTP_HOST` disables it |
+| Metrics | **Prometheus** (`/metrics`), `/healthz`, `/readyz` | `internal/metrics` |
+| Background jobs | goroutines bound to a root `context`, tracked by a `sync.WaitGroup`; `time.Ticker` schedulers | reminder + digest scheduler |
+| MCP | **`modelcontextprotocol/go-sdk`** Streamable HTTP server at `/mcp` + **OAuth 2.1** (PKCE) | optional, admin-facing; off unless configured |
 | Frontend | **Vue 3** (`<script setup>`) + **vue-router** + **Pinia** | lazy-loaded views, `beforeEach` auth guard |
 | Build/tooling | **Vite**, **TypeScript**, **vue-tsc**, **ESLint** | `npm run check` = typecheck + lint + test |
-| Frontend tests | **Vitest** + `@testing-library/vue` + **MSW** | mirror reference test layout |
-| Frontend HTTP | thin `fetch` wrapper in `src/api.ts` with `ApiError` + client-side JWT-exp check | copy the pattern |
-| Packaging | multi-stage Dockerfiles; **nginx** serves the SPA and proxies `/api` | identical nginx routing approach |
-| Orchestration | Docker **Compose** (db + backend + frontend) for dev; **Helm** + **ArgoCD** for prod | reuse chart structure |
+| Frontend tests | **Vitest** + `@testing-library/vue` + **MSW** | |
+| Frontend HTTP | thin `fetch` wrapper in `src/api.ts` with `ApiError` + client-side JWT-exp check | |
+| Packaging | multi-stage Dockerfiles; **nginx** serves the SPA and proxies `/api` | |
+| Orchestration | Docker **Compose** (db + backend + frontend) for dev; **Helm** + **ArgoCD** for prod | |
 
-**Deliberately dropped** from the reference (not needed here): git smart-HTTP
-hosting, the Anthropic skill validator/audit, external-git mirroring, the
-plugin/skill domain. We keep the *patterns* those used (ticker-driven schedulers,
-append-only audit/versioning, OIDC domain gating) where they apply.
-
-**Kept and adapted:** the **MCP server + OAuth 2.1** surface — built in **Phase 7**
-(§18) as an additive, admin-facing way to query and manage events from an MCP
-client (e.g. Claude). The core app (Phases 0–6) ships fully without it.
+The backend is **stateless** apart from Postgres and outbound SMTP — there is no
+on-disk state, so no backend PVC is required.
 
 ---
 
@@ -97,7 +89,7 @@ client (e.g. Claude). The core app (Phases 0–6) ships fully without it.
                     │  /api/events/:slug/submission  form CRUD        │
                     │  /api/events/:id/roster (CSV up) /export (CSV)  │
                     │  /api/events/:id/dashboard      stats           │
-                    │  /mcp  (Phase 7) MCP Streamable HTTP, admin     │
+                    │  /mcp           MCP Streamable HTTP (optional)  │
                     │  /oauth, /.well-known  OAuth 2.1 for /mcp        │
                     │                                                 │
                     │  background goroutines (root ctx + WaitGroup):  │
@@ -110,16 +102,17 @@ client (e.g. Claude). The core app (Phases 0–6) ships fully without it.
                     │              PostgreSQL 16                      │
                     │  users, events, event_days, event_roster,      │
                     │  submissions, submission_revisions,            │
-                    │  reminder_log, activity_log                    │
+                    │  reminder_log, activity_log,                   │
+                    │  oauth_auth_codes, oauth_refresh_tokens,       │
+                    │  oauth_pending                                 │
                     └───────────────────────────────────────────────┘
                                               │ SMTP
                                               ▼
                                     Outbound email (reminders, admin notify)
 ```
 
-The backend is **stateless** apart from Postgres and outbound SMTP — no local
-data directory is required (unlike the reference, which kept git repos on disk),
-which simplifies deployment (no PVC needed for the backend).
+The MCP endpoint and its OAuth tables are present but inert unless MCP is
+configured (§16); the core app runs fully without them.
 
 ---
 
@@ -136,17 +129,17 @@ irl-planner-pro/
 │   ├── Dockerfile
 │   ├── cmd/server/main.go         boot: config → db → migrate → schedulers → http
 │   └── internal/
-│       ├── config/                env loading + validation (copy & trim reference)
+│       ├── config/                env loading + validation
 │       ├── db/                    Open + Migrate + embedded migrations/
-│       │   └── migrations/0001_init.sql …
-│       ├── email/                 SMTP sender (copy from reference)
-│       ├── metrics/               Prometheus middleware (copy from reference)
-│       ├── workspaceauth/         Google hd-claim validation (copy from reference)
+│       │   └── migrations/0001_init.sql … 0007_*.sql
+│       ├── email/                 SMTP sender
+│       ├── metrics/               Prometheus middleware
+│       ├── workspaceauth/         Google hd-claim validation
 │       └── server/
 │           ├── app.go             App struct (Cfg, DB, OIDC, Email)
 │           ├── router.go          chi route wiring
 │           ├── auth.go            JWT mint/verify, authMiddleware, requireAdmin
-│           ├── oidc.go            OIDC login/callback/logout (copy & trim)
+│           ├── oidc.go            OIDC login/callback/logout
 │           ├── users.go           /api/me, provisioning (first-user-admin), promote/demote
 │           ├── events.go          event CRUD + per-day config
 │           ├── roster.go          CSV upload + parse
@@ -157,9 +150,9 @@ irl-planner-pro/
 │           ├── reminders.go       scheduler + reminders + daily digest + reminder_log
 │           ├── notify.go          admin "submission changed" emails
 │           ├── timeutil.go        event-tz <-> UTC helpers, "is past" / "today"
-│           ├── mcp.go             (Phase 7) MCP server + tool registrations
-│           ├── oauth.go           (Phase 7) OAuth 2.1 authorize/token + discovery
-│           └── errors.go          JSON/HTML error responses (copy pattern)
+│           ├── mcp.go             MCP server + tool registrations
+│           ├── oauth.go           OAuth 2.1 authorize/token + discovery
+│           └── errors.go          JSON/HTML error responses
 ├── frontend/
 │   ├── Dockerfile, nginx.conf, nginx-security-headers.conf
 │   ├── package.json, vite.config.ts, tsconfig*.json
@@ -168,11 +161,13 @@ irl-planner-pro/
 │       ├── stores/   auth.ts, events.ts
 │       ├── views/
 │       │   ├── LoginView.vue          Google sign-in
-│       │   ├── OIDCCallbackView.vue   token handoff (copy pattern)
+│       │   ├── OIDCCallbackView.vue   token handoff
 │       │   ├── EventListView.vue      admin: events index (current vs Past tabs)
 │       │   ├── EventEditView.vue      admin: configure event + days + tz + reminders
 │       │   ├── EventDashboardView.vue admin: Responses / Activity / Roster tabs
 │       │   ├── AttendeeFormView.vue   employee: conditional form + My-activity (/events/:slug)
+│       │   ├── WelcomeView.vue         first-login profile confirm (/welcome)
+│       │   ├── ProfileView.vue         edit own name + allergies (/profile)
 │       │   ├── UsersView.vue          admin: list users, promote/demote
 │       │   └── ErrorView.vue          403/404/500
 │       ├── components/  ActivityLog.vue, AttendingFilter.vue
@@ -182,18 +177,18 @@ irl-planner-pro/
     └── irl-planner-pro/   Chart.yaml, values.yaml, templates/
 ```
 
-Module name proposed: **`irlplanner`** (the reference used `marketplace`).
-
 ---
 
 ## 5. Data model
 
-Postgres, UUID PKs (`gen_random_uuid()` via `pgcrypto`), `TIMESTAMPTZ` everywhere,
-sequential embedded migrations. Schema below is `0001_init.sql` conceptually.
+Postgres, UUID PKs (`gen_random_uuid()` via `pgcrypto`), `TIMESTAMPTZ` for all
+instants. The schema is built by sequential embedded migrations (`0001`–`0007`),
+each run in order on every boot and written to be idempotent. The definitions
+below show the **current** shape of each table; a comment cites the migration that
+introduced or changed a column when it post-dates the initial schema.
 
 ### 5.1 `users`
-Provisioned on first OIDC login. Mirrors the reference user model minus
-password auth.
+Provisioned on first OIDC login.
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -204,6 +199,7 @@ CREATE TABLE users (
     first_name  TEXT NOT NULL DEFAULT '',     -- seeded from OIDC given_name on first login
     last_name   TEXT NOT NULL DEFAULT '',     -- seeded from OIDC family_name on first login
     allergies   TEXT NOT NULL DEFAULT '',     -- dietary preferences; a profile property, not per-event (migration 0003)
+    profile_confirmed BOOLEAN NOT NULL DEFAULT false, -- true once the user reviews the IdP-seeded profile (migration 0006)
     is_admin    BOOLEAN NOT NULL DEFAULT false,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     token_version INTEGER NOT NULL DEFAULT 0  -- bump to revoke all sessions
@@ -216,8 +212,8 @@ the split `name` claim) **only when the account is created**. It is **never refr
 from the IdP on later logins**, so a user's own edit always wins. Users edit their
 name at `/profile` (`PUT /api/me`); the API also returns a derived read-only `name`
 (first + last) for display. Submissions carry **no** name — every name shown on a
-dashboard, export, or activity line is read from the submitter's profile (added in
-migration `0002_profile_names`).
+dashboard, export, or activity line is read from the submitter's profile (name was
+moved off submissions in migration `0002_profile_names`).
 
 **Allergies = a profile property too.** Allergies / dietary preferences describe
 the person rather than any one event, so they live on `users.allergies` and are
@@ -227,13 +223,22 @@ entered once and reused for every event. The submission read shape still exposes
 profile, not stored per submission (moved off `submissions` in migration
 `0003_profile_allergies`, mirroring `0002`).
 
-**Admin bootstrap:** the **first user to sign in** is made admin automatically
-(`is_admin = true` when the `users` table is otherwise empty — done atomically in
-the provisioning transaction). From then on, admins **promote/demote** other
-users in-app (ported from the reference's promote/demote pattern). No
-self-service registration; the `@id5.io` domain restriction is the gate. A
-guard prevents the last remaining admin from demoting themselves, so an event is
-never left without an admin.
+**First-login profile confirmation.** Because the IdP's given/family split is often
+wrong and it never carries dietary needs, a newly provisioned user is asked to
+confirm or correct their name and allergies before anything else. `profile_confirmed`
+(migration `0006`) is `false` for new accounts and flips `true` on the first
+`PUT /api/me` — saving the profile *is* the confirmation. Accounts that existed
+before the migration were backfilled to `true` so they aren't sent back through it.
+The SPA router guard sends any authenticated, unconfirmed user to `/welcome` (a
+focused, chrome-less confirm step pre-filled from the seeded values) ahead of their
+intended destination, then forwards them on once they save.
+
+**Admin bootstrap.** The **first user to sign in** is made admin automatically
+(`is_admin = true` when the `users` table is otherwise empty — decided atomically
+in SQL so concurrent first logins can't both win). From then on, admins
+**promote/demote** other users in-app. There is no self-service registration; the
+`@id5.io` domain restriction is the gate. A guard prevents the last remaining
+admin from being demoted, so a deployment is never left without an admin.
 
 ### 5.2 `events`
 
@@ -262,20 +267,19 @@ CREATE TABLE events (
 ```
 
 The `slug` is the shareable URL component (e.g. `dubrovnik-oct-2026`), validated
-against the same slug regex the reference uses (`^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$`).
+against the slug regex `^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$`.
 
 **No deletion.** Events are never deleted (they hold historical attendance data).
-Instead an event is **past** when `end_date < today` (computed in the event's
-timezone). The UI surfaces *current/upcoming* events prominently and tucks past
-events into a separate "Past events" area. Past events are **read-only for
-employees** (the form locks) but **fully editable by admins** — every such admin
-edit is captured in the activity log (§5.8, §11). `timezone` is an IANA name
-(default `Europe/Paris`); all timestamps are stored UTC and rendered in this zone
-(§6.3).
+An event is **past** when `end_date < today`, computed in the event's timezone. The
+UI surfaces *current/upcoming* events prominently and tucks past events into a
+separate "Past events" area. Past events are **read-only for employees** (the form
+locks) but **fully editable by admins** — every such admin edit is captured in the
+activity log (§5.8, §11). All timestamps are stored UTC and rendered in the event
+zone (§6.3).
 
 ### 5.3 `event_days`
 One row per calendar day in `[start_date, end_date]`, each typed. Generated on
-event create with **first and last day = `travel`, the rest = `event`**; admin
+event create with **first and last day = `travel`, the rest = `event`**; admins
 can override per day.
 
 ```sql
@@ -307,8 +311,8 @@ Re-uploading a CSV replaces the roster for that event (delete + insert in one
 transaction) so corrections are easy.
 
 ### 5.5 `submissions`
-One submission per (event, user). Holds all form fields including the
-conditional travel block.
+One submission per (event, user). Holds all form fields including the conditional
+travel block.
 
 ```sql
 CREATE TABLE submissions (
@@ -329,6 +333,8 @@ CREATE TABLE submissions (
     departure_time     TEXT,
     departure_mode     TEXT CHECK (departure_mode IN ('flight','car','train','other')),
     departure_details  TEXT NOT NULL DEFAULT '',
+    arrival_independent   BOOLEAN NOT NULL DEFAULT false,  -- arrival self-arranged, no support (migration 0007; was travel_independent in 0005)
+    departure_independent BOOLEAN NOT NULL DEFAULT false,  -- departure self-arranged, no support (migration 0007)
     long_haul          BOOLEAN NOT NULL DEFAULT false,  -- intl flight 7h+
     -- Extra hotel nights modelled as an extended stay window (event-local dates).
     -- extra_stay_start: first night needing accommodation when EARLIER than the
@@ -354,8 +360,7 @@ CREATE TABLE submissions (
 
 ### 5.6 `submission_revisions`
 Append-only history so admins can see what changed, and the source of the
-"submission changed" admin notification. Cheap, and matches the reference's
-versioning instinct.
+"submission changed" admin notification.
 
 ```sql
 CREATE TABLE submission_revisions (
@@ -414,8 +419,45 @@ digest email render without re-deriving anything. `after_deadline` is stamped by
 comparing `now()` to the event's `submission_deadline` — it's the single flag the
 admin UI uses to highlight late changes.
 
-The earlier `submission_revisions` table (§5.6) remains the *full-snapshot* store
-(for precise field-level diffs); `activity_log` is the *timeline* layered on top.
+`submission_revisions` (§5.6) is the *full-snapshot* store (for precise
+field-level diffs); `activity_log` is the *timeline* layered on top.
+
+### 5.9 OAuth tables (MCP)
+Backing store for the OAuth 2.1 Authorization Code + PKCE flow that guards the MCP
+endpoint (§16). These tables exist on every deployment but are only written to
+when MCP is enabled. Auth codes and refresh tokens are stored **hashed**; the
+plaintext is only ever held by the client.
+
+```sql
+CREATE TABLE oauth_auth_codes (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code_hash      TEXT NOT NULL UNIQUE,
+    user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    redirect_uri   TEXT NOT NULL,
+    code_challenge TEXT NOT NULL,                  -- PKCE S256 challenge
+    expires_at     TIMESTAMPTZ NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE oauth_refresh_tokens (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token_hash TEXT NOT NULL UNIQUE,
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Transient store for OAuth params while the user authenticates via OIDC.
+-- Keyed by the nonce embedded in the OIDC state parameter ("oauth:<state_key>").
+CREATE TABLE oauth_pending (
+    state_key      TEXT PRIMARY KEY,
+    redirect_uri   TEXT NOT NULL,
+    code_challenge TEXT NOT NULL,
+    oauth_state    TEXT NOT NULL,
+    expires_at     TIMESTAMPTZ NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
 
 ---
 
@@ -427,18 +469,20 @@ The earlier `submission_revisions` table (§5.6) remains the *full-snapshot* sto
   - **stage** — `AUTH_MODE=oidc` against Keycloak with `OIDC_GOOGLE_WORKSPACE_DOMAINS`
     empty, so any Keycloak user is allowed (it's stage).
   - **local** — `AUTH_MODE=password`, a dev stub that mints a session for any email
-    with no real credential check (`handleDevLogin`); never enable it for a shared deployment.
-- In prod, `OIDC_GOOGLE_WORKSPACE_DOMAINS=id5.io` enforces the `hd` claim via the
-  copied `workspaceauth.ValidateGoogleHD` (and is sent as the `hd` auth hint).
-  Anyone outside `@id5.io` is rejected at callback with a generic "domain not
-  allowed" page. The check only applies to the Google issuer, so stage/Keycloak is
+    with no real credential check (`handleDevLogin`); never enabled on a shared
+    deployment.
+- In prod, `OIDC_GOOGLE_WORKSPACE_DOMAINS=id5.io` enforces the `hd` claim via
+  `workspaceauth.ValidateGoogleHD` (and is sent as the `hd` auth hint). Anyone
+  outside `@id5.io` is rejected at callback with a generic "domain not allowed"
+  page. The check only applies to the Google issuer, so stage/Keycloak is
   unaffected.
-- On successful callback the user is **upserted** into `users` (no approval queue
-  — domain restriction is sufficient). The **first** user ever provisioned is made
-  admin (§5.1); everyone after is a regular employee until an admin promotes them.
+- On successful callback the user is **upserted** into `users` (no approval queue —
+  the domain restriction is sufficient). The **first** user ever provisioned is
+  made admin (§5.1); everyone after is a regular employee until an admin promotes
+  them.
 - A signed **JWT** (30-day expiry, `token_version` embedded) is handed to the SPA
-  via the same `/auth/callback#token=…` fragment flow the reference uses, stored
-  in `localStorage`, and sent as `Authorization: Bearer`.
+  via the `/auth/callback#token=…` URL-fragment flow, stored in `localStorage`,
+  and sent as `Authorization: Bearer`.
 
 ### 6.2 Authorization
 Two roles:
@@ -456,22 +500,21 @@ Two roles:
 | Configure reminders / daily digest | — | ✓ |
 | Promote/demote admins | — | ✓ |
 
-Enforced by chi middleware mirroring the reference: `authMiddleware`
-(verifies JWT, loads user, checks `token_version`) then `requireAdminMiddleware`
-on the admin route group. The frontend router `beforeEach` guard mirrors this for
-UX (redirect to `/login`, 403 page for non-admins) but the **backend is the
-source of truth**.
+Enforced by chi middleware: `authMiddleware` (verifies JWT, loads user, checks
+`token_version`) then `requireAdminMiddleware` on the admin route group. The
+frontend router `beforeEach` guard mirrors this for UX (redirect to `/login`, 403
+page for non-admins) but the **backend is the source of truth**.
 
 **Past-event edits.** Employees may create/edit their own submission only while
 the event is current/upcoming (`end_date >= today`). Once an event is past, the
 employee form is read-only — but **admins can still edit any submission and any
 event config**, at any time. Each admin edit (and any edit landing after the
-submission deadline) is recorded in the activity log with `after_deadline=true`
-so it is conspicuous in the admin timeline.
+submission deadline) is recorded in the activity log with `after_deadline=true` so
+it is conspicuous in the admin timeline.
 
 ### 6.3 Time zones & date handling
 
-Each event carries an IANA **`timezone`** (default `Europe/Paris`). The rule:
+Each event carries an IANA **`timezone`** (default `Europe/Paris`). The rules:
 
 - **Storage is always UTC.** `TIMESTAMPTZ` columns hold UTC; `DATE` columns
   (`start_date`, `end_date`, `event_days.day_date`, arrival/departure days) are
@@ -483,7 +526,7 @@ Each event carries an IANA **`timezone`** (default `Europe/Paris`). The rule:
   in the event's `timezone` and converts to UTC for storage.
 - **Backend** uses Go's `time.LoadLocation(event.Timezone)` to resolve the zone
   for: interpreting the entered deadline, computing the reminder send window
-  (`reminder_hour` is event-local), and deciding "today"/"is the event past".
+  (`reminder_hour` is event-local), and deciding "today" / "is the event past".
 - **`timezone` is validated** at write time against the tz database
   (`time.LoadLocation` must succeed) — an invalid zone is a 400.
 
@@ -491,8 +534,8 @@ Each event carries an IANA **`timezone`** (default `Europe/Paris`). The rule:
 
 ## 7. Backend API surface
 
-All under `/api`, JSON, `httprate` per-IP throttles on auth + mutation-heavy
-endpoints (copy the reference's limits).
+All under `/api`, JSON, with `httprate` per-IP throttles on auth and
+mutation-heavy endpoints.
 
 ### Public / auth
 ```
@@ -501,8 +544,8 @@ GET  /api/auth/config                  { mode, ... } for the SPA
 GET  /api/auth/oidc/login              → redirect to Google
 GET  /api/auth/oidc/callback           ← Google, mints JWT, redirects to SPA
 GET  /api/auth/oidc/logout             RP-initiated logout
-GET  /api/me                           current user { id, email, firstName, lastName, name, isAdmin }
-PUT  /api/me                           edit own display name { firstName, lastName } (both required)
+GET  /api/me                           current user { id, email, firstName, lastName, name, allergies, profileConfirmed, isAdmin, createdAt }
+PUT  /api/me                           edit own profile { firstName, lastName, allergies } (names required; allergies optional) — also flips profile_confirmed=true (first-login confirm, §5.1)
 ```
 
 ### Attendee-facing (any signed-in @id5.io user)
@@ -537,31 +580,31 @@ GET    /api/events/:id/export.csv      CSV download of all submissions
 There is no delete endpoint — events persist and become read-only-to-employees
 once past (§5.2, §6).
 
-`PUT /submission` runs the **conditional validation** (section 8), writes the
+`PUT /submission` runs the **conditional validation** (§8), writes the
 `submissions` row, appends a `submission_revisions` snapshot, writes an
 `activity_log` entry (stamping `after_deadline`), and — if this is an edit of an
-existing submission — enqueues an **admin notification** email (section 9.2).
-Admin edits via `PUT …/submissions/:userId` follow the same path but log the
+existing submission — enqueues an **admin notification** email (§9.2). Admin edits
+via `PUT …/submissions/:userId` follow the same path but log the
 `admin.edited_submission` action with the admin as `actor` and the attendee as
 `subject`.
 
-### MCP & OAuth (Phase 7)
+### MCP & OAuth
 ```
-/mcp                                    MCP Streamable HTTP (admin tools; see §18)
+/mcp                                    MCP Streamable HTTP (admin tools; see §16)
 /oauth/authorize  /oauth/token          OAuth 2.1 Authorization Code + PKCE
 /.well-known/oauth-authorization-server RFC 8414 discovery
 /.well-known/oauth-protected-resource   RFC 9728 protected-resource metadata
 ```
-These exist only once Phase 7 lands and are gated by `mcpTokenGateMiddleware`
-(OAuth bearer) rather than the SPA's JWT. Detailed in §18.
+These are mounted only when MCP is configured and are gated by
+`mcpTokenGateMiddleware` (OAuth bearer) rather than the SPA's JWT. Detailed in §16.
 
 ---
 
 ## 8. Attendee form & conditional logic
 
 The form is a single Vue view (`AttendeeFormView.vue`) driven by reactive state;
-the **same rules are enforced server-side** in `submissions.go` (never trust the
-client).
+the **same rules are enforced server-side** in `submissions.go` (the client is
+never trusted).
 
 ### Step 1 — Basic details (always)
 - The attendee's **name and allergies are not collected here** — they come from
@@ -569,9 +612,8 @@ client).
   The form shows a read-only "Submitting as …" block (name + dietary preferences)
   with a single link to edit the profile.
 - **Attending?** `yes` / `no` / `not_sure`.
-  - `not_sure` → `not_sure_reason` **required** (server rejects empty). Rationale
-    per `plan.md`: an employee who can't commit to yes/no before the deadline must
-    say why.
+  - `not_sure` → `not_sure_reason` **required** (the server rejects empty): an
+    employee who can't commit to yes/no before the deadline must say why.
 
 ### Branch: `attending = no`
 - No further fields. The UI shows the fixed instructions message:
@@ -582,10 +624,18 @@ client).
   (Stored as a constant; no DB field needed.)
 
 ### Branch: `attending = yes` → travel + other
-- **Arrival**: day (constrained to the event date range), time, mode
-  (`flight`/`car`/`train`/`other`), details (flight number, or free text for
-  other modes — required when mode is set).
-- **Departure**: same shape.
+- **Independent traveller (per leg).** Travel *to* and *from* the offsite are
+  separate decisions — an attendee may self-arrange one leg and have the People
+  team book the other. The top item of **each** leg's **Day** dropdown is "I
+  arrange my own travel here, no support needed" (`arrival_independent` /
+  `departure_independent`). Selecting it hides and blanks only that leg's
+  time/mode/details and skips its validation. The long-haul/accommodation section
+  is hidden and blanked only when **both** legs are independent.
+- **Arrival** — day (constrained to the event date range), time, mode
+  (`flight`/`car`/`train`/`other`), details (flight number, or free text for other
+  modes — **optional**). When the mode is `flight` the **Time** field is labelled
+  "Flight arrival time" ("Flight departure time" on the departure leg).
+- **Departure** — same shape.
 - **Long-haul traveller?** (international flight 7h+) → `long_haul` yes/no.
   - If `long_haul = yes` → **"Would you require an extra night?"** with two
     independent toggles: **an extra night before the offsite** and/or **an extra
@@ -593,7 +643,7 @@ client).
     Oct — night before" / "Sat 17 Oct — night after"). For an employee these are
     single-night toggles that set `extra_stay_start = start_date − 1` and/or
     `extra_stay_end = end_date + 1`. Only shown when `long_haul = true`.
-  - **Admin override:** in the admin submission editor the same field is a *date
+  - **Admin override** — in the admin submission editor the same field is a *date
     picker* with no one-day cap, so the People team can grant 2+ extra nights at
     either end for special cases (visa stopovers, connecting flights, etc.). The
     server enforces the one-day cap only for non-admin writers.
@@ -607,7 +657,9 @@ client).
 | name | not on the submission — set on the user profile (`first_name` / `last_name` required there) |
 | allergies / dietary | not on the submission — set on the user profile (`/profile`, optional) |
 | `not_sure_reason` | `attending = 'not_sure'` |
-| `arrival_*`, `departure_*` | `attending = 'yes'` (day + mode required; details required if mode set) |
+| `arrival_independent` / `departure_independent` | optional; only when `attending = 'yes'`. When a leg's flag is true that leg is blanked and not validated. When **both** are true, `long_haul` + extra-night dates are blanked too |
+| `arrival_*` | `attending = 'yes'` **and** `arrival_independent = false` (day + mode required; time + details optional) |
+| `departure_*` | `attending = 'yes'` **and** `departure_independent = false` (day + mode required; time + details optional) |
 | `extra_stay_start` / `extra_stay_end` | optional; one-day cap from event bounds for employees, unrestricted for admins |
 | comments | optional |
 
@@ -623,66 +675,62 @@ the event is not yet past** — once `end_date < today` the employee form locks.
 Admins can always edit, including past events. Every save appends a
 `submission_revisions` snapshot **and** an `activity_log` entry; edits that land
 after the submission deadline are stamped `after_deadline=true` so they stand out
-in the admin timeline (§11). Admin notification email fires on edits (§9.2).
+in the admin timeline (§11). The admin notification email fires on edits (§9.2).
 
 ---
 
 ## 9. Notifications & reminders
 
-Outbound email uses the copied `internal/email.Sender` (stdlib SMTP). All email
-is **best-effort**: a send failure logs a WARN and never fails the user's request
-(same posture as the reference's audit alerts).
+Outbound email uses `internal/email.Sender` (stdlib SMTP). All email is
+**best-effort**: a send failure logs a WARN and never fails the user's request.
+An empty `SMTP_HOST` disables email entirely.
 
 ### 9.1 Reminder scheduler
-A single background goroutine started in `main.go` (pattern copied from
-`StartSkillAudit`): bound to the root context, tracked by the `WaitGroup`, driven
-by a `time.Ticker` (hourly). On each tick, for every event that is still open
-(deadline not yet passed, event not past):
+A single background goroutine started in `main.go`, bound to the root context,
+tracked by the `WaitGroup`, and driven by a `time.Ticker` (hourly). On each tick,
+for every event that is still open (deadline not yet passed, event not past):
 
-1. Compute the **non-responders**: roster emails with **no `submissions` row**
-   for the event. (Any submission — including `not_sure` — counts as a response;
-   only true silence is chased. Reminders are about *getting a response*, while
-   the dashboard then filters responses by `attending` state, §10.)
+1. Compute the **non-responders**: roster emails with **no `submissions` row** for
+   the event. (Any submission — including `not_sure` — counts as a response; only
+   true silence is chased. Reminders are about *getting a response*, while the
+   dashboard then filters responses by `attending` state, §10.)
 2. Decide which reminder windows are open *now*, evaluated in the **event
    timezone** at the event-local `reminder_hour`:
    - **Weekly** (`weekly_reminders = true`): one per ISO week → `period_key` =
      `2026-W40`.
    - **Deadline run-up** (`reminder_days_before`): one per day for the N days
      immediately before `submission_deadline` → `period_key` = the date.
-
 3. For each non-responder × open window, attempt an insert into `reminder_log`
-   (`ON CONFLICT DO NOTHING`). **Only if the insert created a row** do we send the
-   email — this makes sends idempotent and restart-safe.
+   (`ON CONFLICT DO NOTHING`). **Only if the insert created a row** is the email
+   sent — this makes sends idempotent and restart-safe.
 
 The email links the recipient to the event URL (`PUBLIC_BASE_URL/events/:slug`).
 
 Because the recipient pool is the **roster**, reminders may reach people who have
-never signed in. This is a **company-internal tool**, so sending to any `@id5.io`
-roster address is acceptable without separate consent — no opt-out flow is needed
-in v1.
+never signed in. As a company-internal tool, sending to any `@id5.io` roster
+address is acceptable without separate consent — there is no opt-out flow.
 
-Admin can configure timing per event (`reminder_days_before`, `weekly_reminders`,
-`reminder_hour`, `daily_activity_email`) via the event edit form, satisfying
-"Admin should be able to configure the timing."
+Reminder timing is configured per event (`reminder_days_before`,
+`weekly_reminders`, `reminder_hour`, `daily_activity_email`) via the event edit
+form.
 
 ### 9.2 Admin "submission changed" notification
 When `PUT …/submission` updates an **existing** submission (not the first create),
-`notify.go` sends a summary email to `PEOPLE_TEAM_EMAIL` (and/or the current set
-of admin users). The
-email names the employee, the event, and what changed (diff derived from the
-latest two `submission_revisions` snapshots). Sent asynchronously so it never
-blocks the response.
+`notify.go` sends a summary email to `PEOPLE_TEAM_EMAIL` (and/or the current set of
+admin users). The email names the employee, the event, and what changed (a diff
+derived from the latest two `submission_revisions` snapshots). Sent asynchronously
+so it never blocks the response.
 
 ### 9.3 Daily activity digest (admin, per event)
-When an event has `daily_activity_email = true`, the same scheduler that drives
-reminders also assembles a once-per-day digest of that event's `activity_log`
-entries from the last 24h, in the event timezone at `reminder_hour`. **The email
-is sent only if there is at least one activity in the window** — a quiet day
-produces no mail. The digest groups entries (new submissions, edits, attending
-changes, roster uploads) and visibly flags any `after_deadline` edits at the top,
-giving admins a low-effort way to notice late changes without watching the
-dashboard. Idempotency reuses `reminder_log` with `reminder_kind='daily_digest'`
-(or a sibling table) keyed by event + date so a restart never double-sends.
+When an event has `daily_activity_email = true`, the reminder scheduler also
+assembles a once-per-day digest of that event's `activity_log` entries from the
+last 24h, in the event timezone at `reminder_hour`. **The email is sent only if
+there is at least one activity in the window** — a quiet day produces no mail. The
+digest groups entries (new submissions, edits, attending changes, roster uploads)
+and visibly flags any `after_deadline` edits at the top, giving admins a low-effort
+way to notice late changes without watching the dashboard. Idempotency reuses
+`reminder_log` with `reminder_kind='daily_digest'` keyed by event + date so a
+restart never double-sends.
 
 ---
 
@@ -690,10 +738,10 @@ dashboard. Idempotency reuses `reminder_log` with `reminder_kind='daily_digest'`
 
 ### Dashboard (`EventDashboardView.vue`, admin)
 The dashboard is organised around the **`attending` state**, not a binary
-"submitted / not". There are four mutually exclusive buckets every roster member
-falls into — `yes`, `no`, `not_sure`, and `no_response` (no submission row) — and
-the UI lets the admin **filter the attendee table by any combination** of these
-four states.
+"submitted / not". Every roster member falls into one of four mutually exclusive
+buckets — `yes`, `no`, `not_sure`, and `no_response` (no submission row) — and the
+UI lets the admin **filter the attendee table by any combination** of these four
+states.
 
 `GET /api/events/:id/dashboard` returns:
 ```json
@@ -710,23 +758,21 @@ four states.
 }
 ```
 - Each roster member is joined to their submission and assigned one of the four
-  states; `no_response` replaces the old "non-responder" label and is itself just
-  one filterable state. The "who hasn't responded, by name" requirement is the
-  `no_response` filter.
-- `offRoster` lists people who submitted but aren't on the roster (e.g. a late
-  add to the company), surfaced separately so the roster stays the source of
-  truth for tracking.
-- Filtering is client-side over `rosterEntries` (small lists; whole set fetched
-  each poll), with quick chips for each state and their counts.
+  states; `no_response` is itself just one filterable state — the "who hasn't
+  responded, by name" view is the `no_response` filter.
+- `offRoster` lists people who submitted but aren't on the roster (e.g. a late add
+  to the company), surfaced separately so the roster stays the source of truth for
+  tracking.
+- Filtering is client-side over `rosterEntries` (small lists; the whole set is
+  fetched each poll), with quick chips for each state and their counts.
 
-**Auto-reload**: a `useAutoReload(intervalRef, fetchFn)` composable polls the
-dashboard endpoint. A dropdown offers **5s / 15s / 1m / 5m / off**, default
-**1m**. The composable cleans up its timer on unmount and pauses when the tab is
-hidden (`visibilitychange`) to avoid wasted polls.
+**Auto-reload.** A `useAutoReload(intervalRef, fetchFn)` composable polls the
+dashboard endpoint. A dropdown offers **5s / 15s / 1m / 5m / off**, default **1m**.
+The composable cleans up its timer on unmount and pauses when the tab is hidden
+(`visibilitychange`) to avoid wasted polls.
 
 ### Export (`GET /api/events/:id/export.csv`)
-**One export button that follows the filter.** Rather than a fixed "all" export
-plus a separate "non-responders" export, the single Export button downloads
+**One export button that follows the filter.** The single Export button downloads
 *exactly what the dashboard filter currently shows*. The endpoint takes the same
 filter the table uses:
 
@@ -737,42 +783,43 @@ GET /api/events/:id/export.csv                              # no filter → ever
 ```
 
 `attending` is a comma-separated subset of `{yes,no,not_sure,no_response}`
-(mirrors the dashboard chips). Rows for `no_response` roster members are emitted
-with empty submission columns so the CSV doubles as a non-responder list when
-that's the active filter. One row per person, all form fields + email +
-timestamps (rendered in the event timezone), streamed with the stdlib
-`encoding/csv` and `Content-Disposition: attachment`. Because the filter is the
-single source of truth for "which people", **any future filter dimension** (e.g.
-long-haul only, by arrival day) extends both the table and the export for free —
-the export just passes the active filter through.
+(mirroring the dashboard chips). Rows for `no_response` roster members are emitted
+with empty submission columns, so the CSV doubles as a non-responder list when that
+filter is active. One row per person, all form fields + email + timestamps
+(rendered in the event timezone), streamed with the stdlib `encoding/csv` and
+`Content-Disposition: attachment`. Because the filter is the single source of truth
+for "which people", any future filter dimension (e.g. long-haul only, by arrival
+day) extends both the table and the export for free.
 
 ### Roster CSV upload
-`POST /api/events/:id/roster` accepts `multipart/form-data` (same upload shape as
-the reference's skill-zip import). Parsed with `encoding/csv`; expected headers
-`name,email` (case-insensitive, tolerant of extra columns). Validated: non-empty
-name, well-formed email; rows are lower-cased and de-duplicated; the whole roster
-for the event is replaced transactionally. A parse report (`{ inserted, skipped,
-errors[] }`) is returned for admin feedback.
+`POST /api/events/:id/roster` accepts `multipart/form-data`. Parsed with
+`encoding/csv`; expected headers `name,email` (case-insensitive, tolerant of extra
+columns). Validated: non-empty name, well-formed email; rows are lower-cased and
+de-duplicated; the whole roster for the event is replaced transactionally. A parse
+report (`{ inserted, skipped, errors[] }`) is returned for admin feedback.
 
 ---
 
-## 11. Frontend design
+## 11. Frontend
 
-- **Vue 3 `<script setup>` + Pinia + vue-router**, lazy-loaded views, exactly the
-  reference's `main.ts` / `router.ts` shape.
-- **`stores/auth.ts`** — copied/trimmed from the reference: token + user in
-  `localStorage`, `ensureFreshUser()` re-validates `/api/me` once per load,
-  `loginViaOIDC()` redirects to `/api/auth/oidc/login`, JWT-exp short-circuit.
+- **Vue 3 `<script setup>` + Pinia + vue-router**, lazy-loaded views.
+- **`stores/auth.ts`** — token + user in `localStorage`, `ensureFreshUser()`
+  re-validates `/api/me` once per load, `loginViaOIDC()` redirects to
+  `/api/auth/oidc/login`, client-side JWT-exp short-circuit.
 - **`stores/events.ts`** — admin event list/detail caching + mutations.
-- **`api.ts`** — the thin `fetch` wrapper with `ApiError`, `isJwtExpired`,
-  multipart helper for roster upload (copy the reference's `importSkill` pattern).
-- **Router guard** — `requiresAuth` + admin-only meta on event-management routes,
-  redirect to `/login` (with `redirect` query) or `/error?code=403`.
+- **`api.ts`** — the thin `fetch` wrapper with `ApiError`, `isJwtExpired`, and a
+  multipart helper for roster upload.
+- **Router guard** — `requiresAuth` + admin-only meta on event-management routes;
+  redirects to `/login` (with a `redirect` query) or `/error?code=403`. It also
+  sends any authenticated, unconfirmed user to `/welcome` until they confirm their
+  profile (§5.1).
 
 ### Routes
 ```
 /login                         Google sign-in
 /auth/callback                 OIDC token handoff
+/welcome                       WelcomeView        (first-login profile confirm; the auth guard redirects here until profile_confirmed, §5.1)
+/profile                       ProfileView        (any signed-in user; edit name + allergies)
 /events/:slug                  AttendeeFormView   (any signed-in @id5.io user)   ← the shareable URL
                                  — includes a "My activity" panel (own log only)
 /admin/events                  EventListView      (admin; current vs Past tabs)
@@ -783,11 +830,11 @@ errors[] }`) is returned for admin feedback.
 /error                         ErrorView (403/404/500)
 ```
 
-The `EventListView` separates **current/upcoming** from **Past** events (a tab or
-collapsed section), keeping the past ones out of the way but reachable; admins can
-open a past event and still edit it. A shared **`ActivityLog.vue`** component
-renders the timeline in both the employee panel (scoped to their own entries) and
-the admin Activity tab (all entries), described next.
+`EventListView` separates **current/upcoming** from **Past** events, keeping the
+past ones out of the way but reachable; admins can open a past event and still edit
+it. A shared **`ActivityLog.vue`** component renders the timeline in both the
+employee panel (scoped to their own entries) and the admin Activity tab (all
+entries).
 
 The **shareable event URL** given to employees is `/<base>/events/:slug`. An
 unauthenticated visitor hits the auth guard, signs in with Google, and lands back
@@ -803,22 +850,22 @@ The `activity_log` (§5.8) is surfaced two ways, both rendered by the shared
   to *Yes* on 2 Oct", "You updated your travel details on 5 Oct". Read-only.
 - **Admin — "Activity" tab** (`GET /api/events/:id/activity`): the entire event
   timeline across all attendees and admins. Entries are easy to scan (actor,
-  subject, action, time in event tz). Any entry with `after_deadline = true` —
-  and any `admin.edited_submission` — is visually highlighted (badge/colour) so a
-  change made after the deadline, or an admin editing on someone's behalf, is
-  immediately obvious. Filterable by attendee and by "after-deadline only".
+  subject, action, time in event tz). Any entry with `after_deadline = true` — and
+  any `admin.edited_submission` — is visually highlighted so a change made after the
+  deadline, or an admin editing on someone's behalf, is immediately obvious.
+  Filterable by attendee and by "after-deadline only".
 
 This is the mechanism that makes post-deadline editing *allowed but conspicuous*
 (§6): nothing is blocked, but every late or admin-made change is on the record and
-easy to find. The daily activity digest (§9.3) is the push-notification companion
-to this pull view.
+easy to find. The daily activity digest (§9.3) is the push companion to this pull
+view.
 
 ---
 
 ## 12. Configuration (env vars)
 
-Mirrors `config.Load()` conventions (getenv with defaults, fail-fast validation).
-A trimmed `.env.example`:
+Loaded by `config.Load()` (getenv with defaults, fail-fast validation). A trimmed
+`.env.example`:
 
 ```dotenv
 # Core
@@ -831,7 +878,7 @@ DATABASE_URL=postgres://irl:irl@db:5432/irl?sslmode=disable
 JWT_SECRET=change-me-please-use-32-chars-minimum
 # ALLOW_INSECURE_JWT_SECRET=true
 
-# Auth — OIDC only. Google Workspace, restricted to id5.io.
+# Auth — OIDC. Google Workspace, restricted to id5.io.
 AUTH_MODE=oidc
 OIDC_ISSUER_URL=https://accounts.google.com
 OIDC_CLIENT_ID=...
@@ -861,45 +908,50 @@ DEFAULT_EVENT_TIMEZONE=Europe/Paris
 # CORS_ALLOWED_ORIGINS=
 # METRICS_TOKEN=
 
-# MCP server (Phase 7). Both set → /mcp + OAuth 2.1 enabled; both empty → /mcp off.
+# MCP server. Both set → /mcp + OAuth 2.1 enabled; both empty → /mcp off.
 # MCP_OAUTH_CLIENT_ID=
 # MCP_OAUTH_CLIENT_SECRET=
 # Allowlisted OAuth callback URIs (comma-separated). Defaults to Claude's connector.
 # MCP_OAUTH_REDIRECT_URIS=https://claude.ai/api/mcp/auth_callback
 ```
 
-Boot-time validation copied from the reference: refuse the insecure/short
-`JWT_SECRET`, require OIDC vars when `AUTH_MODE=oidc`, warn when the Workspace
-domain allowlist is empty.
+Boot-time validation: the insecure/short `JWT_SECRET` is refused, OIDC vars are
+required when `AUTH_MODE=oidc`, and an empty Workspace-domain allowlist logs a
+warning.
 
 ---
 
 ## 13. Deployment
 
 ### Dev — Docker Compose
-`compose.yml` with three services (copy the reference shape, drop the data
-volume on the backend since there's no on-disk state):
-- `db` — `postgres:16-alpine`, healthcheck, volume.
-- `backend` — built from `./backend`, env from `.env`, depends on healthy db.
-- `frontend` — built from `./frontend`, nginx on `:8080`, proxies `/api`,
-  `/healthz` to backend (Phase 7 adds `/mcp`, `/oauth`, `/.well-known` proxy
-  blocks — `/mcp` needs `proxy_buffering off` + long read/send timeouts for the
-  SSE stream, copied from the reference nginx).
+`compose.yml` runs three services:
+- `db` — `postgres:16-alpine`, with a healthcheck and a volume.
+- `backend` — built from `./backend`, env from `.env`, depends on a healthy db.
+- `frontend` — built from `./frontend`, nginx on `:8080`, proxies `/api` and
+  `/healthz` (and, when MCP is enabled, `/mcp`, `/oauth`, `/.well-known`) to the
+  backend. The `/mcp` block needs `proxy_buffering off` + long read/send timeouts
+  for the SSE stream.
 
 ### Prod — Helm + ArgoCD
-Reuse the chart structure: a backend Deployment (no PVC needed), a frontend
-Deployment + Service, a frontend-nginx ConfigMap, and an Ingress that path-routes
-`/api`, `/healthz` (and, in Phase 7, `/mcp`, `/oauth`, `/.well-known`) to the
-backend and everything else to the frontend. Secrets (JWT, OIDC client secret,
-SMTP, DB URL, and the Phase 7 MCP OAuth client secret) via sealed-secrets as in
-the reference.
-`DATABASE_URL` points at managed Postgres (PgBouncer in front — hence the
-`QueryExecModeExec` pool config carried over verbatim).
+`helm/irl-planner-pro` is a self-contained chart: a backend Deployment (no PVC), a
+frontend Deployment + Service, a frontend-nginx ConfigMap, bundled Postgres, and an
+Ingress that path-routes `/api`, `/healthz` (and, when MCP is enabled, `/mcp`,
+`/oauth`, `/.well-known`) to the backend and everything else to the frontend.
+Secrets (JWT, OIDC client secret, SMTP, DB password, and the MCP OAuth client
+secret) are supplied via a Secret / sealed-secret; `helm/argocd/` holds the ArgoCD
+Applications and a SealedSecret template. `DATABASE_URL` points at Postgres (with
+PgBouncer in front in managed setups — hence the `QueryExecModeExec` pool config).
+
+The frontend ConfigMap ships an SPA-only nginx config (it drops the Compose
+`proxy_pass http://backend` blocks, which would crash nginx in-cluster). When
+adding a backend path, update **both** the ingress `paths` in `values.yaml` **and**
+`frontend/nginx.conf`.
 
 ### Observability
-- `/metrics` (Prometheus, optionally `METRICS_TOKEN`-gated), `/healthz`,
-  `/readyz` (the backend is ready immediately — no rematerialization step).
-- Structured request logging via chi middleware, health probes skipped from logs.
+- `/metrics` (Prometheus, optionally `METRICS_TOKEN`-gated), `/healthz`, `/readyz`
+  (the backend is ready as soon as the DB is migrated).
+- Structured request logging via chi middleware; health probes are skipped from
+  logs.
 
 ---
 
@@ -908,206 +960,82 @@ the reference.
 - **Domain-restricted SSO** is the primary gate; no password auth, no open
   registration.
 - **JWT** signed with a validated secret; `token_version` enables "sign out
-  everywhere"; client-side exp check avoids doomed requests.
+  everywhere"; the client-side exp check avoids doomed requests.
 - **Per-IP rate limits** (`httprate`) on auth and write endpoints.
-- **Security headers** + strict CSP on both the backend (copy `securityHeaders`)
-  and the nginx SPA layer (copy `nginx-security-headers.conf`); HSTS at the TLS
-  edge.
+- **Security headers** + strict CSP on both the backend (`securityHeaders`) and the
+  nginx SPA layer (`nginx-security-headers.conf`); HSTS at the TLS edge.
 - **Input validation**: slug regex, CSV size cap (`client_max_body_size 4m`),
-  email/format checks, server-side enforcement of all conditional form rules.
+  email/format checks, and server-side enforcement of all conditional form rules.
 - **Least authority**: employees can only read/write *their own* submission (and
-  not at all once the event is past); every admin route behind
+  not at all once the event is past); every admin route is behind
   `requireAdminMiddleware`. Admin edits of others' data and past events are
   permitted but always recorded in the activity log.
 - **PII handling**: profiles carry dietary/health info (allergies) and submissions
-  carry travel details — treat both as sensitive; restrict export to admins, no PII
-  in URLs or logs, generic OIDC error pages.
-- **MCP surface (Phase 7)**: `/mcp` is gated by OAuth 2.1 (Authorization Code +
-  PKCE), disabled unless both `MCP_OAUTH_CLIENT_*` are set, callback URIs
-  allowlisted, and `/oauth/*` per-IP rate-limited (copy reference limits). MCP
-  tools resolve the caller to a user and enforce the **same admin authorization**
-  as the REST API — no tool exposes data a non-admin couldn't already see, and
-  write tools require admin. Mutations made via MCP are written to the activity
-  log like any other.
+  carry travel details — both are treated as sensitive; export is admin-only, no
+  PII appears in URLs or logs, and OIDC error pages are generic.
+- **MCP surface**: `/mcp` is gated by OAuth 2.1 (Authorization Code + PKCE),
+  disabled unless both `MCP_OAUTH_CLIENT_*` are set, with allowlisted callback URIs
+  and per-IP-rate-limited `/oauth/*`. MCP tools resolve the caller to a user and
+  enforce the **same admin authorization** as the REST API — no tool exposes data a
+  non-admin couldn't already see, and write tools require admin. Mutations made via
+  MCP are written to the activity log like any other.
 
 ---
 
-## 15. Testing strategy (mirrors the reference)
+## 15. Testing
 
-- **Backend** — table-driven Go tests per package; `*_test.go` beside sources;
-  integration tests against a real Postgres (the reference runs an
-  `integration_test.go`). Cover: conditional submission validation, roster CSV
-  parsing edge cases, attending-state bucketing + `no_response` computation,
-  reminder idempotency (`reminder_log` conflict path) and **event-tz** window
-  evaluation, daily-digest "send only when ≥1 activity", `after_deadline`
-  stamping, past-event employee lock vs admin edit, timezone ↔ UTC round-trips
-  (`timeutil`), OIDC domain rejection, admin authorization.
-- **Frontend** — Vitest + `@testing-library/vue` + **MSW** mocking `/api`. Cover:
-  form conditional rendering (Yes/No/Not-sure branches, long-haul → extra night
-  before/after), client validation messages, dashboard attending-state filter +
-  auto-reload composable, activity-log rendering (own vs all, after-deadline
-  badge), event-tz date formatting, current/Past split, auth guard redirects.
-  `npm run check` (typecheck + lint + test) gates CI.
-- **MCP (Phase 7)** — integration tests mirroring the reference's `mcp_test.go` /
-  `oauth_test.go`: OAuth PKCE happy path + rejection of bad redirect URIs,
-  `/mcp` rejecting unauthenticated and non-admin callers, each read tool returning
-  the same data as its REST sibling, and write tools writing an activity-log entry.
-- **CI** — GitHub Actions + `pre-commit` config as in the reference.
-
----
-
-## 16. Implementation plan (phased)
-
-Each phase is independently shippable and ends green (`go test ./...` +
-`npm run check`).
-
-**Phase 0 — Scaffolding (skeleton boots).**
-Backend module + `cmd/server/main.go` (config → db → migrate → http), copy
-`config`, `db`, `email`, `metrics`, `workspaceauth`, `errors` packages from the
-reference and trim. Frontend Vite/Vue/Pinia/router skeleton, `api.ts`, `App.vue`,
-`auth` store stubs. Compose file. `0001_init.sql` with `users` + `events` +
-`event_days`.
-
-**Phase 1 — Auth + user roles.**
-OIDC login/callback/logout (copy & trim `oidc.go` + `workspaceauth`), JWT
-mint/verify, `authMiddleware` / `requireAdminMiddleware`, `/api/me`, user upsert
-with **first-user-admin** bootstrap, and `/api/users` + promote/demote (last-admin
-guard). Frontend `LoginView`, `OIDCCallbackView`, `UsersView`, router guard.
-*Done when:* the first `@id5.io` user signs in as admin and can promote/demote a
-second user; non-`id5.io` is rejected.
-
-**Phase 2 — Event configuration (admin) + timezone.**
-`events` + `event_days` CRUD, day-type generation (first/last = travel), slug
-validation, per-event `timezone` (validated via `time.LoadLocation`), reminder
-config fields, and the `timeutil.go` event-tz ↔ UTC helpers. `EventListView`
-(current vs **Past** tabs), `EventEditView` with a timezone picker and all
-dates shown/entered in the event zone.
-*Done when:* an admin creates and edits an event (typed days, deadline, timezone);
-past events appear under their own tab and stay admin-editable.
-
-**Phase 3 — Attendee form + activity log.**
-`submissions` + `submission_revisions` + `activity_log` tables; `GET`/`PUT`
-submission with full server-side conditional validation (incl. extra-night
-before/after); `after_deadline` stamping; employee form **locks on past events**;
-`AttendeeFormView` with all branches + "My activity" panel; `ActivityLog.vue`.
-*Done when:* an employee opens `/events/:slug`, fills the conditional form, saves,
-re-opens and edits, and sees their own activity timeline.
-
-**Phase 4 — Roster + dashboard + export.**
-`event_roster` table, CSV upload/parse, dashboard keyed by **attending state**
-(yes/no/not_sure/no_response) with filter chips, admin **Activity** tab (all
-entries, after-deadline highlight), admin submission edit, `useAutoReload` with
-the interval dropdown, CSV export.
-*Done when:* admin uploads a roster, filters attendees by attending state with
-counts updating on the chosen interval, reviews the activity timeline, edits a
-submission, and exports a CSV.
-
-**Phase 5 — Notifications, reminders & digest.**
-Admin "submission changed" email on edit; `reminder_log` table + scheduler
-goroutine (weekly + deadline run-up, **event-tz-aware**, idempotent); per-event
-reminder config; the **daily activity digest** (sent only when ≥1 activity).
-*Done when:* editing a submission emails admins, non-responders receive weekly +
-pre-deadline reminders exactly once per window in the event's local time, and an
-active-digest event emails admins a once-daily summary only on days with activity.
-
-**Phase 6 — Hardening & deploy.**
-Security headers/CSP, rate limits, metrics, Helm chart + ArgoCD manifests,
-README, CI. Production OIDC credentials + SMTP wired.
-
-**Phase 7 — MCP server (additive).**
-`mcp.go` (Streamable HTTP, stateless) + `oauth.go` (OAuth 2.1 Authorization Code +
-PKCE, discovery) copied/adapted from the reference; `mcpTokenGateMiddleware`;
-admin-scoped tools (§18); nginx/Ingress `/mcp` + `/oauth` + `/.well-known` blocks;
-`MCP_OAUTH_*` config. Off by default — enabled only when the OAuth client vars are
-set, so it cannot weaken a deployment that doesn't use it.
-*Done when:* an admin connects an MCP client via OAuth and can list events, read a
-dashboard/non-responders, and (write tools) create/configure an event — every
-mutation showing up in the activity log.
+- **Backend** — table-driven Go tests per package, `*_test.go` beside sources, plus
+  DB-backed integration tests against a real Postgres (skipped unless
+  `IRL_TEST_DATABASE_URL` is set). Coverage includes: conditional submission
+  validation, roster CSV parsing edge cases, attending-state bucketing +
+  `no_response` computation, reminder idempotency (`reminder_log` conflict path) and
+  **event-tz** window evaluation, daily-digest "send only when ≥1 activity",
+  `after_deadline` stamping, past-event employee lock vs admin edit, timezone ↔ UTC
+  round-trips (`timeutil`), OIDC domain rejection, and admin authorization.
+- **Frontend** — Vitest + `@testing-library/vue` + **MSW** mocking `/api`. Coverage
+  includes: form conditional rendering (Yes/No/Not-sure branches, per-leg
+  independent travel, long-haul → extra night before/after), client validation
+  messages, dashboard attending-state filter + auto-reload composable, activity-log
+  rendering (own vs all, after-deadline badge), event-tz date formatting,
+  current/Past split, and auth-guard redirects. `npm run check` (typecheck + lint +
+  test) gates CI.
+- **MCP** — integration tests for the OAuth PKCE happy path + rejection of bad
+  redirect URIs, `/mcp` rejecting unauthenticated and non-admin callers, each read
+  tool returning the same data as its REST sibling, and write tools writing an
+  activity-log entry.
+- **CI** — GitHub Actions runs the backend and frontend gates on every change.
 
 ---
 
-## 17. Resolved decisions
-
-These were open questions in the first draft; the answers are now baked into the
-sections above and recorded here for traceability.
-
-1. **No "Submitted" concept.** The dashboard is keyed by the `attending` state
-   with all four buckets (`yes` / `no` / `not_sure` / `no_response`), filterable
-   by any combination — not a binary submitted/not. Reminders still chase only
-   `no_response` (true silence). → §10, §9.1.
-
-2. **Edit after deadline is allowed but conspicuous, via an activity log.**
-   Editing is never blocked for admins (and is allowed for employees until the
-   event is past). Every action is recorded in `activity_log`; late changes are
-   stamped `after_deadline`. Employees see only their own log; admins see the
-   whole event timeline with after-deadline edits highlighted. Admins can enable a
-   per-event **daily activity email**, sent only on days with ≥1 activity.
-   → §5.8, §6, §9.3, §11.1.
-
-3. **Extra nights are a stay date range, not "Sunday".** Stored as
-   `extra_stay_start` / `extra_stay_end` dates. Employees can add at most one
-   extra night before the first travel day and/or after the last (single-night
-   toggles); admins can set wider ranges (2+ nights) for special cases. →
-   §5.5, §8.
-
-4. **Reminders may go to anyone on the roster.** This is a company-internal tool;
-   no consent/opt-out flow is required in v1. → §9.1.
-
-5. **Events are never deleted; past events are tucked away.** "Past" is derived
-   from `end_date` in the event timezone. The UI separates current/upcoming from
-   Past; past events are read-only for employees and fully editable by admins
-   (logged). Volume is small (~3/year now, up to 10–20/year if department offsites
-   adopt it) — no pagination needed, but the current/Past split keeps the list
-   tidy. → §5.2, §6, §11.
-
-6. **Per-event timezone (default `Europe/Paris`).** All timestamps are stored UTC
-   and rendered/entered in the event's IANA timezone; reminder windows and the
-   "is past" / deadline logic are evaluated in that zone. → §5.2, §6.3.
-
-7. **Admin membership is bootstrapped + in-app.** The first user to sign in
-   becomes admin; admins then promote/demote others via `/admin/users` (a
-   last-admin demotion is blocked). No `ADMIN_EMAILS` env. → §5.1, §6.1, §7.
-
-8. **One filter-driven export, not two buttons.** The single Export button
-   downloads exactly what the dashboard filter currently shows
-   (`export.csv?attending=…`); any future filter dimension extends the export for
-   free. `no_response` rows carry empty submission columns, so the export doubles
-   as a non-responder list when that filter is active. → §10.
-
-9. **MCP surface included as Phase 7.** An additive, OAuth-gated, admin-scoped
-   `/mcp` server (§18), off unless configured. The core app ships without it. →
-   §2, §18.
-
----
-
-## 18. MCP server (Phase 7)
+## 16. MCP server
 
 An **optional, additive** surface that lets an MCP client (e.g. Claude) query and
-manage events conversationally — "who hasn't responded for Dubrovnik?", "create
-the Lisbon March 2027 offsite". It is **off by default**: enabled only when
+manage events conversationally — "who hasn't responded for Dubrovnik?", "create the
+Lisbon March 2027 offsite". It is **off by default**: enabled only when
 `MCP_OAUTH_CLIENT_ID` + `MCP_OAUTH_CLIENT_SECRET` are set, so it can never weaken a
-deployment that doesn't opt in. Phases 0–6 are fully functional without it.
+deployment that doesn't opt in. The core app is fully functional without it.
 
-### 18.1 Transport & auth
-- **Server**: `modelcontextprotocol/go-sdk` `NewStreamableHTTPHandler`, **stateless**
-  (no per-session map — every tool is a stateless DB read/write, and stateless mode
-  avoids "session not found" 404s after a redeploy). Copied from the reference
-  `mcpHandler()`.
+### 16.1 Transport & auth
+- **Server**: `modelcontextprotocol/go-sdk` `NewStreamableHTTPHandler`,
+  **stateless** (no per-session map — every tool is a stateless DB read/write, which
+  avoids "session not found" 404s after a redeploy).
 - **Auth**: **OAuth 2.1 Authorization Code + PKCE** (`oauth.go`), with RFC 8414 /
   RFC 9728 discovery at `/.well-known/*`. The MCP client runs the OAuth dance,
   obtains a bearer token, and presents it on `/mcp`; `mcpTokenGateMiddleware`
-  resolves it to a `*User` stashed in the request context (`userFromCtx`).
+  resolves it to a `*User` stashed in the request context. The access token carries
+  a `typ=mcp_access` claim so it is accepted only at the `/mcp` gate and can't be
+  replayed against the regular `/api` routes.
 - **Authorization**: tool handlers enforce the **same role rules as the REST API**.
   Read tools require an authenticated admin; write tools require admin. Nothing is
   exposed via MCP that the same user couldn't reach through the SPA.
-- **Rate limiting**: `/oauth/authorize`, `/oauth/token` per-IP throttled (copy the
-  reference's 60/min); discovery left open.
+- **Rate limiting**: `/oauth/authorize` and `/oauth/token` are per-IP throttled;
+  discovery is left open.
 
-### 18.2 Tools
-Each tool has typed in/out structs with `jsonschema` tags (reference pattern) and
-is wrapped by an `instrumentMCP` helper for Prometheus metrics. Mutating tools
-write to the **activity log** exactly like the REST handlers (actor = the MCP
-user), so MCP changes are as visible as any other.
+### 16.2 Tools
+Each tool has typed in/out structs with `jsonschema` tags and is wrapped by an
+`instrumentMCP` helper for Prometheus metrics. Mutating tools write to the
+**activity log** exactly like the REST handlers (actor = the MCP user), so MCP
+changes are as visible as any other.
 
 **Read (admin):**
 - `list_events` — current + past events with response counts.
@@ -1130,8 +1058,69 @@ Write tools deliberately stop short of editing individual attendees' personal
 travel/dietary data over MCP (that stays in the admin UI), keeping the MCP write
 surface to event administration rather than PII mutation.
 
-### 18.3 Scope boundary
+### 16.3 Scope boundary
 The MCP server reuses the existing query/command functions in `events.go`,
 `dashboard.go`, `roster.go`, `activity.go`, and `reminders.go` — it is a thin
-protocol adapter, not a second copy of the business logic. If Phase 7 is never
-built, none of those packages change.
+protocol adapter, not a second copy of the business logic.
+
+---
+
+## 17. Design decisions & rationale
+
+The reasoning behind the choices baked into the sections above.
+
+1. **No "Submitted" concept.** The dashboard is keyed by the `attending` state with
+   all four buckets (`yes` / `no` / `not_sure` / `no_response`), filterable by any
+   combination — not a binary submitted/not. Reminders still chase only
+   `no_response` (true silence). → §10, §9.1.
+
+2. **Edit after deadline is allowed but conspicuous, via an activity log.** Editing
+   is never blocked for admins (and is allowed for employees until the event is
+   past). Every action is recorded in `activity_log`; late changes are stamped
+   `after_deadline`. Employees see only their own log; admins see the whole event
+   timeline with after-deadline edits highlighted. Admins can enable a per-event
+   **daily activity email**, sent only on days with ≥1 activity. → §5.8, §6, §9.3,
+   §11.1.
+
+3. **Extra nights are a stay date range, not "Sunday".** Stored as
+   `extra_stay_start` / `extra_stay_end` dates. Employees can add at most one extra
+   night before the first travel day and/or after the last (single-night toggles);
+   admins can set wider ranges (2+ nights) for special cases. → §5.5, §8.
+
+4. **Travel independence is per leg.** Travel to and from the offsite are separate
+   decisions, so `arrival_independent` and `departure_independent` are tracked
+   independently; the long-haul/accommodation block is dropped only when both legs
+   are self-arranged. → §5.5, §8.
+
+5. **Reminders may go to anyone on the roster.** This is a company-internal tool;
+   there is no consent/opt-out flow. → §9.1.
+
+6. **Events are never deleted; past events are tucked away.** "Past" is derived from
+   `end_date` in the event timezone. The UI separates current/upcoming from Past;
+   past events are read-only for employees and fully editable by admins (logged).
+   Volume is small (~3/year now, up to 10–20/year if department offsites adopt it),
+   so no pagination is needed — the current/Past split keeps the list tidy. → §5.2,
+   §6, §11.
+
+7. **Per-event timezone (default `Europe/Paris`).** All timestamps are stored UTC
+   and rendered/entered in the event's IANA timezone; reminder windows and the "is
+   past" / deadline logic are evaluated in that zone. → §5.2, §6.3.
+
+8. **Admin membership is bootstrapped + in-app.** The first user to sign in becomes
+   admin; admins then promote/demote others via `/admin/users` (last-admin demotion
+   is blocked). There is no `ADMIN_EMAILS` env. → §5.1, §6.1, §7.
+
+9. **One filter-driven export, not two buttons.** The single Export button downloads
+   exactly what the dashboard filter currently shows (`export.csv?attending=…`); any
+   future filter dimension extends the export for free. `no_response` rows carry
+   empty submission columns, so the export doubles as a non-responder list when that
+   filter is active. → §10.
+
+10. **Name and allergies are profile properties.** They live on `users`, are seeded
+    from the IdP only on first login, and are edited at `/profile`; submissions join
+    them in rather than storing copies. A first-login confirm step lets the user fix
+    the IdP-seeded values. → §5.1, §8.
+
+11. **MCP is optional and admin-scoped.** An OAuth-gated `/mcp` server reuses the
+    REST business logic and enforces the same authorization; it is off unless
+    configured, so it can't weaken a deployment that doesn't use it. → §14, §16.

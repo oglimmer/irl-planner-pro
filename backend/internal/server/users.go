@@ -23,8 +23,8 @@ func (a *App) findOrCreateUser(ctx context.Context, email, firstName, lastName, 
 
 	u := &User{}
 	err := a.DB.QueryRowContext(ctx,
-		`SELECT id, email, first_name, last_name, allergies, is_admin, created_at, token_version FROM users WHERE email = $1`, email).
-		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
+		`SELECT id, email, first_name, last_name, allergies, profile_confirmed, is_admin, created_at, token_version FROM users WHERE email = $1`, email).
+		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.ProfileConfirmed, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
 	if err == nil {
 		// Existing user: keep whatever name they (or a prior login) already have.
 		u.setDisplayName()
@@ -40,9 +40,9 @@ func (a *App) findOrCreateUser(ctx context.Context, email, firstName, lastName, 
 		`INSERT INTO users (email, first_name, last_name, allergies, is_admin)
 		 VALUES ($1, $2, $3, $4, NOT EXISTS (SELECT 1 FROM users))
 		 ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
-		 RETURNING id, email, first_name, last_name, allergies, is_admin, created_at, token_version`,
+		 RETURNING id, email, first_name, last_name, allergies, profile_confirmed, is_admin, created_at, token_version`,
 		email, firstName, lastName, allergies).
-		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
+		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.ProfileConfirmed, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -78,8 +78,10 @@ func (a *App) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "first name and last name are required")
 		return
 	}
+	// Saving the profile also marks it confirmed: this is the action behind the
+	// first-login confirm step, and is harmless (idempotent) on later edits.
 	if _, err := a.DB.ExecContext(r.Context(),
-		`UPDATE users SET first_name = $1, last_name = $2, allergies = $3 WHERE id = $4`,
+		`UPDATE users SET first_name = $1, last_name = $2, allergies = $3, profile_confirmed = true WHERE id = $4`,
 		req.FirstName, req.LastName, req.Allergies, user.ID); err != nil {
 		serverErr(w, r, err, "db error")
 		return
@@ -87,6 +89,7 @@ func (a *App) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	user.FirstName = req.FirstName
 	user.LastName = req.LastName
 	user.Allergies = req.Allergies
+	user.ProfileConfirmed = true
 	user.setDisplayName()
 	writeJSON(w, http.StatusOK, user)
 }

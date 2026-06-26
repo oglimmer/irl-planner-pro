@@ -1,9 +1,20 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { errMsg } from '../api'
 
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
+
+// When the profile was opened from an event page, ?redirect=/events/<slug> sends
+// the attendee back there after saving. Restricted to in-app paths so the query
+// param can't be used as an open redirect.
+const redirect =
+  typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
+    ? route.query.redirect
+    : ''
 
 const firstName = ref(auth.user?.firstName ?? '')
 const lastName = ref(auth.user?.lastName ?? '')
@@ -19,6 +30,9 @@ async function save() {
   try {
     await auth.updateProfile(firstName.value.trim(), lastName.value.trim(), allergies.value.trim())
     saved.value = true
+    if (redirect) {
+      router.push(redirect)
+    }
   } catch (e) {
     error.value = errMsg(e)
   } finally {

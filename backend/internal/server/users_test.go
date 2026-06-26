@@ -31,7 +31,8 @@ func testDB(t *testing.T) *sql.DB {
 		t.Fatalf("migrate: %v", err)
 	}
 	if _, err := d.Exec(`TRUNCATE users, events, event_days, event_roster,
-		submissions, submission_revisions, reminder_log, activity_log RESTART IDENTITY CASCADE`); err != nil {
+		submissions, submission_revisions, reminder_log, activity_log,
+		oauth_auth_codes, oauth_refresh_tokens, oauth_pending RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	t.Cleanup(func() { d.Close() })
@@ -109,6 +110,11 @@ func TestHandleUpdateMe(t *testing.T) {
 	if u.Allergies != "peanuts" {
 		t.Errorf("allergies not seeded on create: %q", u.Allergies)
 	}
+	// A freshly provisioned user hasn't confirmed their profile yet, so the SPA
+	// routes them through the first-login confirm step.
+	if u.ProfileConfirmed {
+		t.Error("new user should start with profileConfirmed = false")
+	}
 
 	// Empty name is rejected.
 	if rr := a.doUpdateMe(t, u, `{"firstName":"  ","lastName":"x"}`); rr.Code != 400 {
@@ -126,6 +132,10 @@ func TestHandleUpdateMe(t *testing.T) {
 	}
 	if reloaded.Allergies != "shellfish" {
 		t.Errorf("allergies edit not persisted: %q", reloaded.Allergies)
+	}
+	// Saving the profile is what marks it confirmed (the first-login confirm step).
+	if !reloaded.ProfileConfirmed {
+		t.Error("profileConfirmed should be true after PUT /api/me")
 	}
 
 	// A later login does not clobber the edits (first-login-only seeding) — not
