@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { useAuthStore } from './stores/auth'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import ThemeSwitcher from './components/ThemeSwitcher.vue'
+import Id5Logo from './components/Id5Logo.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,7 +20,10 @@ function logout() {
 <template>
   <div class="app">
     <nav v-if="showChrome" class="top">
-      <RouterLink to="/" class="brand">ID5 <em>IRL</em></RouterLink>
+      <RouterLink to="/" class="brand" aria-label="ID5 IRL home">
+        <Id5Logo class="brand-logo" />
+        <em>IRL</em>
+      </RouterLink>
       <div class="links">
         <template v-if="auth.user">
           <template v-if="auth.user.isAdmin">
@@ -58,10 +62,20 @@ nav.top {
   border-bottom: 1px solid var(--border);
 }
 .brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
   font-family: var(--serif);
   font-size: 20px;
   font-weight: 400;
   letter-spacing: -0.01em;
+  color: var(--text);
+}
+.brand-logo {
+  height: 22px;
+  width: auto;
+  display: block;
+  align-self: center;
   color: var(--text);
 }
 .brand em {
