@@ -290,6 +290,7 @@ onMounted(load)
     <!-- Cover header: mirrors HomeView's feature card, with the RSVP deadline
          countdown as the focal point. -->
     <header class="feature" :class="{ ended: readOnly }">
+      <img v-if="event.imageUrl" :src="event.imageUrl" alt="" class="feature-cover">
       <div class="feature-body">
         <p class="eyebrow">{{ readOnly ? 'Event closed' : 'Your RSVP' }}</p>
         <h1 class="dest">{{ event.name }}</h1>
@@ -528,6 +529,15 @@ onMounted(load)
 }
 .feature.ended {
   border-top-color: var(--muted);
+}
+/* Cover image spans both columns as a banner across the top of the card. */
+.feature-cover {
+  grid-column: 1 / -1;
+  display: block;
+  width: 100%;
+  height: clamp(150px, 22vw, 250px);
+  object-fit: cover;
+  border-bottom: 1px solid var(--border);
 }
 .feature-body {
   padding: 28px 32px 26px;

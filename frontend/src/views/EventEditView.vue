@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, errMsg } from '../api'
 import { COMMON_TIMEZONES, formatDate } from '../lib/datetime'
@@ -35,6 +35,54 @@ const form = reactive<EventInput>({
 
 // Day types keyed by YYYY-MM-DD, preserved across range edits where possible.
 const dayTypes = reactive<Record<string, DayType>>({})
+
+// Cover image. The chosen file is uploaded separately after the event is saved
+// (it needs the event id); existing images come back as a URL on the event.
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024
+const fileInput = ref<HTMLInputElement | null>(null)
+const imageFile = ref<File | null>(null) // newly chosen file, pending upload
+const existingImageUrl = ref('') // image already stored on the server
+const removeExisting = ref(false) // user cleared the existing image
+const objectUrl = ref('') // preview URL for the chosen file (must be revoked)
+
+const previewUrl = computed(() => {
+  if (objectUrl.value) return objectUrl.value
+  if (existingImageUrl.value && !removeExisting.value) return existingImageUrl.value
+  return ''
+})
+
+function setImageFile(f: File | null) {
+  if (objectUrl.value) {
+    URL.revokeObjectURL(objectUrl.value)
+    objectUrl.value = ''
+  }
+  imageFile.value = f
+  if (f) {
+    objectUrl.value = URL.createObjectURL(f)
+    removeExisting.value = false
+  }
+}
+
+function onImageChange(e: globalThis.Event) {
+  error.value = ''
+  const f = (e.target as HTMLInputElement).files?.[0] ?? null
+  if (f && f.size > MAX_IMAGE_BYTES) {
+    error.value = 'Image is too large (max 4 MB).'
+    if (fileInput.value) fileInput.value.value = ''
+    return
+  }
+  setImageFile(f)
+}
+
+function removeImage() {
+  setImageFile(null)
+  removeExisting.value = true
+  if (fileInput.value) fileInput.value.value = ''
+}
+
+onBeforeUnmount(() => {
+  if (objectUrl.value) URL.revokeObjectURL(objectUrl.value)
+})
 
 const tzOptions = computed(() => {
   const set = new Set(COMMON_TIMEZONES)
@@ -98,6 +146,9 @@ async function loadForEdit() {
       reminderHour: e.reminderHour,
       dailyActivityEmail: e.dailyActivityEmail,
     })
+    existingImageUrl.value = e.imageUrl
+    removeExisting.value = false
+    setImageFile(null)
     for (const k of Object.keys(dayTypes)) delete dayTypes[k]
     e.days.forEach((d) => (dayTypes[d.date] = d.type))
   } catch (e) {
@@ -118,6 +169,12 @@ async function save() {
     const saved = props.id
       ? await api.updateEvent(props.id, payload)
       : await api.createEvent(payload)
+    // Image is a separate request — it needs the (possibly brand-new) event id.
+    if (imageFile.value) {
+      await api.uploadEventImage(saved.id, imageFile.value)
+    } else if (removeExisting.value && existingImageUrl.value) {
+      await api.deleteEventImage(saved.id)
+    }
     router.push(`/admin/events/${saved.id}`)
   } catch (e) {
     error.value = errMsg(e)
@@ -152,6 +209,25 @@ onMounted(loadForEdit)
       <label>Hotel name <input v-model="form.hotelName" type="text"></label>
       <label>Hotel address <input v-model="form.hotelAddress" type="text"></label>
       <label>Hotel link <input v-model="form.hotelLink" type="url" placeholder="https://…"></label>
+
+      <fieldset>
+        <legend>Cover image</legend>
+        <p class="muted small">Shown on the home page and the event's RSVP page. JPEG, PNG, GIF or WebP, up to 4 MB.</p>
+        <div v-if="previewUrl" class="image-preview">
+          <img :src="previewUrl" alt="Event cover preview">
+        </div>
+        <div class="image-actions">
+          <input
+            ref="fileInput"
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            @change="onImageChange"
+          >
+          <button v-if="previewUrl" type="button" class="btn secondary" @click="removeImage">
+            Remove image
+          </button>
+        </div>
+      </fieldset>
 
       <label>
         Timezone
@@ -301,6 +377,27 @@ legend {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
+}
+.image-preview {
+  margin-bottom: 0.75rem;
+}
+.image-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  object-fit: cover;
+}
+.image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.image-actions input[type='file'] {
+  border: none;
+  padding: 0;
 }
 .error {
   color: var(--danger);

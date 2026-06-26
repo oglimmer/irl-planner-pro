@@ -459,6 +459,30 @@ CREATE TABLE oauth_pending (
 );
 ```
 
+### 5.10 `event_images`
+Optional cover image per event, shown on the home page feature card and the
+attendee RSVP page. Stored **out-of-line** from the `events` row (1:1, PK =
+`event_id`) so the hot event reads never pull the binary — the image is fetched
+only by its own endpoint. `etag` is the SHA-256 content hash; it both drives HTTP
+caching (`ETag` / `304`) and is appended as `?v=<etag>` to the image URL so a
+replaced image is picked up immediately despite long browser caching.
+
+```sql
+CREATE TABLE event_images (
+    event_id     UUID PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    content_type TEXT NOT NULL,    -- server-sniffed: image/{jpeg,png,gif,webp}
+    data         BYTEA NOT NULL,   -- raw bytes, ≤ 4 MiB (matches the nginx body limit)
+    etag         TEXT NOT NULL,    -- sha256 hex of data
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+Upload is a single upsert (`ON CONFLICT (event_id) DO UPDATE`); the content type
+is sniffed server-side via `http.DetectContentType`, never trusted from the
+client. `loadEventByColumn` and the active-events list `LEFT JOIN` this table for
+the `etag` only (never the blob) and expose `imageUrl` on the event JSON (`""`
+when there is no image).
+
 ---
 
 ## 6. Authentication & access control
@@ -550,7 +574,8 @@ PUT  /api/me                           edit own profile { firstName, lastName, a
 
 ### Attendee-facing (any signed-in @id5.io user)
 ```
-GET  /api/events/:slug                 event details + typed days + timezone (form header)
+GET  /api/events/:slug                 event details + typed days + timezone + imageUrl (form header)
+GET  /api/events/:slug/image           cover image bytes — PUBLIC (no auth, so a plain <img src> loads it); ETag-cached, 404 if none
 GET  /api/events/:slug/submission      caller's own submission (404 if none)
 PUT  /api/events/:slug/submission      create/update own submission (upsert; 403 if event is past)
 GET  /api/events/:slug/activity        caller's OWN activity entries for this event
@@ -566,6 +591,8 @@ GET    /api/events?scope=current|past  list events, split current vs past (defau
 POST   /api/events                     create event (+ generate event_days)
 GET    /api/events/:id                 full event config
 PUT    /api/events/:id                 update event + day types + reminder config (admins: even when past)
+POST   /api/events/:id/image           upload cover image (multipart "image"), upsert; returns { imageUrl }
+DELETE /api/events/:id/image           remove cover image (idempotent, 204)
 
 POST   /api/events/:id/roster          upload CSV (multipart), replaces roster
 GET    /api/events/:id/roster          list roster

@@ -40,6 +40,7 @@ type Event struct {
 	WeeklyReminders         bool       `json:"weeklyReminders"`
 	ReminderHour            int        `json:"reminderHour"`
 	DailyActivityEmail      bool       `json:"dailyActivityEmail"`
+	ImageURL                string     `json:"imageUrl"` // "" when no image; carries a ?v=<etag> cache-buster
 	IsPast                  bool       `json:"isPast"`
 	Days                    []EventDay `json:"days"`
 	CreatedAt               time.Time  `json:"createdAt"`
@@ -134,21 +135,36 @@ func resolveDays(start, end time.Time, overrides []EventDay) []EventDay {
 	return days
 }
 
+// eventImageURL builds the public image URL for an event, or "" when the event
+// has no image. The ?v=<etag> query param lets the browser cache aggressively
+// yet still pick up a replaced image immediately (the URL changes with content).
+func eventImageURL(slug string, etag sql.NullString) string {
+	if !etag.Valid || etag.String == "" {
+		return ""
+	}
+	return "/api/events/" + slug + "/image?v=" + etag.String
+}
+
 // loadEventByColumn loads an event (and its days) by a unique column (id or slug).
 func (a *App) loadEventByColumn(ctx context.Context, column, value string, now time.Time) (*Event, error) {
 	e := &Event{}
 	var start, end, deadline time.Time
+	var imageEtag sql.NullString
 	err := a.DB.QueryRowContext(ctx,
-		`SELECT id, slug, name, country, city, hotel_name, hotel_address, hotel_link, timezone,
-		        start_date, end_date, submission_deadline, reminder_days_before,
-		        weekly_reminders, reminder_hour, daily_activity_email, created_at, updated_at
-		   FROM events WHERE `+column+` = $1`, value).
+		`SELECT e.id, e.slug, e.name, e.country, e.city, e.hotel_name, e.hotel_address, e.hotel_link, e.timezone,
+		        e.start_date, e.end_date, e.submission_deadline, e.reminder_days_before,
+		        e.weekly_reminders, e.reminder_hour, e.daily_activity_email, e.created_at, e.updated_at,
+		        i.etag
+		   FROM events e LEFT JOIN event_images i ON i.event_id = e.id
+		  WHERE e.`+column+` = $1`, value).
 		Scan(&e.ID, &e.Slug, &e.Name, &e.Country, &e.City, &e.HotelName, &e.HotelAddress, &e.HotelLink, &e.Timezone,
 			&start, &end, &deadline, &e.ReminderDaysBefore,
-			&e.WeeklyReminders, &e.ReminderHour, &e.DailyActivityEmail, &e.CreatedAt, &e.UpdatedAt)
+			&e.WeeklyReminders, &e.ReminderHour, &e.DailyActivityEmail, &e.CreatedAt, &e.UpdatedAt,
+			&imageEtag)
 	if err != nil {
 		return nil, err
 	}
+	e.ImageURL = eventImageURL(e.Slug, imageEtag)
 	e.StartDate = start.Format(dateLayout)
 	e.EndDate = end.Format(dateLayout)
 	e.SubmissionDeadline = deadline.UTC()
@@ -410,9 +426,10 @@ func (a *App) handleListCurrentEvents(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	rows, err := a.DB.QueryContext(r.Context(),
 		`SELECT e.id, e.slug, e.name, e.country, e.city, e.hotel_name, e.hotel_address, e.hotel_link,
-		        e.timezone, e.start_date, e.end_date, e.submission_deadline, s.attending
+		        e.timezone, e.start_date, e.end_date, e.submission_deadline, s.attending, i.etag
 		   FROM events e
 		   LEFT JOIN submissions s ON s.event_id = e.id AND s.user_id = $1
+		   LEFT JOIN event_images i ON i.event_id = e.id
 		  ORDER BY e.start_date ASC`, user.ID)
 	if err != nil {
 		serverErr(w, r, err, "db error")
@@ -424,13 +441,14 @@ func (a *App) handleListCurrentEvents(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var ae ActiveEvent
 		var start, end, deadline time.Time
-		var attending sql.NullString
+		var attending, imageEtag sql.NullString
 		if err := rows.Scan(&ae.ID, &ae.Slug, &ae.Name, &ae.Country, &ae.City,
 			&ae.HotelName, &ae.HotelAddress, &ae.HotelLink, &ae.Timezone,
-			&start, &end, &deadline, &attending); err != nil {
+			&start, &end, &deadline, &attending, &imageEtag); err != nil {
 			serverErr(w, r, err, "db error")
 			return
 		}
+		ae.ImageURL = eventImageURL(ae.Slug, imageEtag)
 		loc, lerr := loadLocation(ae.Timezone)
 		if lerr != nil {
 			loc = time.UTC

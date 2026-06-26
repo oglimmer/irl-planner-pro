@@ -168,6 +168,33 @@ export const api = {
     }
     return res.json() as Promise<RosterUploadResult>
   },
+  // Event cover image (admin). Upload returns the new image URL (with its
+  // cache-busting ?v= etag); delete is a fire-and-forget 204.
+  uploadEventImage: async (id: string, file: File): Promise<{ imageUrl: string }> => {
+    const form = new FormData()
+    form.append('image', file)
+    const headers = new Headers()
+    const t = localStorage.getItem('token')
+    if (t) {
+      if (isJwtExpired(t)) throw new ApiError(401, 'session expired')
+      headers.set('Authorization', `Bearer ${t}`)
+    }
+    const res = await fetch(`/api/admin/events/${id}/image`, { method: 'POST', headers, body: form })
+    if (!res.ok) {
+      let msg = res.statusText
+      try {
+        const data = await res.json()
+        if (data && data.error) msg = data.error
+      } catch {
+        // non-JSON body
+      }
+      throw new ApiError(res.status, msg)
+    }
+    return res.json() as Promise<{ imageUrl: string }>
+  },
+  deleteEventImage: (id: string) =>
+    request<void>(`/api/admin/events/${id}/image`, { method: 'DELETE' }),
+
   dashboard: (id: string) => request<Dashboard>(`/api/admin/events/${id}/dashboard`),
   listSubmissions: (id: string) => request<Submission[]>(`/api/admin/events/${id}/submissions`),
   // Fetches the filter-driven export as a Blob (the endpoint needs the bearer

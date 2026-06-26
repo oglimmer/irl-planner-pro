@@ -62,6 +62,7 @@ export interface Event {
   weeklyReminders: boolean
   reminderHour: number
   dailyActivityEmail: boolean
+  imageUrl: string // '' when no image; carries a ?v=<etag> cache-buster
   isPast: boolean
   days: EventDay[]
   createdAt: string

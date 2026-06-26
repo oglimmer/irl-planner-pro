@@ -152,6 +152,7 @@ onMounted(load)
       class="feature"
       :class="{ live: inProgress(feature) }"
     >
+      <img v-if="feature.imageUrl" :src="feature.imageUrl" alt="" class="feature-cover">
       <div class="feature-body">
         <p class="eyebrow">{{ inProgress(feature) ? 'Happening now' : 'Your next offsite' }}</p>
         <h2 class="dest">{{ feature.name }}</h2>
@@ -291,6 +292,16 @@ onMounted(load)
 .feature:hover {
   border-color: var(--accent);
   box-shadow: 0 14px 40px rgb(var(--shadow-rgb) / 0.10);
+}
+
+/* Cover image spans both columns as a banner across the top of the card. */
+.feature-cover {
+  grid-column: 1 / -1;
+  display: block;
+  width: 100%;
+  height: clamp(150px, 22vw, 250px);
+  object-fit: cover;
+  border-bottom: 1px solid var(--border);
 }
 
 .feature-body {

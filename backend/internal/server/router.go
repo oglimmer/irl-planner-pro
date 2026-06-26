@@ -87,6 +87,11 @@ func NewRouter(app *App) http.Handler {
 		r.Get("/version", app.handleVersion)
 		r.Get("/auth/config", app.handleAuthConfig)
 
+		// Event cover image. Public (no auth) so a plain <img src> can load it,
+		// and ETag-cached. Slugs are already shareable, non-secret links, and the
+		// image is non-sensitive event metadata.
+		r.Get("/events/{slug}/image", app.handleGetEventImage)
+
 		// Sign-in endpoints. Per-IP throttle blunts credential-stuffing/abuse;
 		// 60/min stays clear of an org's shared-egress-IP login surge.
 		r.Group(func(r chi.Router) {
@@ -127,6 +132,8 @@ func NewRouter(app *App) http.Handler {
 				r.Post("/admin/events", app.handleCreateEvent)
 				r.Get("/admin/events/{id}", app.handleGetEvent)
 				r.Put("/admin/events/{id}", app.handleUpdateEvent)
+				r.Post("/admin/events/{id}/image", app.handleUploadEventImage)
+				r.Delete("/admin/events/{id}/image", app.handleDeleteEventImage)
 				r.Get("/admin/events/{id}/activity", app.handleEventActivity)
 				r.Put("/admin/events/{id}/submissions/{userId}", app.handleAdminUpdateSubmission)
 
