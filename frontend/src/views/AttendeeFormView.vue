@@ -109,6 +109,11 @@ const departureTimeLabel = computed(() =>
 
 const readOnly = computed(() => event.value?.isPast ?? false)
 
+// Google Maps search link for a hotel address, opened in a new tab.
+function mapsUrl(address: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`
+}
+
 // One-line location summary ("Lisbon, Portugal" / "Lisbon" / ""), mirrors HomeView.
 const placeLine = computed(() =>
   [event.value?.city, event.value?.country].filter(Boolean).join(', '),
@@ -290,7 +295,29 @@ onMounted(load)
         <h1 class="dest">{{ event.name }}</h1>
         <p v-if="placeLine" class="place">{{ placeLine }}</p>
         <p v-if="event.hotelName" class="lodging">
-          Staying at {{ event.hotelName }}<span v-if="event.hotelAddress"> · {{ event.hotelAddress }}</span>
+          Staying at
+          <a
+            v-if="event.hotelLink"
+            :href="event.hotelLink"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="hotel-link"
+          >{{ event.hotelName }}</a><template v-else>{{ event.hotelName }}</template><span v-if="event.hotelAddress"> · {{ event.hotelAddress }}
+            <a
+              :href="mapsUrl(event.hotelAddress)"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="maps-link"
+              title="Open in Google Maps"
+              aria-label="Open in Google Maps"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5Z"
+                />
+              </svg>
+            </a></span>
         </p>
 
         <dl class="stats">
@@ -537,6 +564,27 @@ onMounted(load)
   margin: 4px 0 0;
   font-size: 13px;
   color: var(--muted);
+}
+
+.hotel-link {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.hotel-link:hover {
+  color: var(--text);
+}
+
+.maps-link {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 2px;
+  color: inherit;
+}
+
+.maps-link:hover {
+  color: var(--text);
 }
 
 .stats {

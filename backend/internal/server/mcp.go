@@ -135,6 +135,7 @@ type mcpCreateEventIn struct {
 	City                    string `json:"city,omitempty"`
 	HotelName               string `json:"hotelName,omitempty"`
 	HotelAddress            string `json:"hotelAddress,omitempty"`
+	HotelLink               string `json:"hotelLink,omitempty" jsonschema:"URL to the hotel website or booking page"`
 	Timezone                string `json:"timezone,omitempty" jsonschema:"IANA timezone (e.g. Europe/Paris); defaults to the server's configured default"`
 	StartDate               string `json:"startDate" jsonschema:"first travel day, YYYY-MM-DD (event-local)"`
 	EndDate                 string `json:"endDate" jsonschema:"last travel day, YYYY-MM-DD (event-local)"`
@@ -157,6 +158,7 @@ type mcpUpdateEventIn struct {
 	City                    *string `json:"city,omitempty"`
 	HotelName               *string `json:"hotelName,omitempty"`
 	HotelAddress            *string `json:"hotelAddress,omitempty"`
+	HotelLink               *string `json:"hotelLink,omitempty" jsonschema:"URL to the hotel website or booking page"`
 	Timezone                *string `json:"timezone,omitempty" jsonschema:"IANA timezone (e.g. Europe/Paris)"`
 	StartDate               *string `json:"startDate,omitempty" jsonschema:"YYYY-MM-DD"`
 	EndDate                 *string `json:"endDate,omitempty" jsonschema:"YYYY-MM-DD"`
@@ -471,6 +473,7 @@ func (a *App) addToolCreateEvent(s *mcp.Server) {
 			City:                    in.City,
 			HotelName:               in.HotelName,
 			HotelAddress:            in.HotelAddress,
+			HotelLink:               in.HotelLink,
 			Timezone:                in.Timezone,
 			StartDate:               in.StartDate,
 			EndDate:                 in.EndDate,
@@ -513,11 +516,11 @@ func (a *App) addToolCreateEvent(s *mcp.Server) {
 
 		var id string
 		err = tx.QueryRowContext(ctx,
-			`INSERT INTO events (slug, name, country, city, hotel_name, hotel_address, timezone,
+			`INSERT INTO events (slug, name, country, city, hotel_name, hotel_address, hotel_link, timezone,
 			        start_date, end_date, submission_deadline, reminder_days_before,
 			        weekly_reminders, reminder_hour, daily_activity_email, created_by)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
-			req.Slug, req.Name, req.Country, req.City, req.HotelName, req.HotelAddress, req.Timezone,
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
+			req.Slug, req.Name, req.Country, req.City, req.HotelName, req.HotelAddress, req.HotelLink, req.Timezone,
 			start, end, deadlineUTC, req.ReminderDaysBefore, req.WeeklyReminders, req.ReminderHour,
 			req.DailyActivityEmail, user.ID).Scan(&id)
 		if err != nil {
@@ -573,6 +576,7 @@ func (a *App) addToolUpdateEvent(s *mcp.Server) {
 			City:                    cur.City,
 			HotelName:               cur.HotelName,
 			HotelAddress:            cur.HotelAddress,
+			HotelLink:               cur.HotelLink,
 			Timezone:                cur.Timezone,
 			StartDate:               cur.StartDate,
 			EndDate:                 cur.EndDate,
@@ -599,6 +603,9 @@ func (a *App) addToolUpdateEvent(s *mcp.Server) {
 		}
 		if in.HotelAddress != nil {
 			req.HotelAddress = *in.HotelAddress
+		}
+		if in.HotelLink != nil {
+			req.HotelLink = *in.HotelLink
 		}
 		if in.Timezone != nil {
 			req.Timezone = *in.Timezone
@@ -643,11 +650,11 @@ func (a *App) addToolUpdateEvent(s *mcp.Server) {
 
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE events SET slug=$1, name=$2, country=$3, city=$4, hotel_name=$5, hotel_address=$6,
-			        timezone=$7, start_date=$8, end_date=$9, submission_deadline=$10,
-			        reminder_days_before=$11, weekly_reminders=$12, reminder_hour=$13,
-			        daily_activity_email=$14, updated_at=now()
-			   WHERE id=$15`,
-			req.Slug, req.Name, req.Country, req.City, req.HotelName, req.HotelAddress, req.Timezone,
+			        hotel_link=$7, timezone=$8, start_date=$9, end_date=$10, submission_deadline=$11,
+			        reminder_days_before=$12, weekly_reminders=$13, reminder_hour=$14,
+			        daily_activity_email=$15, updated_at=now()
+			   WHERE id=$16`,
+			req.Slug, req.Name, req.Country, req.City, req.HotelName, req.HotelAddress, req.HotelLink, req.Timezone,
 			start, end, deadlineUTC, req.ReminderDaysBefore, req.WeeklyReminders, req.ReminderHour,
 			req.DailyActivityEmail, cur.ID); err != nil {
 			metrics.EventMutationsTotal.WithLabelValues("update", "error").Inc()

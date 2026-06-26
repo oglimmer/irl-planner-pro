@@ -33,6 +33,9 @@ var migration0006 string
 //go:embed migrations/0007_travel_independent_per_leg.sql
 var migration0007 string
 
+//go:embed migrations/0008_event_hotel_link.sql
+var migration0008 string
+
 // Open opens the application's *sql.DB through pgx's database/sql adapter and
 // configures it for use behind a transaction-pool PgBouncer (the common HA
 // layout in front of managed Postgres).
@@ -91,6 +94,9 @@ func Migrate(db *sql.DB) error {
 	}
 	if _, err := db.Exec(migration0007); err != nil {
 		return fmt.Errorf("0007_travel_independent_per_leg: %w", err)
+	}
+	if _, err := db.Exec(migration0008); err != nil {
+		return fmt.Errorf("0008_event_hotel_link: %w", err)
 	}
 	return nil
 }

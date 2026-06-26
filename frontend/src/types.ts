@@ -52,6 +52,7 @@ export interface Event {
   city: string
   hotelName: string
   hotelAddress: string
+  hotelLink: string
   timezone: string
   startDate: string // YYYY-MM-DD
   endDate: string // YYYY-MM-DD
@@ -83,6 +84,7 @@ export interface EventInput {
   city: string
   hotelName: string
   hotelAddress: string
+  hotelLink: string
   timezone: string
   startDate: string
   endDate: string

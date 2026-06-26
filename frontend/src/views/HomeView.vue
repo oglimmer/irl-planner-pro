@@ -156,7 +156,16 @@ onMounted(load)
         <p class="eyebrow">{{ inProgress(feature) ? 'Happening now' : 'Your next offsite' }}</p>
         <h2 class="dest">{{ feature.name }}</h2>
         <p v-if="place(feature)" class="place">{{ place(feature) }}</p>
-        <p v-if="feature.hotelName" class="lodging">Staying at {{ feature.hotelName }}</p>
+        <p v-if="feature.hotelName" class="lodging">
+          Staying at
+          <a
+            v-if="feature.hotelLink"
+            :href="feature.hotelLink"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="hotel-link"
+          >{{ feature.hotelName }}</a><template v-else>{{ feature.hotelName }}</template>
+        </p>
 
         <dl class="stats">
           <div class="stat">
@@ -317,6 +326,15 @@ onMounted(load)
   margin: 4px 0 0;
   font-size: 13px;
   color: var(--muted);
+}
+
+.hotel-link {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.hotel-link:hover {
+  color: var(--text);
 }
 
 .stats {

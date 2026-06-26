@@ -30,6 +30,7 @@ type Event struct {
 	City                    string     `json:"city"`
 	HotelName               string     `json:"hotelName"`
 	HotelAddress            string     `json:"hotelAddress"`
+	HotelLink               string     `json:"hotelLink"`
 	Timezone                string     `json:"timezone"`
 	StartDate               string     `json:"startDate"`               // YYYY-MM-DD
 	EndDate                 string     `json:"endDate"`                 // YYYY-MM-DD
@@ -52,6 +53,7 @@ type eventReq struct {
 	City                    string     `json:"city"`
 	HotelName               string     `json:"hotelName"`
 	HotelAddress            string     `json:"hotelAddress"`
+	HotelLink               string     `json:"hotelLink"`
 	Timezone                string     `json:"timezone"`
 	StartDate               string     `json:"startDate"`
 	EndDate                 string     `json:"endDate"`
@@ -137,11 +139,11 @@ func (a *App) loadEventByColumn(ctx context.Context, column, value string, now t
 	e := &Event{}
 	var start, end, deadline time.Time
 	err := a.DB.QueryRowContext(ctx,
-		`SELECT id, slug, name, country, city, hotel_name, hotel_address, timezone,
+		`SELECT id, slug, name, country, city, hotel_name, hotel_address, hotel_link, timezone,
 		        start_date, end_date, submission_deadline, reminder_days_before,
 		        weekly_reminders, reminder_hour, daily_activity_email, created_at, updated_at
 		   FROM events WHERE `+column+` = $1`, value).
-		Scan(&e.ID, &e.Slug, &e.Name, &e.Country, &e.City, &e.HotelName, &e.HotelAddress, &e.Timezone,
+		Scan(&e.ID, &e.Slug, &e.Name, &e.Country, &e.City, &e.HotelName, &e.HotelAddress, &e.HotelLink, &e.Timezone,
 			&start, &end, &deadline, &e.ReminderDaysBefore,
 			&e.WeeklyReminders, &e.ReminderHour, &e.DailyActivityEmail, &e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
@@ -261,11 +263,11 @@ func (a *App) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 
 	var id string
 	err = tx.QueryRowContext(r.Context(),
-		`INSERT INTO events (slug, name, country, city, hotel_name, hotel_address, timezone,
+		`INSERT INTO events (slug, name, country, city, hotel_name, hotel_address, hotel_link, timezone,
 		        start_date, end_date, submission_deadline, reminder_days_before,
 		        weekly_reminders, reminder_hour, daily_activity_email, created_by)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
-		req.Slug, req.Name, req.Country, req.City, req.HotelName, req.HotelAddress, req.Timezone,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
+		req.Slug, req.Name, req.Country, req.City, req.HotelName, req.HotelAddress, req.HotelLink, req.Timezone,
 		start, end, deadlineUTC, req.ReminderDaysBefore, req.WeeklyReminders, req.ReminderHour,
 		req.DailyActivityEmail, user.ID).Scan(&id)
 	if err != nil {
@@ -333,11 +335,11 @@ func (a *App) handleUpdateEvent(w http.ResponseWriter, r *http.Request) {
 
 	res, err := tx.ExecContext(r.Context(),
 		`UPDATE events SET slug=$1, name=$2, country=$3, city=$4, hotel_name=$5, hotel_address=$6,
-		        timezone=$7, start_date=$8, end_date=$9, submission_deadline=$10,
-		        reminder_days_before=$11, weekly_reminders=$12, reminder_hour=$13,
-		        daily_activity_email=$14, updated_at=now()
-		   WHERE id=$15`,
-		req.Slug, req.Name, req.Country, req.City, req.HotelName, req.HotelAddress, req.Timezone,
+		        hotel_link=$7, timezone=$8, start_date=$9, end_date=$10, submission_deadline=$11,
+		        reminder_days_before=$12, weekly_reminders=$13, reminder_hour=$14,
+		        daily_activity_email=$15, updated_at=now()
+		   WHERE id=$16`,
+		req.Slug, req.Name, req.Country, req.City, req.HotelName, req.HotelAddress, req.HotelLink, req.Timezone,
 		start, end, deadlineUTC, req.ReminderDaysBefore, req.WeeklyReminders, req.ReminderHour,
 		req.DailyActivityEmail, id)
 	if err != nil {
@@ -407,7 +409,7 @@ type ActiveEvent struct {
 func (a *App) handleListCurrentEvents(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	rows, err := a.DB.QueryContext(r.Context(),
-		`SELECT e.id, e.slug, e.name, e.country, e.city, e.hotel_name, e.hotel_address,
+		`SELECT e.id, e.slug, e.name, e.country, e.city, e.hotel_name, e.hotel_address, e.hotel_link,
 		        e.timezone, e.start_date, e.end_date, e.submission_deadline, s.attending
 		   FROM events e
 		   LEFT JOIN submissions s ON s.event_id = e.id AND s.user_id = $1
@@ -424,7 +426,7 @@ func (a *App) handleListCurrentEvents(w http.ResponseWriter, r *http.Request) {
 		var start, end, deadline time.Time
 		var attending sql.NullString
 		if err := rows.Scan(&ae.ID, &ae.Slug, &ae.Name, &ae.Country, &ae.City,
-			&ae.HotelName, &ae.HotelAddress, &ae.Timezone,
+			&ae.HotelName, &ae.HotelAddress, &ae.HotelLink, &ae.Timezone,
 			&start, &end, &deadline, &attending); err != nil {
 			serverErr(w, r, err, "db error")
 			return

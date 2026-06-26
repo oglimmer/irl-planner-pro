@@ -22,6 +22,7 @@ const form = reactive<EventInput>({
   city: '',
   hotelName: '',
   hotelAddress: '',
+  hotelLink: '',
   timezone: auth.defaultEventTimezone || 'Europe/Paris',
   startDate: '',
   endDate: '',
@@ -87,6 +88,7 @@ async function loadForEdit() {
       city: e.city,
       hotelName: e.hotelName,
       hotelAddress: e.hotelAddress,
+      hotelLink: e.hotelLink,
       timezone: e.timezone,
       startDate: e.startDate,
       endDate: e.endDate,
@@ -149,6 +151,7 @@ onMounted(loadForEdit)
       </div>
       <label>Hotel name <input v-model="form.hotelName" type="text"></label>
       <label>Hotel address <input v-model="form.hotelAddress" type="text"></label>
+      <label>Hotel link <input v-model="form.hotelLink" type="url" placeholder="https://…"></label>
 
       <label>
         Timezone
