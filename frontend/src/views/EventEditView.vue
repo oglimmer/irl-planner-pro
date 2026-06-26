@@ -187,106 +187,157 @@ onMounted(loadForEdit)
 </script>
 
 <template>
-  <section>
-    <h1>{{ isEdit ? 'Edit event' : 'New event' }}</h1>
+  <section class="event-form">
+    <header class="page-head">
+      <h1>{{ isEdit ? 'Edit event' : 'New event' }}</h1>
+      <p class="muted">
+        Configure where and when the offsite happens, then attendees RSVP from the
+        shareable link.
+      </p>
+    </header>
+
     <p v-if="loading" class="muted">Loading…</p>
 
     <form v-else class="form" @submit.prevent="save">
-      <label>
-        Event name
-        <input v-model="form.name" type="text" required placeholder="IRL Dubrovnik October 2026">
-      </label>
-      <label>
-        URL slug
-        <input v-model="form.slug" type="text" required placeholder="dubrovnik-oct-2026">
-        <small>Shareable link: /events/{{ form.slug || '…' }}</small>
-      </label>
-
-      <div class="row">
-        <label>Country <input v-model="form.country" type="text"></label>
-        <label>City <input v-model="form.city" type="text"></label>
-      </div>
-      <label>Hotel name <input v-model="form.hotelName" type="text"></label>
-      <label>Hotel address <input v-model="form.hotelAddress" type="text"></label>
-      <label>Hotel link <input v-model="form.hotelLink" type="url" placeholder="https://…"></label>
-
-      <fieldset>
-        <legend>Cover image</legend>
-        <p class="muted small">Shown on the home page and the event's RSVP page. JPEG, PNG, GIF or WebP, up to 4 MB.</p>
-        <div v-if="previewUrl" class="image-preview">
-          <img :src="previewUrl" alt="Event cover preview">
-        </div>
-        <div class="image-actions">
-          <input
-            ref="fileInput"
-            type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp"
-            @change="onImageChange"
-          >
-          <button v-if="previewUrl" type="button" class="btn secondary" @click="removeImage">
-            Remove image
-          </button>
+      <!-- Basics ───────────────────────────────────────────── -->
+      <fieldset class="section">
+        <legend class="section-title">Basics</legend>
+        <div class="grid">
+          <label class="field full">
+            <span class="field-label">Event name</span>
+            <input v-model="form.name" type="text" required placeholder="IRL Dubrovnik October 2026">
+          </label>
+          <label class="field full">
+            <span class="field-label">URL slug</span>
+            <input v-model="form.slug" type="text" required placeholder="dubrovnik-oct-2026">
+            <small>Shareable link: <code>/events/{{ form.slug || '…' }}</code></small>
+          </label>
         </div>
       </fieldset>
 
-      <label>
-        Timezone
-        <select v-model="form.timezone">
-          <option v-for="tz in tzOptions" :key="tz" :value="tz">{{ tz }}</option>
-        </select>
-        <small>All dates and times are shown in this timezone.</small>
-      </label>
-
-      <div class="row">
-        <label>Start date <input v-model="form.startDate" type="date" required></label>
-        <label>End date <input v-model="form.endDate" type="date" required></label>
-      </div>
-
-      <label>
-        Submission deadline ({{ form.timezone }})
-        <input v-model="form.submissionDeadlineLocal" type="datetime-local" required>
-      </label>
-
-      <fieldset v-if="dayList.length">
-        <legend>Days</legend>
-        <p class="muted small">Travel days vs event days. First and last default to travel.</p>
-        <div class="days">
-          <button
-            v-for="date in dayList"
-            :key="date"
-            type="button"
-            :class="['day', dayTypes[date]]"
-            @click="toggleDay(date)"
-          >
-            <span class="day-date">{{ formatDate(date) }}</span>
-            <span class="day-type">{{ dayTypes[date] }}</span>
-          </button>
+      <!-- Location & hotel ──────────────────────────────────── -->
+      <fieldset class="section">
+        <legend class="section-title">Location &amp; hotel</legend>
+        <div class="grid">
+          <label class="field">
+            <span class="field-label">Country</span>
+            <input v-model="form.country" type="text" placeholder="Croatia">
+          </label>
+          <label class="field">
+            <span class="field-label">City</span>
+            <input v-model="form.city" type="text" placeholder="Dubrovnik">
+          </label>
+          <label class="field full">
+            <span class="field-label">Hotel name</span>
+            <input v-model="form.hotelName" type="text">
+          </label>
+          <label class="field full">
+            <span class="field-label">Hotel address</span>
+            <input v-model="form.hotelAddress" type="text">
+          </label>
+          <label class="field full">
+            <span class="field-label">Hotel link</span>
+            <input v-model="form.hotelLink" type="url" placeholder="https://…">
+          </label>
         </div>
       </fieldset>
 
-      <fieldset>
-        <legend>Reminders</legend>
+      <!-- Cover image ───────────────────────────────────────── -->
+      <fieldset class="section">
+        <legend class="section-title">Cover image</legend>
+        <p class="muted small">
+          Shown on the home page and the event's RSVP page. JPEG, PNG, GIF or WebP, up to 4 MB.
+        </p>
+        <div class="image-row">
+          <div class="image-preview" :class="{ empty: !previewUrl }">
+            <img v-if="previewUrl" :src="previewUrl" alt="Event cover preview">
+            <span v-else class="image-placeholder">No image</span>
+          </div>
+          <div class="image-actions">
+            <label class="btn secondary file-trigger">
+              {{ previewUrl ? 'Replace image' : 'Choose image' }}
+              <input
+                ref="fileInput"
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                @change="onImageChange"
+              >
+            </label>
+            <button v-if="previewUrl" type="button" class="btn danger" @click="removeImage">
+              Remove
+            </button>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Schedule ──────────────────────────────────────────── -->
+      <fieldset class="section">
+        <legend class="section-title">Schedule</legend>
+        <div class="grid">
+          <label class="field full">
+            <span class="field-label">Timezone</span>
+            <select v-model="form.timezone">
+              <option v-for="tz in tzOptions" :key="tz" :value="tz">{{ tz }}</option>
+            </select>
+            <small>All dates and times below are shown in this timezone.</small>
+          </label>
+          <label class="field">
+            <span class="field-label">Start date</span>
+            <input v-model="form.startDate" type="date" required>
+          </label>
+          <label class="field">
+            <span class="field-label">End date</span>
+            <input v-model="form.endDate" type="date" required>
+          </label>
+          <label class="field full">
+            <span class="field-label">Submission deadline · {{ form.timezone }}</span>
+            <input v-model="form.submissionDeadlineLocal" type="datetime-local" required>
+          </label>
+        </div>
+
+        <div v-if="dayList.length" class="days-block">
+          <span class="field-label">Days</span>
+          <p class="muted small">Tap a day to switch between travel and event. First and last default to travel.</p>
+          <div class="days">
+            <button
+              v-for="date in dayList"
+              :key="date"
+              type="button"
+              :class="['day', dayTypes[date]]"
+              @click="toggleDay(date)"
+            >
+              <span class="day-date">{{ formatDate(date) }}</span>
+              <span class="day-type">{{ dayTypes[date] }}</span>
+            </button>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Reminders ─────────────────────────────────────────── -->
+      <fieldset class="section">
+        <legend class="section-title">Reminders</legend>
         <label class="check">
           <input v-model="form.weeklyReminders" type="checkbox">
-          Send a weekly reminder to non-responders
+          <span>Send a weekly reminder to non-responders</span>
         </label>
-        <div class="row">
-          <label>
-            Days before deadline to send daily reminders
+        <div class="grid">
+          <label class="field">
+            <span class="field-label">Days before deadline for daily reminders</span>
             <input v-model.number="form.reminderDaysBefore" type="number" min="0">
           </label>
-          <label>
-            Send hour (0–23, {{ form.timezone }})
+          <label class="field">
+            <span class="field-label">Send hour · 0–23 · {{ form.timezone }}</span>
             <input v-model.number="form.reminderHour" type="number" min="0" max="23">
           </label>
         </div>
         <label class="check">
           <input v-model="form.dailyActivityEmail" type="checkbox">
-          Email me a daily activity digest (only on days with activity)
+          <span>Email me a daily activity digest (only on days with activity)</span>
         </label>
       </fieldset>
 
       <p v-if="error" class="error">{{ error }}</p>
+
       <div class="actions">
         <RouterLink to="/admin/events" class="btn secondary">Cancel</RouterLink>
         <button class="btn" type="submit" :disabled="saving">
@@ -298,115 +349,227 @@ onMounted(loadForEdit)
 </template>
 
 <style scoped>
+.event-form {
+  max-width: 720px;
+}
+.page-head {
+  margin-bottom: 32px;
+}
+.page-head .muted {
+  max-width: 56ch;
+  margin: 0;
+}
+
 .form {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  max-width: 640px;
+  gap: 0;
 }
-label {
+
+/* Sections — hairline-separated editorial blocks ─────────────── */
+.section {
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  margin: 0;
+  padding: 28px 0 32px;
+  min-width: 0; /* let grid children shrink inside the fieldset */
+}
+.section:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.section-title {
+  padding: 0;
+  margin: 0 0 20px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+/* Field grid ─────────────────────────────────────────────────── */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 28px;
+}
+.field {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.9rem;
+  gap: 6px;
+  min-width: 0;
+}
+.field.full {
+  grid-column: 1 / -1;
+}
+.field-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--muted);
-}
-label.check {
-  flex-direction: row;
-  align-items: center;
-  gap: 0.5rem;
-}
-input,
-select {
-  padding: 0.5rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font: inherit;
-  color: var(--text);
-}
-.row {
-  display: flex;
-  gap: 1rem;
-}
-.row > label {
-  flex: 1;
 }
 small {
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 12px;
+}
+small code {
+  color: var(--accent-2);
 }
 .small {
-  font-size: 0.85rem;
+  font-size: 12.5px;
 }
-fieldset {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1rem;
+.muted.small {
+  margin: -4px 0 16px;
 }
-legend {
-  padding: 0 0.4rem;
-  font-weight: 600;
+
+/* Checkboxes ─────────────────────────────────────────────────── */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
   color: var(--text);
+  cursor: pointer;
+  padding: 6px 0;
+}
+.check input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.check + .grid {
+  margin: 10px 0;
+}
+
+/* Days ───────────────────────────────────────────────────────── */
+.days-block {
+  margin-top: 24px;
+}
+.days-block > .field-label {
+  display: block;
+  margin-bottom: 4px;
 }
 .days {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 8px;
+  margin-top: 8px;
 }
 .day {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.15rem;
+  gap: 2px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  padding: 0.45rem 0.7rem;
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--text);
+  padding: 8px 12px;
   cursor: pointer;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.day:hover {
+  border-color: var(--accent);
+  background: var(--panel);
 }
 .day.travel {
   border-color: var(--accent);
-  background: rgb(var(--accent-rgb) / 0.10);
+  background: rgb(var(--accent-rgb) / 0.14);
 }
 .day.event {
-  border-color: var(--accent);
-  background: rgb(var(--accent-rgb) / 0.07);
+  border-color: var(--border);
+  background: var(--panel);
+}
+.day-date {
+  font-size: 13px;
+  font-family: var(--mono);
+  color: var(--text);
 }
 .day-type {
-  font-size: 0.72rem;
+  font-size: 9.5px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.16em;
   color: var(--muted);
 }
+.day.travel .day-type {
+  color: var(--accent-2);
+}
+
+/* Cover image ────────────────────────────────────────────────── */
+.image-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  flex-wrap: wrap;
+}
 .image-preview {
-  margin-bottom: 0.75rem;
+  width: 240px;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  overflow: hidden;
 }
 .image-preview img {
   display: block;
-  max-width: 100%;
-  max-height: 220px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
+  width: 100%;
+  height: 100%;
   object-fit: cover;
+}
+.image-preview.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+}
+.image-placeholder {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 .image-actions {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 10px;
 }
-.image-actions input[type='file'] {
-  border: none;
+.file-trigger {
+  cursor: pointer;
+}
+.file-trigger input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
 }
-.error {
-  color: var(--danger);
-}
+
+/* Actions ────────────────────────────────────────────────────── */
 .actions {
   display: flex;
-  gap: 0.75rem;
+  justify-content: flex-end;
+  gap: 12px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 24px;
+  margin-top: 8px;
 }
 .muted {
   color: var(--muted);
+}
+
+@media (max-width: 560px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
