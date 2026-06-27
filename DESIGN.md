@@ -11,9 +11,9 @@ rules, and operational setup as they exist today.
 
 An **admin** (the People team) configures an event once; **employees** sign in
 with Google SSO and submit their attendance + travel details through a form with
-conditional logic. The app tracks non-responders against an uploaded employee
-roster, sends automated reminders, notifies admins on edits, and exports
-responses as CSV.
+conditional logic. The app tracks non-responders against each event's list of
+expected attendees (drawn from the company-wide employee directory), sends
+automated reminders, notifies admins on edits, and exports responses as CSV.
 
 ### What the app does
 
@@ -29,7 +29,9 @@ responses as CSV.
   with after-deadline edits highlighted); admins are emailed on any change and can
   enable a per-event daily activity digest.
 - **Access** — Google SSO restricted to `@id5.io`; each event has a shareable URL.
-- **Roster + dashboard** — admins upload a CSV (name + work email) per event; the
+- **Attendees + dashboard** — each event has a list of expected attendees, who are
+  company-directory users; admins import them via CSV (provisioning users) or add
+  existing employees, and anyone who responds is added automatically. The
   dashboard buckets everyone by attending state (yes / no / not sure / no
   response), filterable, and auto-reloads (5s / 15s / 1m / 5m / off).
 - **Lifecycle** — events are never deleted; past events move to a separate area
@@ -87,8 +89,8 @@ on-disk state, so no backend PVC is required.
                     │  /api/events*       admin CRUD + config         │
                     │  /api/events/:slug  attendee-facing event view  │
                     │  /api/events/:slug/submission  form CRUD        │
-                    │  /api/events/:id/roster (CSV up) /export (CSV)  │
-                    │  /api/events/:id/dashboard      stats           │
+                    │  /api/events/:id/attendees (import/add/remove)  │
+                    │  /api/events/:id/dashboard /export.csv  stats   │
                     │  /mcp           MCP Streamable HTTP (optional)  │
                     │  /oauth, /.well-known  OAuth 2.1 for /mcp        │
                     │                                                 │
@@ -100,7 +102,7 @@ on-disk state, so no backend PVC is required.
                                               ▼
                     ┌───────────────────────────────────────────────┐
                     │              PostgreSQL 16                      │
-                    │  users, events, event_days, event_roster,      │
+                    │  users, events, event_days, event_attendees,   │
                     │  submissions, submission_revisions,            │
                     │  reminder_log, activity_log,                   │
                     │  oauth_auth_codes, oauth_refresh_tokens,       │
@@ -142,9 +144,9 @@ irl-planner-pro/
 │           ├── oidc.go            OIDC login/callback/logout
 │           ├── users.go           /api/me, provisioning (first-user-admin), promote/demote
 │           ├── events.go          event CRUD + per-day config
-│           ├── roster.go          CSV upload + parse
+│           ├── attendees.go       attendee import/add/remove (provisions users)
 │           ├── submissions.go     attendee form CRUD + conditional validation
-│           ├── dashboard.go       counts by attending state + roster join
+│           ├── dashboard.go       counts by attending state, unified attendee list
 │           ├── export.go          CSV export
 │           ├── activity.go        activity_log writes + read endpoints
 │           ├── reminders.go       scheduler + reminders + daily digest + reminder_log
@@ -164,7 +166,7 @@ irl-planner-pro/
 │       │   ├── OIDCCallbackView.vue   token handoff
 │       │   ├── EventListView.vue      admin: events index (current vs Past tabs)
 │       │   ├── EventEditView.vue      admin: configure event + days + tz + reminders
-│       │   ├── EventDashboardView.vue admin: Responses / Activity / Roster tabs
+│       │   ├── EventDashboardView.vue admin: Responses / Activity / Attendees tabs
 │       │   ├── AttendeeFormView.vue   employee: conditional form + My-activity (/events/:slug)
 │       │   ├── WelcomeView.vue         first-login profile confirm (/welcome)
 │       │   ├── ProfileView.vue         edit own name + allergies (/profile)
@@ -202,9 +204,19 @@ CREATE TABLE users (
     profile_confirmed BOOLEAN NOT NULL DEFAULT false, -- true once the user reviews the IdP-seeded profile (migration 0006)
     is_admin    BOOLEAN NOT NULL DEFAULT false,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login_at TIMESTAMPTZ,                  -- NULL = provisioned by an admin import, never signed in (migration 0010)
     token_version INTEGER NOT NULL DEFAULT 0  -- bump to revoke all sessions
 );
 ```
+
+**`users` is the company directory.** It is the single canonical record for every
+employee, populated two ways: on **first login** (OIDC/dev), or by an **admin
+import** that provisions a row from a name + email before the person has ever
+signed in. `last_login_at` (migration 0010) distinguishes the two — it is `NULL`
+for a provisioned-but-never-logged-in user and stamped by `findOrCreateUser` on
+every login. Because an import matches on email, a provisioned user's first real
+login reuses the same row (their admin-entered name is preserved). Per-event
+membership lives in `event_attendees` (§5.4), not here.
 
 **Name = a profile property.** The user's name lives on `users` as `first_name` /
 `last_name`, seeded from the OIDC `profile` scope (`given_name` / `family_name`, or
@@ -292,23 +304,30 @@ CREATE TABLE event_days (
 );
 ```
 
-### 5.4 `event_roster`
-The uploaded CSV (name + work email), per event. **Used for non-responder
-tracking only** — never for sending individual invites.
+### 5.4 `event_attendees`
+The per-event membership: which **employees (users)** are expected at an event.
+There is a single canonical person record — the company-wide `users` directory
+(§5.1) — and an employee gets there one of three equivalent ways, all unified:
+they logged into an earlier event, they logged in after this event was created,
+or an admin imported them. This table simply links those users to an event.
 
 ```sql
-CREATE TABLE event_roster (
-    id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    event_id  UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    full_name TEXT NOT NULL,
-    email     TEXT NOT NULL,                 -- lower-cased
+CREATE TABLE event_attendees (
+    event_id   UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (event_id, email)
+    PRIMARY KEY (event_id, user_id)
 );
 ```
 
-Re-uploading a CSV replaces the roster for that event (delete + insert in one
-transaction) so corrections are easy.
+Membership is maintained three ways, all **additive**: a CSV import (name +
+work email) provisions a directory user for each new email and links them; an
+admin adds an existing employee from the directory; and **submitting an RSVP
+auto-adds its author** (server/submissions.go). Because responding makes you an
+attendee, the overview is exactly this set — there is no separate "off-roster"
+category. Removing an attendee unlinks them only; their directory record and any
+submission are kept. (The legacy `event_roster` table is retained but unused;
+migration 0010 backfilled it into `users` + `event_attendees`.)
 
 ### 5.5 `submissions`
 One submission per (event, user). Holds all form fields including the conditional
@@ -413,7 +432,8 @@ CREATE INDEX activity_log_subject_idx ON activity_log(event_id, subject_email);
 
 **Action vocabulary** (extensible): `submission.created`, `submission.updated`,
 `submission.attending_changed`, `event.created`, `event.updated`,
-`event.config_changed`, `roster.uploaded`, `admin.edited_submission`,
+`event.config_changed`, `attendees.imported`, `attendee.added`,
+`attendee.removed`, `admin.edited_submission`,
 `reminder.sent`. The `summary` is computed at write time so both the UI and the
 digest email render without re-deriving anything. `after_deadline` is stamped by
 comparing `now()` to the event's `submission_deadline` — it's the single flag the
@@ -518,7 +538,7 @@ Two roles:
 | View own activity log | ✓ | ✓ |
 | Create/configure events (incl. past events) | — | ✓ |
 | Edit any attendee's submission (logged) | — | ✓ |
-| Upload roster CSV | — | ✓ |
+| Import / add / remove attendees | — | ✓ |
 | View dashboard + full activity log | — | ✓ |
 | Export CSV | — | ✓ |
 | Configure reminders / daily digest | — | ✓ |
@@ -594,10 +614,11 @@ PUT    /api/events/:id                 update event + day types + reminder confi
 POST   /api/events/:id/image           upload cover image (multipart "image"), upsert; returns { imageUrl }
 DELETE /api/events/:id/image           remove cover image (idempotent, 204)
 
-POST   /api/events/:id/roster          upload CSV (multipart), replaces roster
-GET    /api/events/:id/roster          list roster
+POST   /api/events/:id/attendees           import CSV (multipart), additive — provisions users + links them
+POST   /api/events/:id/attendees/:userId   add an existing directory user as an attendee (idempotent, 204)
+DELETE /api/events/:id/attendees/:userId   remove an attendee (unlink only, idempotent, 204)
 
-GET    /api/events/:id/dashboard       counts keyed by attending state + non-responders (see §10)
+GET    /api/events/:id/dashboard       counts keyed by attending state + per-attendee rows (see §10)
 GET    /api/events/:id/submissions     all submissions (table view; admins may edit any)
 PUT    /api/events/:id/submissions/:userId  admin edit of an attendee's submission
 GET    /api/events/:id/activity        ALL activity for the event (timeline; flags after_deadline)
@@ -717,7 +738,8 @@ A single background goroutine started in `main.go`, bound to the root context,
 tracked by the `WaitGroup`, and driven by a `time.Ticker` (hourly). On each tick,
 for every event that is still open (deadline not yet passed, event not past):
 
-1. Compute the **non-responders**: roster emails with **no `submissions` row** for
+1. Compute the **non-responders**: attendee emails (from `event_attendees` joined
+   to `users`) with **no `submissions` row** for
    the event. (Any submission — including `not_sure` — counts as a response; only
    true silence is chased. Reminders are about *getting a response*, while the
    dashboard then filters responses by `attending` state, §10.)
@@ -733,9 +755,10 @@ for every event that is still open (deadline not yet passed, event not past):
 
 The email links the recipient to the event URL (`PUBLIC_BASE_URL/events/:slug`).
 
-Because the recipient pool is the **roster**, reminders may reach people who have
-never signed in. As a company-internal tool, sending to any `@id5.io` roster
-address is acceptable without separate consent — there is no opt-out flow.
+Because the recipient pool is the event's **attendees**, reminders may reach
+people an admin imported who have never signed in. As a company-internal tool,
+sending to any `@id5.io` address is acceptable without separate consent — there
+is no opt-out flow.
 
 Reminder timing is configured per event (`reminder_days_before`,
 `weekly_reminders`, `reminder_hour`, `daily_activity_email`) via the event edit
@@ -765,32 +788,30 @@ restart never double-sends.
 
 ### Dashboard (`EventDashboardView.vue`, admin)
 The dashboard is organised around the **`attending` state**, not a binary
-"submitted / not". Every roster member falls into one of four mutually exclusive
-buckets — `yes`, `no`, `not_sure`, and `no_response` (no submission row) — and the
-UI lets the admin **filter the attendee table by any combination** of these four
-states.
+"submitted / not". Every **attendee** (§5.4) falls into one of four mutually
+exclusive buckets — `yes`, `no`, `not_sure`, and `no_response` (no submission
+row) — and the UI lets the admin **filter the table by any combination** of these
+four states. Because every attendee is a directory user and responding auto-adds
+you as an attendee, the overview is one unified list — there is no separate
+"off-roster" section.
 
 `GET /api/events/:id/dashboard` returns:
 ```json
 {
-  "rosterTotal": 48,
+  "total": 48,
   "counts": { "yes": 33, "no": 5, "notSure": 3, "noResponse": 7 },
-  "rosterEntries": [
-    { "fullName": "…", "email": "…", "attending": "yes", "afterDeadlineEdit": false },
-    { "fullName": "…", "email": "…", "attending": "no_response" }
-  ],
-  "offRoster": [
-    { "name": "…", "email": "…", "attending": "yes" }
+  "entries": [
+    { "userId": "…", "name": "…", "email": "…", "attending": "yes", "afterDeadlineEdit": false, "hasLoggedIn": true },
+    { "userId": "…", "name": "…", "email": "…", "attending": "no_response", "afterDeadlineEdit": false, "hasLoggedIn": false }
   ]
 }
 ```
-- Each roster member is joined to their submission and assigned one of the four
-  states; `no_response` is itself just one filterable state — the "who hasn't
-  responded, by name" view is the `no_response` filter.
-- `offRoster` lists people who submitted but aren't on the roster (e.g. a late add
-  to the company), surfaced separately so the roster stays the source of truth for
-  tracking.
-- Filtering is client-side over `rosterEntries` (small lists; the whole set is
+- Each attendee is joined to their submission and assigned one of the four states;
+  `no_response` is itself just one filterable state — the "who hasn't responded,
+  by name" view is the `no_response` filter.
+- `name` is read from the user's profile; `hasLoggedIn` is `false` for someone an
+  admin imported who hasn't signed in yet (surfaced as a "not signed in" badge).
+- Filtering is client-side over `entries` (small lists; the whole set is
   fetched each poll), with quick chips for each state and their counts.
 
 **Auto-reload.** A `useAutoReload(intervalRef, fetchFn)` composable polls the
@@ -810,7 +831,7 @@ GET /api/events/:id/export.csv                              # no filter → ever
 ```
 
 `attending` is a comma-separated subset of `{yes,no,not_sure,no_response}`
-(mirroring the dashboard chips). Rows for `no_response` roster members are emitted
+(mirroring the dashboard chips). Rows for `no_response` attendees are emitted
 with empty submission columns, so the CSV doubles as a non-responder list when that
 filter is active. One row per person, all form fields + email + timestamps
 (rendered in the event timezone), streamed with the stdlib `encoding/csv` and
@@ -818,12 +839,17 @@ filter is active. One row per person, all form fields + email + timestamps
 for "which people", any future filter dimension (e.g. long-haul only, by arrival
 day) extends both the table and the export for free.
 
-### Roster CSV upload
-`POST /api/events/:id/roster` accepts `multipart/form-data`. Parsed with
+### Attendee CSV import
+`POST /api/events/:id/attendees` accepts `multipart/form-data`. Parsed with
 `encoding/csv`; expected headers `name,email` (case-insensitive, tolerant of extra
 columns). Validated: non-empty name, well-formed email; rows are lower-cased and
-de-duplicated; the whole roster for the event is replaced transactionally. A parse
-report (`{ inserted, skipped, errors[] }`) is returned for admin feedback.
+de-duplicated. Each row **provisions a directory user** if its email is new
+(splitting the name into first/last) and links them to the event. The import is
+**additive** — `ON CONFLICT DO NOTHING` on both `users` and `event_attendees`, so
+re-running only ever adds people; removal is a separate per-person action
+(`DELETE /api/events/:id/attendees/{userId}`). A report
+(`{ added, skipped, errors[] }`) is returned for admin feedback. Admins can also
+add an existing employee directly (`POST /api/events/:id/attendees/{userId}`).
 
 ---
 

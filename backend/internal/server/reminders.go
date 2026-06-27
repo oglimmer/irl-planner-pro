@@ -229,13 +229,13 @@ func (a *App) claimReminder(ctx context.Context, eventID, recipient, kind, perio
 	return n > 0, nil
 }
 
-// nonResponders returns roster emails with no submission for the event.
+// nonResponders returns the emails of event attendees with no submission yet.
 func (a *App) nonResponders(ctx context.Context, eventID string) ([]string, error) {
 	rows, err := a.DB.QueryContext(ctx,
-		`SELECT er.email FROM event_roster er
-		   LEFT JOIN users u ON lower(u.email) = er.email
-		   LEFT JOIN submissions s ON s.event_id = er.event_id AND s.user_id = u.id
-		  WHERE er.event_id = $1 AND s.id IS NULL`, eventID)
+		`SELECT u.email FROM event_attendees ea
+		   JOIN users u ON u.id = ea.user_id
+		   LEFT JOIN submissions s ON s.event_id = ea.event_id AND s.user_id = ea.user_id
+		  WHERE ea.event_id = $1 AND s.id IS NULL`, eventID)
 	if err != nil {
 		return nil, err
 	}

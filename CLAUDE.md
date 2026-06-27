@@ -94,7 +94,7 @@ root context that every background goroutine derives from, tracked by a
 
 - **`internal/server`** is the whole HTTP layer. Every handler hangs off the
   `*App` receiver (`app.go`: `Cfg`, `DB`, `OIDC`, `Email`, readiness flag). One
-  file per domain: `users.go`, `events.go`, `submissions.go`, `roster.go`,
+  file per domain: `users.go`, `events.go`, `submissions.go`, `attendees.go`,
   `dashboard.go`, `export.go`, `activity.go`, `reminders.go`, `notify.go`,
   `oidc.go`, `auth.go`, `timeutil.go`, `errors.go`. `router.go` wires everything.
 - **`internal/{config,db,email,metrics,workspaceauth,buildinfo}`** are leaf
@@ -136,6 +136,14 @@ wrapper with `ApiError`). nginx serves the SPA and proxies `/api` in prod.
   **only on first login** — a later login never overwrites it, so a user's own
   edit always wins. Dashboards/exports join these in from the submitter's profile;
   do not add name/allergies columns back onto `submissions`.
+- **Attendees are company-directory users, not a separate roster.** `users` is the
+  one canonical employee record; an event's expected population is the
+  `event_attendees` join table (migration 0010). A CSV import *provisions* `users`
+  rows (NULL `last_login_at` until they sign in) and links them; responding
+  auto-adds the author (`submissions.go`); so the dashboard is one unified list with
+  **no "off-roster"** category. The legacy `event_roster` table still exists but is
+  unused — do not write to it. (Reminders/non-responders come from
+  `event_attendees`, not `event_roster`.)
 - **Conditional form rules are enforced server-side** in `submissions.go`, not
   just in the Vue form — never trust the client. Fields outside the chosen
   `attending` branch are blanked on write. See DESIGN.md §8 for the full matrix.

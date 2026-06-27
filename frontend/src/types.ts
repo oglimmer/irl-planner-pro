@@ -166,37 +166,32 @@ export interface ActivityEntry {
   createdAt: string
 }
 
-export interface RosterEntry {
-  fullName: string
-  email: string
-}
-
-export interface RosterUploadResult {
-  inserted: number
+// Result of a CSV attendee import: `added` are newly linked to the event,
+// `skipped` covers invalid rows plus people already on the list.
+export interface AttendeeImportResult {
+  added: number
   skipped: number
   errors: string[]
 }
 
 export type AttendingState = 'yes' | 'no' | 'not_sure' | 'no_response'
 
-export interface DashboardRosterEntry {
-  fullName: string
+// One row in the unified event overview. Every attendee is a company-directory
+// user, so this carries the user id (for admin edits/removal) and whether they
+// have ever signed in (false = provisioned by an admin import).
+export interface DashboardEntry {
+  userId: string
+  name: string
   email: string
   attending: AttendingState
   afterDeadlineEdit: boolean
-}
-
-export interface DashboardOffRoster {
-  name: string
-  email: string
-  attending: Attending
+  hasLoggedIn: boolean
 }
 
 export interface Dashboard {
-  rosterTotal: number
+  total: number
   counts: { yes: number; no: number; notSure: number; noResponse: number }
-  rosterEntries: DashboardRosterEntry[]
-  offRoster: DashboardOffRoster[]
+  entries: DashboardEntry[]
 }
 
 export interface BackendBuildInfo {

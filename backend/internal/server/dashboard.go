@@ -4,31 +4,29 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
 
-// DashboardRosterEntry is one roster member joined to their submission state.
-type DashboardRosterEntry struct {
-	FullName          string `json:"fullName"`
+// DashboardEntry is one event attendee (a company user expected at the event)
+// joined to their submission state. Every person in the overview is a real user;
+// there is no separate "off-roster" category — a submission auto-adds its author
+// as an attendee, so this list is exactly the event's membership.
+type DashboardEntry struct {
+	UserID            string `json:"userId"`
+	Name              string `json:"name"`
 	Email             string `json:"email"`
 	Attending         string `json:"attending"` // yes | no | not_sure | no_response
 	AfterDeadlineEdit bool   `json:"afterDeadlineEdit"`
-}
-
-// DashboardOffRoster is someone who submitted but isn't on the roster.
-type DashboardOffRoster struct {
-	Name      string `json:"name"`
-	Email     string `json:"email"`
-	Attending string `json:"attending"`
+	HasLoggedIn       bool   `json:"hasLoggedIn"` // false = provisioned by import, never signed in
 }
 
 // Dashboard is the admin response overview, organised by attending state.
 type Dashboard struct {
-	RosterTotal   int                    `json:"rosterTotal"`
-	Counts        map[string]int         `json:"counts"`
-	RosterEntries []DashboardRosterEntry `json:"rosterEntries"`
-	OffRoster     []DashboardOffRoster   `json:"offRoster"`
+	Total   int             `json:"total"`
+	Counts  map[string]int  `json:"counts"`
+	Entries []DashboardEntry `json:"entries"`
 }
 
 func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -47,47 +45,50 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rosterEntries, counts, err := a.dashboardRoster(r.Context(), id)
-	if err != nil {
-		serverErr(w, r, err, "db error")
-		return
-	}
-	offRoster, err := a.dashboardOffRoster(r.Context(), id)
+	entries, counts, err := a.dashboardEntries(r.Context(), id)
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, Dashboard{
-		RosterTotal:   len(rosterEntries),
-		Counts:        counts,
-		RosterEntries: rosterEntries,
-		OffRoster:     offRoster,
+		Total:   len(entries),
+		Counts:  counts,
+		Entries: entries,
 	})
 }
 
-func (a *App) dashboardRoster(ctx context.Context, eventID string) ([]DashboardRosterEntry, map[string]int, error) {
+// dashboardEntries returns every attendee of the event joined to their
+// submission, bucketed by attending state.
+func (a *App) dashboardEntries(ctx context.Context, eventID string) ([]DashboardEntry, map[string]int, error) {
 	rows, err := a.DB.QueryContext(ctx,
-		`SELECT er.full_name, er.email, s.attending,
+		`SELECT u.id, u.first_name, u.last_name, u.email,
+		        (u.last_login_at IS NOT NULL) AS has_logged_in,
+		        s.attending,
 		        (s.id IS NOT NULL AND s.updated_at > e.submission_deadline) AS after_deadline_edit
-		   FROM event_roster er
-		   JOIN events e ON e.id = er.event_id
-		   LEFT JOIN users u ON lower(u.email) = er.email
-		   LEFT JOIN submissions s ON s.event_id = er.event_id AND s.user_id = u.id
-		  WHERE er.event_id = $1
-		  ORDER BY er.full_name`, eventID)
+		   FROM event_attendees ea
+		   JOIN events e ON e.id = ea.event_id
+		   JOIN users u ON u.id = ea.user_id
+		   LEFT JOIN submissions s ON s.event_id = ea.event_id AND s.user_id = ea.user_id
+		  WHERE ea.event_id = $1
+		  ORDER BY u.first_name, u.last_name, u.email`, eventID)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer rows.Close()
 
 	counts := map[string]int{"yes": 0, "no": 0, "notSure": 0, "noResponse": 0}
-	entries := []DashboardRosterEntry{}
+	entries := []DashboardEntry{}
 	for rows.Next() {
-		var e DashboardRosterEntry
+		var e DashboardEntry
+		var first, last string
 		var attending sql.NullString
-		if err := rows.Scan(&e.FullName, &e.Email, &attending, &e.AfterDeadlineEdit); err != nil {
+		if err := rows.Scan(&e.UserID, &first, &last, &e.Email, &e.HasLoggedIn, &attending, &e.AfterDeadlineEdit); err != nil {
 			return nil, nil, err
+		}
+		e.Name = strings.TrimSpace(first + " " + last)
+		if e.Name == "" {
+			e.Name = e.Email
 		}
 		if attending.Valid {
 			e.Attending = attending.String
@@ -98,29 +99,6 @@ func (a *App) dashboardRoster(ctx context.Context, eventID string) ([]DashboardR
 		entries = append(entries, e)
 	}
 	return entries, counts, rows.Err()
-}
-
-func (a *App) dashboardOffRoster(ctx context.Context, eventID string) ([]DashboardOffRoster, error) {
-	rows, err := a.DB.QueryContext(ctx,
-		`SELECT u.first_name, u.last_name, u.email, s.attending
-		   FROM submissions s
-		   JOIN users u ON u.id = s.user_id
-		  WHERE s.event_id = $1
-		    AND lower(u.email) NOT IN (SELECT email FROM event_roster WHERE event_id = $1)
-		  ORDER BY u.first_name`, eventID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []DashboardOffRoster{}
-	for rows.Next() {
-		var first, last, email, attending string
-		if err := rows.Scan(&first, &last, &email, &attending); err != nil {
-			return nil, err
-		}
-		out = append(out, DashboardOffRoster{Name: first + " " + last, Email: email, Attending: attending})
-	}
-	return out, rows.Err()
 }
 
 // countKey maps an attending value to its dashboard counts key.

@@ -372,6 +372,15 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 		return
 	}
 
+	// Responding makes you an attendee of the event: keep the unified overview's
+	// membership in lock-step with submissions so there is no "off-roster" gap.
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO event_attendees (event_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+		e.ID, ownerID); err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
+
 	// Snapshot the new state for the revision history. The snapshot is cast to
 	// jsonb explicitly because pgx sends a Go string as text, which Postgres
 	// won't implicitly coerce into a jsonb column.

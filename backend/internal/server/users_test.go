@@ -30,7 +30,7 @@ func testDB(t *testing.T) *sql.DB {
 	if err := db.Migrate(d); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if _, err := d.Exec(`TRUNCATE users, events, event_days, event_roster, event_images,
+	if _, err := d.Exec(`TRUNCATE users, events, event_days, event_roster, event_attendees, event_images,
 		submissions, submission_revisions, reminder_log, activity_log,
 		oauth_auth_codes, oauth_refresh_tokens, oauth_pending RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncate: %v", err)

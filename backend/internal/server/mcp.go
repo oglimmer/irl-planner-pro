@@ -83,7 +83,7 @@ type mcpEventSummary struct {
 	SubmissionDeadline time.Time `json:"submissionDeadline"`
 	IsPast             bool      `json:"isPast"`
 	Responses          int       `json:"responses"`   // submissions received
-	RosterTotal        int       `json:"rosterTotal"` // people on the roster
+	RosterTotal        int       `json:"rosterTotal"` // people on the attendee list
 }
 
 type mcpListEventsOut struct {
@@ -176,7 +176,7 @@ type mcpRosterRow struct {
 
 type mcpUploadRosterIn struct {
 	Event string         `json:"event" jsonschema:"the event slug or id"`
-	Rows  []mcpRosterRow `json:"rows" jsonschema:"the full roster; replaces any existing roster for the event"`
+	Rows  []mcpRosterRow `json:"rows" jsonschema:"name+email rows to add as attendees; additive — existing attendees are kept"`
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -270,7 +270,7 @@ func (a *App) addToolListEvents(s *mcp.Server) {
 			`SELECT e.id, e.slug, e.name, e.country, e.city, e.timezone,
 			        e.start_date, e.end_date, e.submission_deadline,
 			        (SELECT count(*) FROM submissions s WHERE s.event_id = e.id),
-			        (SELECT count(*) FROM event_roster er WHERE er.event_id = e.id)
+			        (SELECT count(*) FROM event_attendees ea WHERE ea.event_id = e.id)
 			   FROM events e ORDER BY e.start_date DESC`)
 		if err != nil {
 			return nil, zero, fmt.Errorf("db error: %w", err)
@@ -323,7 +323,7 @@ func (a *App) addToolGetDashboard(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_dashboard",
 		Title:       "Get dashboard",
-		Description: "Attending-state counts (yes/no/not_sure/no_response), the per-person roster breakdown, and any off-roster submitters for an event.",
+		Description: "Attending-state counts (yes/no/not_sure/no_response) and the per-attendee breakdown for an event. Every attendee is a company-directory user.",
 	}, instrumentMCP("get_dashboard", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpEventRefIn) (*mcp.CallToolResult, Dashboard, error) {
 		var zero Dashboard
 		if _, err := requireMCPAdmin(ctx); err != nil {
@@ -333,22 +333,17 @@ func (a *App) addToolGetDashboard(s *mcp.Server) {
 		if err != nil {
 			return nil, zero, err
 		}
-		entries, counts, err := a.dashboardRoster(ctx, e.ID)
-		if err != nil {
-			return nil, zero, fmt.Errorf("db error: %w", err)
-		}
-		offRoster, err := a.dashboardOffRoster(ctx, e.ID)
+		entries, counts, err := a.dashboardEntries(ctx, e.ID)
 		if err != nil {
 			return nil, zero, fmt.Errorf("db error: %w", err)
 		}
 		out := Dashboard{
-			RosterTotal:   len(entries),
-			Counts:        counts,
-			RosterEntries: entries,
-			OffRoster:     offRoster,
+			Total:   len(entries),
+			Counts:  counts,
+			Entries: entries,
 		}
 		return okResult(fmt.Sprintf("%s: %d yes / %d no / %d not sure / %d no response (of %d)",
-			e.Name, counts["yes"], counts["no"], counts["notSure"], counts["noResponse"], out.RosterTotal), out)
+			e.Name, counts["yes"], counts["no"], counts["notSure"], counts["noResponse"], out.Total), out)
 	}))
 }
 
@@ -356,7 +351,7 @@ func (a *App) addToolListNonResponders(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_non_responders",
 		Title:       "List non-responders",
-		Description: "Roster members with no submission yet, by name — a focused shortcut over get_dashboard.",
+		Description: "Attendees with no submission yet, by name — a focused shortcut over get_dashboard.",
 	}, instrumentMCP("list_non_responders", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpEventRefIn) (*mcp.CallToolResult, mcpNonRespondersOut, error) {
 		var zero mcpNonRespondersOut
 		if _, err := requireMCPAdmin(ctx); err != nil {
@@ -366,14 +361,14 @@ func (a *App) addToolListNonResponders(s *mcp.Server) {
 		if err != nil {
 			return nil, zero, err
 		}
-		entries, _, err := a.dashboardRoster(ctx, e.ID)
+		entries, _, err := a.dashboardEntries(ctx, e.ID)
 		if err != nil {
 			return nil, zero, fmt.Errorf("db error: %w", err)
 		}
 		out := mcpNonRespondersOut{Event: e.Name, NonResponders: []mcpNonResponder{}}
 		for _, en := range entries {
 			if en.Attending == "no_response" {
-				out.NonResponders = append(out.NonResponders, mcpNonResponder{FullName: en.FullName, Email: en.Email})
+				out.NonResponders = append(out.NonResponders, mcpNonResponder{FullName: en.Name, Email: en.Email})
 			}
 		}
 		return okResult(fmt.Sprintf("%d non-responder(s) for %q", len(out.NonResponders), e.Name), out)
@@ -691,8 +686,8 @@ func (a *App) addToolUpdateEvent(s *mcp.Server) {
 func (a *App) addToolUploadRoster(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "upload_roster",
-		Title:       "Upload roster",
-		Description: "Replace an event's roster from inline name+email rows (used for non-responder tracking).",
+		Title:       "Import attendees",
+		Description: "Add employees to an event's attendee list from inline name+email rows. Provisions a company-directory user for each new email; additive (existing attendees are kept).",
 	}, instrumentMCP("upload_roster", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpUploadRosterIn) (*mcp.CallToolResult, mcpStatusOut, error) {
 		var zero mcpStatusOut
 		user, err := requireMCPAdmin(ctx)
@@ -734,18 +729,12 @@ func (a *App) addToolUploadRoster(s *mcp.Server) {
 			}
 		}()
 
-		if _, err := tx.ExecContext(ctx, `DELETE FROM event_roster WHERE event_id = $1`, e.ID); err != nil {
+		added, err := provisionAttendees(ctx, tx, e.ID, entries)
+		if err != nil {
 			return nil, zero, fmt.Errorf("db error: %w", err)
 		}
-		for _, en := range entries {
-			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO event_roster (event_id, full_name, email) VALUES ($1,$2,$3)`,
-				e.ID, en.FullName, en.Email); err != nil {
-				return nil, zero, fmt.Errorf("db error: %w", err)
-			}
-		}
-		summary := fmt.Sprintf("%s uploaded a roster of %d people via MCP", user.Email, len(entries))
-		if err := a.logActivity(ctx, tx, e.ID, &user.ID, user.Email, "", actionRosterUploaded, summary, nil, false); err != nil {
+		summary := fmt.Sprintf("%s imported %d attendee(s) via MCP", user.Email, added)
+		if err := a.logActivity(ctx, tx, e.ID, &user.ID, user.Email, "", actionAttendeesImported, summary, nil, false); err != nil {
 			return nil, zero, fmt.Errorf("db error: %w", err)
 		}
 		if err := tx.Commit(); err != nil {
@@ -753,8 +742,8 @@ func (a *App) addToolUploadRoster(s *mcp.Server) {
 		}
 		committed = true
 
-		return okResult(fmt.Sprintf("replaced roster for %q with %d entr(ies)", e.Name, len(entries)),
-			mcpStatusOut{OK: true, Message: fmt.Sprintf("%d roster entries", len(entries))})
+		return okResult(fmt.Sprintf("added %d attendee(s) to %q", added, e.Name),
+			mcpStatusOut{OK: true, Message: fmt.Sprintf("%d attendees added", added)})
 	}))
 }
 

@@ -52,12 +52,21 @@ func TestNonResponders(t *testing.T) {
 		 RETURNING id`, admin.ID).Scan(&eventID); err != nil {
 		t.Fatal(err)
 	}
-	for _, em := range []string{"alice@id5.io", "bob@id5.io", "carol@id5.io"} {
-		if _, err := a.DB.ExecContext(ctx,
-			`INSERT INTO event_roster (event_id, full_name, email) VALUES ($1,$2,$3)`,
-			eventID, em, em); err != nil {
-			t.Fatal(err)
-		}
+	// alice, bob, carol are all attendees (provisioning creates their directory
+	// users and links them to the event).
+	tx, err := a.DB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provisionAttendees(ctx, tx, eventID, []RosterEntry{
+		{FullName: "Alice", Email: "alice@id5.io"},
+		{FullName: "Bob", Email: "bob@id5.io"},
+		{FullName: "Carol", Email: "carol@id5.io"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 	// Bob responds.
 	bob, _ := a.findOrCreateUser(ctx, "bob@id5.io", "Bob", "B", "")

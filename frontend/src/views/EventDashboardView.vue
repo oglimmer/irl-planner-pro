@@ -6,7 +6,7 @@ import { useAutoReload } from '../composables/useAutoReload'
 import { useConfirm } from '../composables/useConfirm'
 import ActivityLog from '../components/ActivityLog.vue'
 import AttendingFilter from '../components/AttendingFilter.vue'
-import type { ActivityEntry, AttendingState, Dashboard, Event, RosterEntry } from '../types'
+import type { ActivityEntry, AttendingState, Dashboard, Event, UserSummary } from '../types'
 
 const props = defineProps<{ id: string }>()
 
@@ -15,12 +15,15 @@ const { confirm } = useConfirm()
 const event = ref<Event | null>(null)
 const error = ref('')
 const copied = ref(false)
-const tab = ref<'responses' | 'activity' | 'roster'>('responses')
+const tab = ref<'responses' | 'activity' | 'attendees'>('responses')
 
 const dashboard = ref<Dashboard | null>(null)
 const filter = ref<AttendingState[]>([])
 const activity = ref<ActivityEntry[]>([])
-const roster = ref<RosterEntry[]>([])
+
+// Company directory, for the "add an employee" picker on the Attendees tab.
+const directory = ref<UserSummary[]>([])
+const addUserId = ref('')
 
 const uploadFile = ref<File | null>(null)
 const uploadMsg = ref('')
@@ -40,9 +43,15 @@ const attendingLabels: Record<AttendingState, string> = {
 const filteredEntries = computed(() => {
   const d = dashboard.value
   if (!d) return []
-  if (filter.value.length === 0) return d.rosterEntries
+  if (filter.value.length === 0) return d.entries
   const set = new Set(filter.value)
-  return d.rosterEntries.filter((e) => set.has(e.attending))
+  return d.entries.filter((e) => set.has(e.attending))
+})
+
+// Directory users not yet on this event's attendee list — the picker's options.
+const addableUsers = computed(() => {
+  const taken = new Set((dashboard.value?.entries ?? []).map((e) => e.userId))
+  return directory.value.filter((u) => !taken.has(u.id))
 })
 
 async function copyShareUrl() {
@@ -71,9 +80,9 @@ async function loadActivity() {
   }
 }
 
-async function loadRoster() {
+async function loadDirectory() {
   try {
-    roster.value = await api.listRoster(props.id)
+    directory.value = await api.listUsers()
   } catch (e) {
     error.value = errMsg(e)
   }
@@ -98,33 +107,48 @@ function onFile(ev: globalThis.Event) {
   uploadFile.value = input.files?.[0] ?? null
 }
 
-async function submitRoster() {
+async function submitImport() {
   if (!uploadFile.value) return
-  // Re-uploading replaces the whole roster transactionally — guard it when there
-  // is an existing roster to overwrite. The first upload has nothing to destroy.
-  if (roster.value.length > 0) {
-    const ok = await confirm({
-      title: 'Replace roster?',
-      message: `This replaces the current roster (${roster.value.length} ${
-        roster.value.length === 1 ? 'person' : 'people'
-      }) for “${event.value?.name ?? 'this event'}” with the uploaded file. This cannot be undone.`,
-      confirmLabel: 'Replace roster',
-      danger: true,
-    })
-    if (!ok) return
-  }
+  // Import is additive — it only ever adds attendees — so no destructive confirm.
   uploading.value = true
   uploadMsg.value = ''
   try {
-    const res = await api.uploadRoster(props.id, uploadFile.value)
-    uploadMsg.value = `Imported ${res.inserted}, skipped ${res.skipped}.`
+    const res = await api.importAttendees(props.id, uploadFile.value)
+    uploadMsg.value = `Added ${res.added}, skipped ${res.skipped}.`
     if (res.errors.length) uploadMsg.value += ` Issues: ${res.errors.slice(0, 3).join('; ')}`
     uploadFile.value = null
-    await Promise.all([loadRoster(), loadDashboard()])
+    await Promise.all([loadDashboard(), loadDirectory()])
   } catch (e) {
     uploadMsg.value = errMsg(e)
   } finally {
     uploading.value = false
+  }
+}
+
+async function addAttendee() {
+  if (!addUserId.value) return
+  try {
+    await api.addAttendee(props.id, addUserId.value)
+    addUserId.value = ''
+    await loadDashboard()
+  } catch (e) {
+    error.value = errMsg(e)
+  }
+}
+
+async function removeAttendee(userId: string, name: string) {
+  const ok = await confirm({
+    title: 'Remove attendee?',
+    message: `Remove ${name} from “${event.value?.name ?? 'this event'}”? Their profile and any response are kept — only their place on this event's list is removed.`,
+    confirmLabel: 'Remove',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await api.removeAttendee(props.id, userId)
+    await loadDashboard()
+  } catch (e) {
+    error.value = errMsg(e)
   }
 }
 
@@ -138,7 +162,7 @@ onMounted(async () => {
     error.value = errMsg(e)
   }
   loadActivity()
-  loadRoster()
+  loadDirectory()
 })
 </script>
 
@@ -165,7 +189,7 @@ onMounted(async () => {
       <div class="tabs">
         <button :class="{ active: tab === 'responses' }" @click="tab = 'responses'">Responses</button>
         <button :class="{ active: tab === 'activity' }" @click="tab = 'activity'">Activity</button>
-        <button :class="{ active: tab === 'roster' }" @click="tab = 'roster'">Roster</button>
+        <button :class="{ active: tab === 'attendees' }" @click="tab = 'attendees'">Attendees</button>
       </div>
 
       <!-- Responses -->
@@ -185,7 +209,7 @@ onMounted(async () => {
           </div>
 
           <p class="muted summary">
-            {{ filteredEntries.length }} of {{ dashboard.rosterTotal }} roster members shown.
+            {{ filteredEntries.length }} of {{ dashboard.total }} attendees shown.
           </p>
 
           <table class="grid">
@@ -193,28 +217,20 @@ onMounted(async () => {
               <tr><th>Name</th><th>Email</th><th>Attending</th><th /></tr>
             </thead>
             <tbody>
-              <tr v-for="e in filteredEntries" :key="e.email">
-                <td>{{ e.fullName }}</td>
+              <tr v-for="e in filteredEntries" :key="e.userId">
+                <td>{{ e.name }}</td>
                 <td>{{ e.email }}</td>
                 <td><span :class="['pill', e.attending]">{{ attendingLabels[e.attending] }}</span></td>
                 <td>
+                  <span v-if="!e.hasLoggedIn" class="badge muted-badge">not signed in</span>
                   <span v-if="e.afterDeadlineEdit" class="badge late">edited after deadline</span>
                 </td>
               </tr>
               <tr v-if="filteredEntries.length === 0">
-                <td colspan="4" class="muted">No matching roster members.</td>
+                <td colspan="4" class="muted">No matching attendees.</td>
               </tr>
             </tbody>
           </table>
-
-          <div v-if="dashboard.offRoster.length" class="offroster">
-            <h3>Responded, not on roster</h3>
-            <ul>
-              <li v-for="o in dashboard.offRoster" :key="o.email">
-                {{ o.name }} ({{ o.email }}) — {{ o.attending }}
-              </li>
-            </ul>
-          </div>
         </div>
         <p v-else class="muted">Loading…</p>
       </div>
@@ -224,27 +240,53 @@ onMounted(async () => {
         <ActivityLog :entries="activity" :timezone="event.timezone" show-actor />
       </div>
 
-      <!-- Roster -->
-      <div v-show="tab === 'roster'" class="roster">
+      <!-- Attendees -->
+      <div v-show="tab === 'attendees'" class="attendees">
         <p class="muted">
-          Upload a CSV with <code>name,email</code> columns. Re-uploading replaces
-          the whole roster. Used for non-responder tracking only.
+          Attendees are the employees expected at this event. Anyone who responds
+          is added automatically; add others below. Each becomes a company-directory
+          user, so a later sign-in reuses the same record.
+        </p>
+
+        <div class="add-row">
+          <select v-model="addUserId" class="picker">
+            <option value="" disabled>Add an existing employee…</option>
+            <option v-for="u in addableUsers" :key="u.id" :value="u.id">
+              {{ u.name || u.email }} ({{ u.email }})
+            </option>
+          </select>
+          <button class="btn" :disabled="!addUserId" @click="addAttendee">Add</button>
+        </div>
+
+        <p class="muted">
+          Or import many at once from a CSV with <code>name,email</code> columns
+          (additive — existing attendees are kept):
         </p>
         <div class="upload">
           <input type="file" accept=".csv,text/csv" @change="onFile">
-          <button class="btn" :disabled="!uploadFile || uploading" @click="submitRoster">
-            {{ uploading ? 'Uploading…' : 'Upload' }}
+          <button class="btn" :disabled="!uploadFile || uploading" @click="submitImport">
+            {{ uploading ? 'Importing…' : 'Import' }}
           </button>
         </div>
         <p v-if="uploadMsg" class="muted">{{ uploadMsg }}</p>
 
-        <table v-if="roster.length" class="grid">
-          <thead><tr><th>Name</th><th>Email</th></tr></thead>
+        <table v-if="dashboard && dashboard.entries.length" class="grid">
+          <thead><tr><th>Name</th><th>Email</th><th>Status</th><th /></tr></thead>
           <tbody>
-            <tr v-for="m in roster" :key="m.email"><td>{{ m.fullName }}</td><td>{{ m.email }}</td></tr>
+            <tr v-for="e in dashboard.entries" :key="e.userId">
+              <td>{{ e.name }}</td>
+              <td>{{ e.email }}</td>
+              <td>
+                <span :class="['pill', e.attending]">{{ attendingLabels[e.attending] }}</span>
+                <span v-if="!e.hasLoggedIn" class="badge muted-badge">not signed in</span>
+              </td>
+              <td>
+                <button type="button" class="btn-link danger" @click="removeAttendee(e.userId, e.name)">Remove</button>
+              </td>
+            </tr>
           </tbody>
         </table>
-        <p v-else class="muted">No roster uploaded yet.</p>
+        <p v-else class="muted">No attendees yet.</p>
       </div>
     </template>
   </section>
@@ -348,14 +390,36 @@ onMounted(async () => {
 .pill.no { background: rgb(var(--rust-rgb) / 0.12); color: var(--danger); }
 .pill.not_sure { background: rgb(var(--accent-rgb) / 0.15); color: var(--accent-2); }
 .pill.no_response { background: var(--bg-2); color: var(--muted); }
-.offroster {
-  margin-top: 1.5rem;
-}
-.offroster ul {
-  margin: 0.5rem 0 0;
-  padding-left: 1.2rem;
+.badge.muted-badge {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  background: var(--bg-2);
   color: var(--muted);
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  margin-left: 0.4rem;
 }
+.add-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 1rem 0;
+}
+.picker {
+  flex: 1;
+  max-width: 28rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.btn-link {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--accent);
+}
+.btn-link.danger { color: var(--danger); }
 .upload {
   display: flex;
   gap: 0.75rem;

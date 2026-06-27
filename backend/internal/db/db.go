@@ -39,6 +39,9 @@ var migration0008 string
 //go:embed migrations/0009_event_image.sql
 var migration0009 string
 
+//go:embed migrations/0010_event_attendees.sql
+var migration0010 string
+
 // Open opens the application's *sql.DB through pgx's database/sql adapter and
 // configures it for use behind a transaction-pool PgBouncer (the common HA
 // layout in front of managed Postgres).
@@ -103,6 +106,9 @@ func Migrate(db *sql.DB) error {
 	}
 	if _, err := db.Exec(migration0009); err != nil {
 		return fmt.Errorf("0009_event_image: %w", err)
+	}
+	if _, err := db.Exec(migration0010); err != nil {
+		return fmt.Errorf("0010_event_attendees: %w", err)
 	}
 	return nil
 }

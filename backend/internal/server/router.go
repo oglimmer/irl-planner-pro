@@ -137,9 +137,12 @@ func NewRouter(app *App) http.Handler {
 				r.Get("/admin/events/{id}/activity", app.handleEventActivity)
 				r.Put("/admin/events/{id}/submissions/{userId}", app.handleAdminUpdateSubmission)
 
-				// Roster, dashboard, export.
-				r.Get("/admin/events/{id}/roster", app.handleListRoster)
-				r.Post("/admin/events/{id}/roster", app.handleUploadRoster)
+				// Attendees (event membership), dashboard, export. Attendees are
+				// company-directory users; importing provisions them, and an RSVP
+				// auto-adds its author — see attendees.go / submissions.go.
+				r.Post("/admin/events/{id}/attendees", app.handleImportAttendees)
+				r.Post("/admin/events/{id}/attendees/{userId}", app.handleAddAttendee)
+				r.Delete("/admin/events/{id}/attendees/{userId}", app.handleRemoveAttendee)
 				r.Get("/admin/events/{id}/dashboard", app.handleDashboard)
 				r.Get("/admin/events/{id}/submissions", app.handleListSubmissions)
 				r.Get("/admin/events/{id}/export.csv", app.handleExportCSV)

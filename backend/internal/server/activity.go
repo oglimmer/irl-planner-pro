@@ -20,7 +20,9 @@ const (
 	actionAdminEditedSubmission = "admin.edited_submission"
 	actionEventCreated          = "event.created"
 	actionEventUpdated          = "event.updated"
-	actionRosterUploaded        = "roster.uploaded"
+	actionAttendeesImported     = "attendees.imported"
+	actionAttendeeAdded         = "attendee.added"
+	actionAttendeeRemoved       = "attendee.removed"
 	actionReminderSent          = "reminder.sent"
 )
 

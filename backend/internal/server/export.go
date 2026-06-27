@@ -10,9 +10,9 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// handleExportCSV streams a CSV of roster members whose attending state matches
+// handleExportCSV streams a CSV of event attendees whose attending state matches
 // the ?attending= filter (a comma-separated subset of yes,no,not_sure,
-// no_response). An empty filter exports everyone. Rows for no-response members
+// no_response). An empty filter exports everyone. Rows for no-response attendees
 // carry empty submission columns, so the export doubles as a non-responder list.
 func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -34,16 +34,16 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	filter := parseAttendingFilter(r.URL.Query().Get("attending"))
 
 	rows, err := a.DB.QueryContext(r.Context(),
-		`SELECT er.full_name, er.email, s.attending, u.first_name, u.last_name,
+		`SELECT u.first_name, u.last_name, u.email, s.attending,
 		        s.arrival_day, s.arrival_time, s.arrival_mode, s.arrival_details,
 		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
 		        s.arrival_independent, s.departure_independent, s.long_haul, s.extra_stay_start, s.extra_stay_end, u.allergies, s.comments,
 		        s.updated_at
-		   FROM event_roster er
-		   LEFT JOIN users u ON lower(u.email) = er.email
-		   LEFT JOIN submissions s ON s.event_id = er.event_id AND s.user_id = u.id
-		  WHERE er.event_id = $1
-		  ORDER BY er.full_name`, id)
+		   FROM event_attendees ea
+		   JOIN users u ON u.id = ea.user_id
+		   LEFT JOIN submissions s ON s.event_id = ea.event_id AND s.user_id = ea.user_id
+		  WHERE ea.event_id = $1
+		  ORDER BY u.first_name, u.last_name, u.email`, id)
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return
@@ -63,12 +63,12 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	})
 
 	for rows.Next() {
-		var fullName, email string
-		var attending, firstName, lastName, arrTime, arrMode, arrDetails sql.NullString
+		var firstName, lastName, email string
+		var attending, arrTime, arrMode, arrDetails sql.NullString
 		var depTime, depMode, depDetails, allergies, comments sql.NullString
 		var arrDay, depDay, extraStart, extraEnd, updatedAt sql.NullTime
 		var arrivalIndependent, departureIndependent, longHaul sql.NullBool
-		if err := rows.Scan(&fullName, &email, &attending, &firstName, &lastName,
+		if err := rows.Scan(&firstName, &lastName, &email, &attending,
 			&arrDay, &arrTime, &arrMode, &arrDetails,
 			&depDay, &depTime, &depMode, &depDetails,
 			&arrivalIndependent, &departureIndependent, &longHaul, &extraStart, &extraEnd, &allergies, &comments, &updatedAt); err != nil {
@@ -82,9 +82,9 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		if len(filter) > 0 && !filter[state] {
 			continue
 		}
-		name := fullName
-		if firstName.Valid && (firstName.String != "" || lastName.String != "") {
-			name = strings.TrimSpace(firstName.String + " " + lastName.String)
+		name := strings.TrimSpace(firstName + " " + lastName)
+		if name == "" {
+			name = email
 		}
 		_ = cw.Write([]string{
 			name, email, state,

@@ -3,11 +3,10 @@ import type {
   ActivityEntry,
   AuthConfig,
   BackendBuildInfo,
+  AttendeeImportResult,
   Dashboard,
   Event,
   EventInput,
-  RosterEntry,
-  RosterUploadResult,
   ProfileInput,
   Submission,
   SubmissionInput,
@@ -144,9 +143,10 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  // Roster + dashboard + export.
-  listRoster: (id: string) => request<RosterEntry[]>(`/api/admin/events/${id}/roster`),
-  uploadRoster: async (id: string, file: File): Promise<RosterUploadResult> => {
+  // Attendees (event membership) + dashboard + export.
+  // importAttendees uploads a name,email CSV; it provisions directory users and
+  // adds them to the event (additive — never removes anyone).
+  importAttendees: async (id: string, file: File): Promise<AttendeeImportResult> => {
     const form = new FormData()
     form.append('file', file)
     const headers = new Headers()
@@ -155,7 +155,7 @@ export const api = {
       if (isJwtExpired(t)) throw new ApiError(401, 'session expired')
       headers.set('Authorization', `Bearer ${t}`)
     }
-    const res = await fetch(`/api/admin/events/${id}/roster`, { method: 'POST', headers, body: form })
+    const res = await fetch(`/api/admin/events/${id}/attendees`, { method: 'POST', headers, body: form })
     if (!res.ok) {
       let msg = res.statusText
       try {
@@ -166,8 +166,12 @@ export const api = {
       }
       throw new ApiError(res.status, msg)
     }
-    return res.json() as Promise<RosterUploadResult>
+    return res.json() as Promise<AttendeeImportResult>
   },
+  addAttendee: (id: string, userId: string) =>
+    request<void>(`/api/admin/events/${id}/attendees/${userId}`, { method: 'POST' }),
+  removeAttendee: (id: string, userId: string) =>
+    request<void>(`/api/admin/events/${id}/attendees/${userId}`, { method: 'DELETE' }),
   // Event cover image (admin). Upload returns the new image URL (with its
   // cache-busting ?v= etag); delete is a fire-and-forget 204.
   uploadEventImage: async (id: string, file: File): Promise<{ imageUrl: string }> => {
