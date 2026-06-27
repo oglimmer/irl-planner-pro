@@ -86,6 +86,19 @@
         "major"
       ],
       "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Never offer a Postgres major bump — the bundled DB's data dir is tied to its major version, so a major upgrade needs a deliberate pg_upgrade / dump+restore, not an image swap (see helm/irl-planner-pro/values.yaml postgres.image.tag)",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "postgres"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
     }
   ],
   "minimumReleaseAge": "7 days",
