@@ -134,7 +134,7 @@ irl-planner-pro/
 │   └── internal/
 │       ├── config/                env loading + validation
 │       ├── db/                    Open + Migrate + embedded migrations/
-│       │   └── migrations/0001_init.sql … 0007_*.sql
+│       │   └── migrations/0001_init.sql … NNNN_*.sql (sequential)
 │       ├── email/                 SMTP sender
 │       ├── metrics/               Prometheus middleware
 │       ├── workspaceauth/         Google hd-claim validation
@@ -185,10 +185,9 @@ irl-planner-pro/
 ## 5. Data model
 
 Postgres, UUID PKs (`gen_random_uuid()` via `pgcrypto`), `TIMESTAMPTZ` for all
-instants. The schema is built by sequential embedded migrations (`0001`–`0007`),
-each run in order on every boot and written to be idempotent. The definitions
-below show the **current** shape of each table; a comment cites the migration that
-introduced or changed a column when it post-dates the initial schema.
+instants. The schema is built by sequential embedded migrations, each run in
+order on every boot and written to be idempotent. The definitions below show the
+**current** shape of each table.
 
 ### 5.1 `users`
 Provisioned on first OIDC login.
@@ -201,11 +200,11 @@ CREATE TABLE users (
     email       TEXT UNIQUE NOT NULL,         -- @id5.io, lower-cased
     first_name  TEXT NOT NULL DEFAULT '',     -- seeded from OIDC given_name on first login
     last_name   TEXT NOT NULL DEFAULT '',     -- seeded from OIDC family_name on first login
-    allergies   TEXT NOT NULL DEFAULT '',     -- dietary preferences; a profile property, not per-event (migration 0003)
-    profile_confirmed BOOLEAN NOT NULL DEFAULT false, -- true once the user reviews the IdP-seeded profile (migration 0006)
+    allergies   TEXT NOT NULL DEFAULT '',     -- dietary preferences; a profile property, not per-event
+    profile_confirmed BOOLEAN NOT NULL DEFAULT false, -- true once the user reviews the IdP-seeded profile
     is_admin    BOOLEAN NOT NULL DEFAULT false,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_login_at TIMESTAMPTZ,                  -- NULL = provisioned by an admin import, never signed in (migration 0010)
+    last_login_at TIMESTAMPTZ,                  -- NULL = provisioned by an admin import, never signed in
     token_version INTEGER NOT NULL DEFAULT 0  -- bump to revoke all sessions
 );
 ```
@@ -213,7 +212,7 @@ CREATE TABLE users (
 **`users` is the company directory.** It is the single canonical record for every
 employee, populated two ways: on **first login** (OIDC/dev), or by an **admin
 import** that provisions a row from a name + email before the person has ever
-signed in. `last_login_at` (migration 0010) distinguishes the two — it is `NULL`
+signed in. `last_login_at` distinguishes the two — it is `NULL`
 for a provisioned-but-never-logged-in user and stamped by `findOrCreateUser` on
 every login. Because an import matches on email, a provisioned user's first real
 login reuses the same row (their admin-entered name is preserved). Per-event
@@ -225,23 +224,20 @@ the split `name` claim) **only when the account is created**. It is **never refr
 from the IdP on later logins**, so a user's own edit always wins. Users edit their
 name at `/profile` (`PUT /api/me`); the API also returns a derived read-only `name`
 (first + last) for display. Submissions carry **no** name — every name shown on a
-dashboard, export, or activity line is read from the submitter's profile (name was
-moved off submissions in migration `0002_profile_names`).
+dashboard, export, or activity line is read from the submitter's profile.
 
 **Allergies = a profile property too.** Allergies / dietary preferences describe
 the person rather than any one event, so they live on `users.allergies` and are
 edited at `/profile` alongside the name (the same `PUT /api/me` payload). They are
 entered once and reused for every event. The submission read shape still exposes an
 `allergies` field for dashboards/exports, but it is joined in from the submitter's
-profile, not stored per submission (moved off `submissions` in migration
-`0003_profile_allergies`, mirroring `0002`).
+profile, not stored per submission.
 
 **First-login profile confirmation.** Because the IdP's given/family split is often
 wrong and it never carries dietary needs, a newly provisioned user is asked to
 confirm or correct their name and allergies before anything else. `profile_confirmed`
-(migration `0006`) is `false` for new accounts and flips `true` on the first
-`PUT /api/me` — saving the profile *is* the confirmation. Accounts that existed
-before the migration were backfilled to `true` so they aren't sent back through it.
+is `false` for new accounts and flips `true` on the first
+`PUT /api/me` — saving the profile *is* the confirmation.
 The SPA router guard sends any authenticated, unconfirmed user to `/welcome` (a
 focused, chrome-less confirm step pre-filled from the seeded values) ahead of their
 intended destination, then forwards them on once they save.
@@ -273,8 +269,8 @@ CREATE TABLE events (
     weekly_reminders     BOOLEAN NOT NULL DEFAULT true,
     reminder_hour        INTEGER NOT NULL DEFAULT 9,  -- hour-of-day (0-23) in the EVENT timezone
     daily_activity_email BOOLEAN NOT NULL DEFAULT false, -- admin digest; sent only when ≥1 activity that day
-    -- messaging templates (migration 0012) — admin-editable invite/reminder copy
-    -- for the Messaging tab. '' means "no override" → generated default (§9).
+    -- messaging templates — admin-editable invite/reminder copy for the
+    -- Messaging tab. '' means "no override" → generated default (§9).
     invite_subject     TEXT NOT NULL DEFAULT '',
     invite_body        TEXT NOT NULL DEFAULT '',
     reminder_subject   TEXT NOT NULL DEFAULT '',
@@ -339,8 +335,7 @@ author** (server/submissions.go). Because everyone starts in and responding keep
 you in, the overview is exactly this set — there is no separate "off-roster"
 category. Removing an attendee unlinks them only (their directory record and any
 submission are kept) and sticks, since the only writers are these create-time
-seeds. (The legacy `event_roster` table is retained but unused; migration 0010
-backfilled it into `users` + `event_attendees`.)
+seeds.
 
 ### 5.5 `submissions`
 One submission per (event, user). Holds all form fields including the conditional
@@ -352,7 +347,7 @@ CREATE TABLE submissions (
     event_id           UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     user_id            UUID NOT NULL REFERENCES users(id),
     -- No name or allergies columns: both are read from the attendee's users
-    -- profile (name dropped in migration 0002, allergies in 0003).
+    -- profile (§5.1).
     attending          TEXT NOT NULL CHECK (attending IN ('yes','no','not_sure')),
     not_sure_reason    TEXT NOT NULL DEFAULT '',  -- required when attending='not_sure'
 
@@ -365,8 +360,8 @@ CREATE TABLE submissions (
     departure_time     TEXT,
     departure_mode     TEXT CHECK (departure_mode IN ('flight','car','train','other')),
     departure_details  TEXT NOT NULL DEFAULT '',
-    arrival_independent   BOOLEAN NOT NULL DEFAULT false,  -- arrival self-arranged, no support (migration 0007; was travel_independent in 0005)
-    departure_independent BOOLEAN NOT NULL DEFAULT false,  -- departure self-arranged, no support (migration 0007)
+    arrival_independent   BOOLEAN NOT NULL DEFAULT false,  -- arrival self-arranged, no support
+    departure_independent BOOLEAN NOT NULL DEFAULT false,  -- departure self-arranged, no support
     long_haul          BOOLEAN NOT NULL DEFAULT false,  -- intl flight 7h+
     -- Extra hotel nights modelled as an extended stay window (event-local dates).
     -- extra_stay_start: first night needing accommodation when EARLIER than the
@@ -381,7 +376,7 @@ CREATE TABLE submissions (
     extra_stay_start   DATE,
     extra_stay_end     DATE,
 
-    -- allergies live on users (the profile), not here — see migration 0003.
+    -- allergies live on users (the profile), not here — see §5.1.
     comments           TEXT NOT NULL DEFAULT '',
 
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -424,7 +419,7 @@ The Messaging tab (§9) reuses this same claim ledger for exactly-once admin
 sends: the `invitation` kind (fixed period key `invitation`) emails each
 attendee at most once, and the `manual` kind (event-local date period key)
 stops a repeated same-day "send follow-up now" from double-sending. A failed
-send releases its claim so the next attempt retries (migration 0012).
+send releases its claim so the next attempt retries.
 
 ### 5.8 `activity_log`
 The human-readable audit trail of everything that happens on an event. Drives the
@@ -461,8 +456,7 @@ comparing `now()` to the event's `submission_deadline` — it's the single flag 
 admin UI uses to highlight late changes.
 
 **`category` classifies *what was done*, not who did it.** It is a pure function
-of `action`, computed at write time (`actionCategory` in `activity.go`) and
-backfilled by migration 0011 with the same mapping — the two must stay in sync.
+of `action`, computed at write time (`actionCategory` in `activity.go`).
 Only the two participant submission verbs (`submission.created`,
 `submission.updated`) are `user`; everything else — event config, roster
 management, `admin.edited_submission`, `reminder.sent` — is `admin`. The key
@@ -544,7 +538,7 @@ manual follow-up, or scheduled reminder), over either channel. Distinct from
 `reminder_log` — that is the exactly-once *claim* ledger ("did we attempt this
 recipient for this window?"); this records the *outcome* ("did it succeed, and if
 not why"). The Messaging tab reads it to show recent failures so an admin can fix
-a bad address or an unmapped Slack user and resend (migration 0013).
+a bad address or an unmapped Slack user and resend.
 
 ```sql
 CREATE TABLE message_send_log (

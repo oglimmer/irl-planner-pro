@@ -8,7 +8,7 @@ reminders over **email or Slack**, logs all activity, and exports responses.
 Events can carry a cover image, and the admin activity timeline is filterable by
 participant vs. admin actions.
 
-See **[DESIGN.md](./DESIGN.md)** for the full design & implementation plan.
+See **[DESIGN.md](./DESIGN.md)** for the full architecture & reference.
 
 ## Stack
 
@@ -72,20 +72,7 @@ npm run dev             # http://localhost:5173, proxies /api → :8080
 npm run check           # typecheck + lint + test
 ```
 
-## Implementation status
-
-Built phase by phase (see DESIGN.md §16):
-
-- [x] Phase 0 — Scaffolding (backend skeleton, frontend skeleton, schema, compose)
-- [x] Phase 1 — Auth + user roles (OIDC + JWT, first-user-admin, promote/demote)
-- [x] Phase 2 — Event config + timezone (CRUD, typed days, tz-aware deadlines)
-- [x] Phase 3 — Attendee form + activity log (conditional form, past-event lock, timeline)
-- [x] Phase 4 — Roster + dashboard + export (CSV upload, attending filter, auto-reload)
-- [x] Phase 5 — Notifications, reminders & digest (tz-aware scheduler, idempotent, edit emails, Messaging tab w/ email + Slack)
-- [~] Phase 6 — Hardening & deploy (Helm chart in `helm/` done)
-- [x] Phase 7 — MCP server (OAuth 2.1 + PKCE, admin-scoped tools — off by default)
-
-### Messaging (email + Slack)
+## Messaging (email + Slack)
 
 The admin **Messaging tab** sends per-event invitations and manual follow-ups
 over a selectable channel, using admin-editable templates (the same copy the
@@ -103,7 +90,7 @@ row records each outcome for the failure list):
 
 Scheduled reminders and admin notices remain email-only. See DESIGN.md §9.
 
-### MCP server (Phase 7)
+## MCP server
 
 An additive, admin-scoped [MCP](https://modelcontextprotocol.io) surface lets a
 client (e.g. Claude) query and manage events conversationally. It is **off by
@@ -114,10 +101,10 @@ PKCE); tools enforce the same admin authorization as the REST API and every
 mutation lands in the activity log. Tools: `list_events`, `get_event`,
 `get_dashboard`, `list_non_responders`, `list_submissions`, `get_activity`
 (read) and `create_event`, `update_event`, `upload_roster`, `trigger_reminders`
-(write). See DESIGN.md §18. In Helm, set `mcp.enabled=true` and supply
+(write). See DESIGN.md §16. In Helm, set `mcp.enabled=true` and supply
 `MCP_OAUTH_CLIENT_SECRET` in the sealed secret.
 
-#### Connecting Claude Code to `/mcp` in local dev
+### Connecting Claude Code to `/mcp` in local dev
 
 The OAuth 2.1 flow is built for **claude.ai** (the default redirect URI is
 `https://claude.ai/api/mcp/auth_callback`, redirect URIs are exact-matched, and
