@@ -102,7 +102,7 @@ backend:
   image:
     repository: ghcr.io/oglimmer/irl-planner-pro-backend
     pullPolicy: Always
-    tag: ""
+    tag: "@sha256:30cf67e5a86d90167d73c0151340da480757ce32a0a5de33502068750c6d1bd1"
 
   service:
     type: ClusterIP
@@ -135,7 +135,7 @@ frontend:
   image:
     repository: ghcr.io/oglimmer/irl-planner-pro-frontend
     pullPolicy: Always
-    tag: ""
+    tag: "@sha256:1e4b7481165f92c5cf3b4720fa2ff452117be527e4036399904a1ba044cf2ee5"
 
   service:
     type: ClusterIP
