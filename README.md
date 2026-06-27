@@ -146,3 +146,40 @@ verifies it. Point Claude Code at the **backend** (`:8080`) — the Vite dev pro
 forwards `/api` and `/healthz` but **not** `/mcp`. The token is a 30-day session
 JWT; re-mint via dev-login if `JWT_SECRET` or the user's `token_version` changes.
 Use the default `--scope local`; don't commit a bearer token to a shared scope.
+
+## Slack
+
+1. Install the app to your workspace (an admin does this once — recipients don't authorize anything themselves; that's the enterprise-install model the code assumes).
+2. Copy the Bot User OAuth Token (xoxb-…) from OAuth & Permissions.
+3. Provide it to the backend as SLACK_BOT_TOKEN — per your Helm chart, that goes in the app Secret (<release>-irl-planner-pro-secret), not values.yaml.
+
+
+```
+display_information:
+  name: IRL Planner
+  description: Sends offsite attendance reminders and announcements to employees as DMs.
+  background_color: "#2c2d30"
+  long_description: >-
+    IRL Planner (ID5 IRL Attendance App) collects attendee info ahead of
+    company offsites. This app lets the People team deliver reminders and event
+    announcements to employees as Slack direct messages, as an alternative to
+    email. It only sends outbound DMs; it does not read messages, listen to
+    events, or expose slash commands.
+
+features:
+  bot_user:
+    display_name: IRL Planner
+    always_online: true
+
+oauth_config:
+  scopes:
+    bot:
+      - users:read           # required dependency of users:read.email
+      - users:read.email     # resolve a company email to a Slack user ID
+      - chat:write           # post DMs via chat.postMessage
+
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
+```
