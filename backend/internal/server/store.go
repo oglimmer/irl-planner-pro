@@ -99,13 +99,17 @@ func (s *Store) loadEventByColumn(ctx context.Context, column, value string, now
 	err := s.db.QueryRowContext(ctx,
 		`SELECT e.id, e.slug, e.name, e.country, e.city, e.hotel_name, e.hotel_address, e.hotel_link, e.timezone,
 		        e.start_date, e.end_date, e.submission_deadline, e.reminder_days_before,
-		        e.weekly_reminders, e.reminder_hour, e.daily_activity_email, e.created_at, e.updated_at,
+		        e.weekly_reminders, e.reminder_hour, e.daily_activity_email,
+		        e.invite_subject, e.invite_body, e.reminder_subject, e.reminder_body,
+		        e.created_at, e.updated_at,
 		        i.etag
 		   FROM events e LEFT JOIN event_images i ON i.event_id = e.id
 		  WHERE e.`+column+` = $1`, value).
 		Scan(&e.ID, &e.Slug, &e.Name, &e.Country, &e.City, &e.HotelName, &e.HotelAddress, &e.HotelLink, &e.Timezone,
 			&start, &end, &deadline, &e.ReminderDaysBefore,
-			&e.WeeklyReminders, &e.ReminderHour, &e.DailyActivityEmail, &e.CreatedAt, &e.UpdatedAt,
+			&e.WeeklyReminders, &e.ReminderHour, &e.DailyActivityEmail,
+			&e.InviteSubject, &e.InviteBody, &e.ReminderSubject, &e.ReminderBody,
+			&e.CreatedAt, &e.UpdatedAt,
 			&imageEtag)
 	if err != nil {
 		return nil, err

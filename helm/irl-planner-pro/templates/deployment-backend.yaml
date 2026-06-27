@@ -113,12 +113,23 @@ spec:
           value: {{ .Values.smtp.host | quote }}
         - name: SMTP_PORT
           value: {{ .Values.smtp.port | default 587 | quote }}
+        # NB: don't use `| default true` here — sprig's default treats the bool
+        # false as empty and would force true, so useTLS:false could never apply
+        # (which would wrongly attempt STARTTLS on a plain relay).
         - name: SMTP_USE_TLS
-          value: {{ .Values.smtp.useTLS | default true | quote }}
-        {{- with .Values.smtp.username }}
+          value: {{ .Values.smtp.useTLS | quote }}
+        - name: SMTP_IMPLICIT_TLS
+          value: {{ .Values.smtp.implicitTLS | quote }}
+        # Username + password are both supplied via the app Secret (like the
+        # trivia chart), so credentials live in one place. optional:true keeps the
+        # pod schedulable before the keys are added; without them email AUTH is
+        # skipped and an authenticating relay (Fastmail) returns 530.
         - name: SMTP_USERNAME
-          value: {{ . | quote }}
-        {{- end }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "irl.secretName" . }}
+              key: SMTP_USERNAME
+              optional: true
         {{- with .Values.smtp.from }}
         - name: SMTP_FROM
           value: {{ . | quote }}

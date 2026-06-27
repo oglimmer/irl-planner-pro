@@ -45,6 +45,12 @@ var migration0010 string
 //go:embed migrations/0011_activity_category.sql
 var migration0011 string
 
+//go:embed migrations/0012_messaging.sql
+var migration0012 string
+
+//go:embed migrations/0013_message_send_log.sql
+var migration0013 string
+
 // migrations lists all embedded migrations in apply order.
 // Each entry must have a corresponding //go:embed var above.
 // Adding a new migration requires (1) the file, (2) the embed var, (3) an
@@ -64,6 +70,8 @@ var migrations = []struct {
 	{"0009_event_image", migration0009},
 	{"0010_event_attendees", migration0010},
 	{"0011_activity_category", migration0011},
+	{"0012_messaging", migration0012},
+	{"0013_message_send_log", migration0013},
 }
 
 // Open opens the application's *sql.DB through pgx's database/sql adapter and

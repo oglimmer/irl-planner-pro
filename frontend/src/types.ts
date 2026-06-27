@@ -100,6 +100,54 @@ export interface EventInput {
 export type Attending = 'yes' | 'no' | 'not_sure'
 export type TravelMode = 'flight' | 'car' | 'train' | 'other'
 
+// --- Messaging (event admin "Messaging" tab) -------------------------------
+
+// MessageTemplates are the editable invite/reminder copy. An empty string means
+// "no override" — the backend renders a generated default instead. Bodies and
+// subjects support {{name}} {{event}} {{city}} {{link}} {{deadline}} placeholders.
+export interface MessageTemplates {
+  inviteSubject: string
+  inviteBody: string
+  reminderSubject: string
+  reminderBody: string
+}
+
+export interface MessagingChannel {
+  name: string // 'email' | 'slack'
+  available: boolean // implemented & selectable (Slack is not yet — "coming soon")
+  configured: boolean // transport actually wired up (SMTP for email)
+}
+
+export interface MessagingStats {
+  attendees: number
+  invited: number
+  nonResponders: number
+}
+
+// MessagingFailure is one recent failed send, shown to the admin so they can act
+// (fix an address, retry). "sent" elsewhere means the relay accepted the message,
+// not that it was delivered — asynchronous bounces are not tracked.
+export interface MessagingFailure {
+  recipient: string
+  kind: string // invitation | manual | weekly | deadline
+  channel: string // email | slack
+  error: string
+  createdAt: string
+}
+
+export interface MessagingStatus {
+  templates: MessageTemplates // stored overrides ('' = use default)
+  defaults: MessageTemplates // generated defaults, shown as editor placeholders
+  stats: MessagingStats
+  channels: MessagingChannel[]
+  failures: MessagingFailure[] // recent failed sends, newest first
+}
+
+export interface SendMessageResult {
+  channel: string
+  queued: number // recipients handed to the background sender; delivery continues async
+}
+
 export interface Submission {
   id: string
   eventId: string

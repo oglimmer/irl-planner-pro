@@ -60,12 +60,13 @@ type Config struct {
 	MetricsToken string
 
 	// SMTP settings for outbound email. Empty SMTPHost disables all email.
-	SMTPHost     string
-	SMTPPort     int
-	SMTPUsername string
-	SMTPPassword string
-	SMTPFrom     string
-	SMTPUseTLS   bool
+	SMTPHost        string
+	SMTPPort        int
+	SMTPUsername    string
+	SMTPPassword    string
+	SMTPFrom        string
+	SMTPUseTLS      bool // STARTTLS upgrade (typically port 587)
+	SMTPImplicitTLS bool // implicit TLS / SMTPS (typically port 465, e.g. Fastmail)
 
 	// MCP OAuth 2.1 (Phase 7). Both set → /mcp + OAuth enabled; both empty → off.
 	MCPOAuthClientID     string
@@ -103,12 +104,13 @@ func Load() Config {
 
 		MetricsToken: getenv("METRICS_TOKEN", ""),
 
-		SMTPHost:     strings.TrimSpace(getenv("SMTP_HOST", "")),
-		SMTPPort:     parseInt(getenv("SMTP_PORT", "587"), 587),
-		SMTPUsername: getenv("SMTP_USERNAME", ""),
-		SMTPPassword: getenv("SMTP_PASSWORD", ""),
-		SMTPFrom:     strings.TrimSpace(getenv("SMTP_FROM", "")),
-		SMTPUseTLS:   getenv("SMTP_USE_TLS", "true") == "true",
+		SMTPHost:        strings.TrimSpace(getenv("SMTP_HOST", "")),
+		SMTPPort:        parseInt(getenv("SMTP_PORT", "587"), 587),
+		SMTPUsername:    getenv("SMTP_USERNAME", ""),
+		SMTPPassword:    getenv("SMTP_PASSWORD", ""),
+		SMTPFrom:        strings.TrimSpace(getenv("SMTP_FROM", "")),
+		SMTPUseTLS:      getenv("SMTP_USE_TLS", "true") == "true",
+		SMTPImplicitTLS: getenv("SMTP_IMPLICIT_TLS", "false") == "true",
 
 		MCPOAuthClientID:     getenv("MCP_OAUTH_CLIENT_ID", ""),
 		MCPOAuthClientSecret: getenv("MCP_OAUTH_CLIENT_SECRET", ""),

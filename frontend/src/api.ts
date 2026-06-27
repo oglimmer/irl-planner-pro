@@ -7,7 +7,10 @@ import type {
   Dashboard,
   Event,
   EventInput,
+  MessageTemplates,
+  MessagingStatus,
   ProfileInput,
+  SendMessageResult,
   Submission,
   SubmissionInput,
   User,
@@ -198,6 +201,26 @@ export const api = {
   },
   deleteEventImage: (id: string) =>
     request<void>(`/api/admin/events/${id}/image`, { method: 'DELETE' }),
+
+  // Messaging tab: templates, audience stats, channel availability; an
+  // admin-pressed invitation to all attendees; a manual follow-up to current
+  // non-responders. `channel` defaults to 'email' ('slack' is a no-op stub).
+  getMessaging: (id: string) => request<MessagingStatus>(`/api/admin/events/${id}/messaging`),
+  saveMessaging: (id: string, data: MessageTemplates) =>
+    request<MessageTemplates>(`/api/admin/events/${id}/messaging`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  sendInvitation: (id: string, channel: string) =>
+    request<SendMessageResult>(`/api/admin/events/${id}/messaging/invite`, {
+      method: 'POST',
+      body: JSON.stringify({ channel }),
+    }),
+  sendFollowup: (id: string, channel: string) =>
+    request<SendMessageResult>(`/api/admin/events/${id}/messaging/followup`, {
+      method: 'POST',
+      body: JSON.stringify({ channel }),
+    }),
 
   dashboard: (id: string) => request<Dashboard>(`/api/admin/events/${id}/dashboard`),
   listSubmissions: (id: string) => request<Submission[]>(`/api/admin/events/${id}/submissions`),

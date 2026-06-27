@@ -23,28 +23,35 @@ type EventDay struct {
 // Event is the full event config returned to admins. Attendee views read the
 // same shape (all fields here are non-sensitive event metadata).
 type Event struct {
-	ID                      string     `json:"id"`
-	Slug                    string     `json:"slug"`
-	Name                    string     `json:"name"`
-	Country                 string     `json:"country"`
-	City                    string     `json:"city"`
-	HotelName               string     `json:"hotelName"`
-	HotelAddress            string     `json:"hotelAddress"`
-	HotelLink               string     `json:"hotelLink"`
-	Timezone                string     `json:"timezone"`
-	StartDate               string     `json:"startDate"`               // YYYY-MM-DD
-	EndDate                 string     `json:"endDate"`                 // YYYY-MM-DD
-	SubmissionDeadline      time.Time  `json:"submissionDeadline"`      // UTC instant
-	SubmissionDeadlineLocal string     `json:"submissionDeadlineLocal"` // wall-clock in event tz, for form prefill
-	ReminderDaysBefore      int        `json:"reminderDaysBefore"`
-	WeeklyReminders         bool       `json:"weeklyReminders"`
-	ReminderHour            int        `json:"reminderHour"`
-	DailyActivityEmail      bool       `json:"dailyActivityEmail"`
-	ImageURL                string     `json:"imageUrl"` // "" when no image; carries a ?v=<etag> cache-buster
-	IsPast                  bool       `json:"isPast"`
-	Days                    []EventDay `json:"days"`
-	CreatedAt               time.Time  `json:"createdAt"`
-	UpdatedAt               time.Time  `json:"updatedAt"`
+	ID                      string    `json:"id"`
+	Slug                    string    `json:"slug"`
+	Name                    string    `json:"name"`
+	Country                 string    `json:"country"`
+	City                    string    `json:"city"`
+	HotelName               string    `json:"hotelName"`
+	HotelAddress            string    `json:"hotelAddress"`
+	HotelLink               string    `json:"hotelLink"`
+	Timezone                string    `json:"timezone"`
+	StartDate               string    `json:"startDate"`               // YYYY-MM-DD
+	EndDate                 string    `json:"endDate"`                 // YYYY-MM-DD
+	SubmissionDeadline      time.Time `json:"submissionDeadline"`      // UTC instant
+	SubmissionDeadlineLocal string    `json:"submissionDeadlineLocal"` // wall-clock in event tz, for form prefill
+	ReminderDaysBefore      int       `json:"reminderDaysBefore"`
+	WeeklyReminders         bool      `json:"weeklyReminders"`
+	ReminderHour            int       `json:"reminderHour"`
+	DailyActivityEmail      bool      `json:"dailyActivityEmail"`
+	// Message templates for the Messaging tab. Empty string ⇒ no override; the
+	// backend renders a generated default instead (see messaging.go). Edited via
+	// PUT /api/admin/events/{id}/messaging.
+	InviteSubject   string     `json:"inviteSubject"`
+	InviteBody      string     `json:"inviteBody"`
+	ReminderSubject string     `json:"reminderSubject"`
+	ReminderBody    string     `json:"reminderBody"`
+	ImageURL        string     `json:"imageUrl"` // "" when no image; carries a ?v=<etag> cache-buster
+	IsPast          bool       `json:"isPast"`
+	Days            []EventDay `json:"days"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
 }
 
 type eventReq struct {

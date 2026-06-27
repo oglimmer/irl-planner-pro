@@ -36,12 +36,13 @@ services:
       PEOPLE_TEAM_EMAIL: ${PEOPLE_TEAM_EMAIL:-people@id5.io}
       DEFAULT_EVENT_TIMEZONE: ${DEFAULT_EVENT_TIMEZONE:-Europe/Paris}
       REMINDERS_ENABLED: ${REMINDERS_ENABLED:-true}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_HOST: ${SMTP_HOST:-192.168.178.52}
+      SMTP_PORT: ${SMTP_PORT:-25}
+      SMTP_IMPLICIT_TLS: ${SMTP_IMPLICIT_TLS:-false}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-irl-noreply@id5.io}
-      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      SMTP_FROM: '${SMTP_FROM:-"toldyouso robot" <robot@junta-online.net>}'
     depends_on:
       db:
         condition: service_healthy

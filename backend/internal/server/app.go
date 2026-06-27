@@ -17,6 +17,7 @@ import (
 
 	"irlplanner/internal/config"
 	"irlplanner/internal/email"
+	"irlplanner/internal/slack"
 )
 
 type App struct {
@@ -31,6 +32,11 @@ type App struct {
 	// Email sends outbound notifications (reminders, digests, admin alerts).
 	// Its zero value is "not configured" — Send is a no-op guarded by callers.
 	Email email.Sender
+
+	// Slack is the (currently stubbed) Slack channel for the Messaging tab.
+	// Configured() is always false today; Send logs and drops. Kept as a field
+	// so wiring real delivery later is a localized change (see internal/slack).
+	Slack slack.Notifier
 
 	// ready gates the readiness probe. The backend is ready as soon as the DB
 	// is migrated, so this flips true at startup.

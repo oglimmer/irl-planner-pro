@@ -75,6 +75,14 @@ var (
 		[]string{"kind"},
 	)
 
+	MessageSendsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "irl_message_sends_total",
+			Help: "Outbound per-recipient message sends by kind (invitation|manual|weekly|deadline), channel, and result (sent|failed).",
+		},
+		[]string{"kind", "channel", "result"},
+	)
+
 	MCPToolCallsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "irl_mcp_tool_calls_total",
@@ -104,6 +112,7 @@ func init() {
 		EventMutationsTotal,
 		SubmissionMutationsTotal,
 		RemindersSentTotal,
+		MessageSendsTotal,
 		MCPToolCallsTotal,
 		MCPToolCallDuration,
 	)

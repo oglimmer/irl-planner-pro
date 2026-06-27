@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"strings"
 )
@@ -22,6 +23,10 @@ type Sender struct {
 	Password string // SMTP auth password
 	From     string // envelope + header From address
 	UseTLS   bool   // when true, upgrade the connection with STARTTLS
+	// ImplicitTLS dials straight into TLS (SMTPS, typically port 465). When set,
+	// the socket is encrypted from the start, so no STARTTLS upgrade is attempted
+	// — UseTLS is ignored. This is what Fastmail's :465 relay expects.
+	ImplicitTLS bool
 }
 
 // Configured reports whether enough settings are present to attempt delivery.
@@ -45,12 +50,13 @@ func (s Sender) Send(to []string, subject, body string) error {
 		return fmt.Errorf("email: no recipients")
 	}
 
-	msg := buildMessage(s.From, recipients, subject, body)
+	headerFrom, envelopeFrom := splitFrom(s.From)
+	msg := buildMessage(headerFrom, recipients, subject, body)
 	addr := net.JoinHostPort(s.Host, fmt.Sprintf("%d", s.Port))
 
-	c, err := smtp.Dial(addr)
+	c, err := s.dial(addr)
 	if err != nil {
-		return fmt.Errorf("email: dial %s: %w", addr, err)
+		return err
 	}
 	defer c.Close()
 
@@ -58,7 +64,9 @@ func (s Sender) Send(to []string, subject, body string) error {
 		return fmt.Errorf("email: hello: %w", err)
 	}
 
-	if s.UseTLS {
+	// STARTTLS upgrades a plaintext connection. Skip it under implicit TLS — the
+	// socket is already encrypted from the dial.
+	if s.UseTLS && !s.ImplicitTLS {
 		if ok, _ := c.Extension("STARTTLS"); ok {
 			if err := c.StartTLS(&tls.Config{ServerName: s.Host}); err != nil {
 				return fmt.Errorf("email: starttls: %w", err)
@@ -75,7 +83,7 @@ func (s Sender) Send(to []string, subject, body string) error {
 		}
 	}
 
-	if err := c.Mail(s.From); err != nil {
+	if err := c.Mail(envelopeFrom); err != nil {
 		return fmt.Errorf("email: mail from: %w", err)
 	}
 	for _, r := range recipients {
@@ -95,6 +103,47 @@ func (s Sender) Send(to []string, subject, body string) error {
 		return fmt.Errorf("email: close data: %w", err)
 	}
 	return c.Quit()
+}
+
+// splitFrom derives the From header value and the envelope sender from a
+// configured From address. The envelope sender (MAIL FROM) must be a bare
+// address, but the From header may carry a display name. So `"Robot" <r@x>`
+// yields header `"Robot" <r@x>` and envelope `r@x`; a bare `r@x` is used as-is
+// for both. An unparseable value falls back to itself unchanged.
+func splitFrom(from string) (header, envelope string) {
+	addr, err := mail.ParseAddress(from)
+	if err != nil {
+		return from, from
+	}
+	// Keep the configured header as-is for a bare address; only normalize when a
+	// display name is present (so `Name <a@b>` becomes a properly quoted header).
+	header = from
+	if addr.Name != "" {
+		header = addr.String()
+	}
+	return header, addr.Address
+}
+
+// dial opens an SMTP client connection: straight TLS (SMTPS) under ImplicitTLS,
+// otherwise a plaintext connection that Send may then upgrade with STARTTLS.
+func (s Sender) dial(addr string) (*smtp.Client, error) {
+	if s.ImplicitTLS {
+		conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: s.Host})
+		if err != nil {
+			return nil, fmt.Errorf("email: tls dial %s: %w", addr, err)
+		}
+		c, err := smtp.NewClient(conn, s.Host)
+		if err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("email: client: %w", err)
+		}
+		return c, nil
+	}
+	c, err := smtp.Dial(addr)
+	if err != nil {
+		return nil, fmt.Errorf("email: dial %s: %w", addr, err)
+	}
+	return c, nil
 }
 
 // buildMessage assembles a minimal RFC 5322 plain-text message. CRLF line

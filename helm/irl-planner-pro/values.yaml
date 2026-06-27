@@ -75,15 +75,23 @@ mcp:
     redirectURIs:
       - https://claude.ai/api/mcp/auth_callback
 
-# SMTP for outbound reminders + admin notifications. Leave host empty to disable
-# email entirely — sends become best-effort no-ops. The password goes into the
-# application Secret under the SMTP_PASSWORD key (optional).
+# SMTP for outbound invitations, reminders + admin notifications. Leave host
+# empty to disable email entirely — sends become best-effort no-ops.
+# Currently a plain, unauthenticated relay on the LAN (port 25, no TLS), so no
+# credentials are needed. For an authenticating relay (e.g. Fastmail on :465 with
+# implicitTLS=true), put BOTH SMTP_USERNAME and SMTP_PASSWORD in the app Secret —
+# without them the backend skips AUTH and Fastmail returns 530.
+# implicitTLS and useTLS are mutually exclusive:
+#   implicitTLS=true  → straight TLS / SMTPS (typically port 465)
+#   useTLS=true       → STARTTLS upgrade   (typically port 587)
+#   both false        → plain SMTP, no TLS (trusted relay only)
+# from may be a bare address or a display-name form: '"Name" <addr@host>'.
 smtp:
-  host: ""
-  port: 587
-  username: ""
-  from: "irl-noreply@id5.io"
-  useTLS: true
+  host: "192.168.178.52"
+  port: 25
+  implicitTLS: false
+  useTLS: false
+  from: '"toldyouso robot" <robot@junta-online.net>'
 
 # Backend (Go API) configuration. Stateless — no PVC; all state lives in
 # Postgres, so it scales freely.

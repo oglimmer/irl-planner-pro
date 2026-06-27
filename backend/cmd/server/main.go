@@ -38,12 +38,13 @@ func main() {
 		DB:    pool,
 		Store: server.NewStore(pool),
 		Email: email.Sender{
-			Host:     cfg.SMTPHost,
-			Port:     cfg.SMTPPort,
-			Username: cfg.SMTPUsername,
-			Password: cfg.SMTPPassword,
-			From:     cfg.SMTPFrom,
-			UseTLS:   cfg.SMTPUseTLS,
+			Host:        cfg.SMTPHost,
+			Port:        cfg.SMTPPort,
+			Username:    cfg.SMTPUsername,
+			Password:    cfg.SMTPPassword,
+			From:        cfg.SMTPFrom,
+			UseTLS:      cfg.SMTPUseTLS,
+			ImplicitTLS: cfg.SMTPImplicitTLS,
 		},
 	}
 

@@ -22,7 +22,9 @@ The chart does **not** create a Secret. Apply one named `<release>-irl-planner-p
 - `JWT_SECRET` (required, ≥32 chars)
 - `POSTGRES_PASSWORD` (when `postgres.enabled=true`) or `DATABASE_URL` (when `false`)
 - `OIDC_CLIENT_SECRET` (when `auth.mode=oidc`)
-- `SMTP_PASSWORD`, `METRICS_TOKEN` (optional)
+- `SMTP_USERNAME` + `SMTP_PASSWORD` (optional; both needed for an authenticating
+  relay like Fastmail — without them the backend skips SMTP AUTH and sends fail 530)
+- `METRICS_TOKEN` (optional)
 
 See `helm/argocd/irl-planner-pro-sealed-secret.yaml` for the SealedSecret template.
 

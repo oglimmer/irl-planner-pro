@@ -7,6 +7,7 @@ import { useColumnSort } from '../composables/useColumnSort'
 import { useConfirm } from '../composables/useConfirm'
 import ActivityLog from '../components/ActivityLog.vue'
 import AttendingFilter from '../components/AttendingFilter.vue'
+import EventMessaging from './EventMessaging.vue'
 import type { ActivityEntry, AttendingState, Dashboard, DashboardEntry, Event, UserSummary } from '../types'
 
 const props = defineProps<{ id: string }>()
@@ -16,7 +17,7 @@ const { confirm } = useConfirm()
 const event = ref<Event | null>(null)
 const error = ref('')
 const copied = ref(false)
-const tab = ref<'responses' | 'activity' | 'attendees'>('responses')
+const tab = ref<'responses' | 'activity' | 'attendees' | 'messaging'>('responses')
 
 const dashboard = ref<Dashboard | null>(null)
 const filter = ref<AttendingState[]>([])
@@ -297,6 +298,7 @@ onMounted(async () => {
         <button :class="{ active: tab === 'responses' }" @click="tab = 'responses'">Responses</button>
         <button :class="{ active: tab === 'activity' }" @click="tab = 'activity'">Activity</button>
         <button :class="{ active: tab === 'attendees' }" @click="tab = 'attendees'">Attendees</button>
+        <button :class="{ active: tab === 'messaging' }" @click="tab = 'messaging'">Messaging</button>
       </div>
 
       <!-- Responses -->
@@ -497,6 +499,11 @@ onMounted(async () => {
           </table>
         </template>
         <p v-else class="muted">No attendees yet.</p>
+      </div>
+
+      <!-- Messaging -->
+      <div v-show="tab === 'messaging'">
+        <EventMessaging :event-id="props.id" />
       </div>
     </template>
   </section>

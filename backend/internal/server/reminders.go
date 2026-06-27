@@ -94,15 +94,17 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 	if len(windows) == 0 {
 		return
 	}
-	nonResponders, err := a.Store.nonResponders(ctx, e.ID)
+	nonResponders, err := a.Store.nonResponderContacts(ctx, e.ID)
 	if err != nil {
 		log.Printf("WARN: reminder: non-responders for %s: %v", e.ID, err)
 		return
 	}
-	link := strings.TrimRight(a.Cfg.PublicBaseURL, "/") + "/events/" + e.Slug
+	// Same editable template the Messaging tab saves; falls back to the default.
+	subjectTmpl := firstNonEmpty(e.ReminderSubject, defaultReminderSubject)
+	bodyTmpl := firstNonEmpty(e.ReminderBody, defaultReminderBody)
 	for _, win := range windows {
-		for _, email := range nonResponders {
-			claimed, err := a.claimReminder(ctx, e.ID, email, win.Kind, win.PeriodKey)
+		for _, rc := range nonResponders {
+			claimed, err := a.claimReminder(ctx, e.ID, rc.Email, win.Kind, win.PeriodKey)
 			if err != nil {
 				log.Printf("WARN: reminder claim: %v", err)
 				continue
@@ -110,14 +112,22 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 			if !claimed {
 				continue // already sent for this window
 			}
-			subject := fmt.Sprintf("Reminder: please respond for %s", e.Name)
-			body := fmt.Sprintf("Hi,\n\nWe haven't received your attendance details for %s yet.\n"+
-				"Please respond here: %s\n\nThanks,\nThe People team\n", e.Name, link)
-			if err := a.Email.Send([]string{email}, subject, body); err != nil {
-				log.Printf("WARN: reminder send to %s: %v", email, err)
+			vars := a.messageVars(e, rc)
+			subject := renderTemplate(subjectTmpl, vars)
+			body := renderTemplate(bodyTmpl, vars)
+			if err := a.Email.Send([]string{rc.Email}, subject, body); err != nil {
+				log.Printf("WARN: reminder send to %s: %v", rc.Email, err)
+				// Release the claim so the next due tick retries instead of the
+				// failure sticking until the whole window passes (matches the
+				// manual follow-up path).
+				a.unclaimReminder(ctx, e.ID, rc.Email, win.Kind, win.PeriodKey)
+				a.logSend(ctx, e.ID, rc.Email, win.Kind, channelEmail, "failed", err.Error())
+				metrics.MessageSendsTotal.WithLabelValues(win.Kind, channelEmail, "failed").Inc()
 				continue
 			}
+			a.logSend(ctx, e.ID, rc.Email, win.Kind, channelEmail, "sent", "")
 			metrics.RemindersSentTotal.WithLabelValues(win.Kind).Inc()
+			metrics.MessageSendsTotal.WithLabelValues(win.Kind, channelEmail, "sent").Inc()
 		}
 	}
 }
