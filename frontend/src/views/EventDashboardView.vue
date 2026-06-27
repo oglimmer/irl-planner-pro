@@ -531,6 +531,8 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .reload {
   display: flex;
@@ -538,11 +540,16 @@ onMounted(async () => {
   gap: 0.4rem;
   color: var(--muted);
   font-size: 0.85rem;
+  flex-shrink: 0;
 }
 .reload select {
   padding: 0.3rem 0.4rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  min-width: 4rem;
+}
+.right .btn {
+  flex-shrink: 0;
 }
 .summary { margin: 0.75rem 0; }
 .grid {
@@ -565,7 +572,9 @@ onMounted(async () => {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-size: 0.85rem;
-  min-width: 14rem;
+  flex: 1 1 12rem;
+  min-width: 8rem;
+  max-width: 20rem;
 }
 .grid th.sortable {
   cursor: pointer;
