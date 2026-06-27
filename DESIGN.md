@@ -55,6 +55,7 @@ automated reminders, notifies admins on edits, and exports responses as CSV.
 | Migrations | Embedded `.sql` files run sequentially in `db.Migrate` | `//go:embed migrations/NNNN_*.sql`; no external migration tool |
 | Auth | **OIDC** (`coreos/go-oidc/v3`) + **JWT** sessions (`golang-jwt/jwt/v5`) | Google Workspace `hd`-claim domain restriction → `id5.io` |
 | Email | stdlib `net/smtp` wrapper (`internal/email`) | best-effort; empty `SMTP_HOST` disables it |
+| Slack | stdlib HTTP client over the Slack Web API (`internal/slack`) | optional outreach channel; bot DMs via `users.lookupByEmail` + `chat.postMessage`; empty `SLACK_BOT_TOKEN` disables it |
 | Metrics | **Prometheus** (`/metrics`), `/healthz`, `/readyz` | `internal/metrics` |
 | Background jobs | goroutines bound to a root `context`, tracked by a `sync.WaitGroup`; `time.Ticker` schedulers | reminder + digest scheduler |
 | MCP | **`modelcontextprotocol/go-sdk`** Streamable HTTP server at `/mcp` + **OAuth 2.1** (PKCE) | optional, admin-facing; off unless configured |
@@ -755,6 +756,19 @@ Outbound email uses `internal/email.Sender` (stdlib SMTP). All email is
 **best-effort**: a send failure logs a WARN and never fails the user's request.
 An empty `SMTP_HOST` disables email entirely.
 
+**Channels.** The admin Messaging tab (invitations + manual follow-ups) can
+dispatch over **email** or **Slack**. Slack delivery (`internal/slack.Notifier`)
+posts a bot **direct message** to each recipient: the company email is resolved
+to a Slack user ID with `users.lookupByEmail`, then `chat.postMessage` sends the
+DM. It uses a workspace **bot token** (`SLACK_BOT_TOKEN`, scopes
+`users:read.email` + `chat:write`), so the People team can message any employee
+**without that employee installing or authorizing the app** — the enterprise
+install model. An empty `SLACK_BOT_TOKEN` disables Slack (the tab shows it as
+selectable but "not configured"). Each per-recipient send is recorded in
+`message_send_log` with its `channel`, and the same `reminder_log` idempotency
+claim makes Slack sends exactly-once and retry-safe, identical to email.
+The scheduled reminders (§9.1) and admin notices (§9.2–9.3) remain email-only.
+
 ### 9.1 Reminder scheduler
 A single background goroutine started in `main.go`, bound to the root context,
 tracked by the `WaitGroup`, and driven by a `time.Ticker` (hourly). On each tick,
@@ -975,6 +989,10 @@ SMTP_USERNAME=
 SMTP_PASSWORD=
 SMTP_FROM=irl-noreply@id5.io
 SMTP_USE_TLS=true
+
+# Slack messaging channel (optional). Workspace bot token (xoxb-…) with scopes
+# users:read.email + chat:write. Empty disables Slack.
+SLACK_BOT_TOKEN=
 
 # Reminder + digest scheduler
 REMINDERS_ENABLED=true

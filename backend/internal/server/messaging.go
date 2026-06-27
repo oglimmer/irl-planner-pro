@@ -19,8 +19,8 @@ import (
 // admin-pressed invitation to every attendee, and a manual follow-up to the
 // people who still haven't responded. Both render an admin-editable, per-event
 // template (falling back to a generated default) and dispatch over a channel.
-// Today only email delivers; Slack is a logged-no-op stub (see internal/slack)
-// so the channel plumbing is in place for later.
+// Both channels are real: email over SMTP (internal/email) and Slack bot DMs
+// (internal/slack). Each is selectable in the tab once configured on the server.
 //
 // The scheduled non-responder reminders (reminders.go) share the same template
 // and rendering helpers here, so editing the reminder copy in the tab also
@@ -159,7 +159,7 @@ func (a *App) messageVars(e *Event, c contact) map[string]string {
 // --- dispatch --------------------------------------------------------------
 
 // sendVia delivers one message over the named channel. Unknown channels fall
-// back to email (the only real channel today).
+// back to email (the default channel).
 func (a *App) sendVia(channel string, to []string, subject, body string) error {
 	if channel == channelSlack {
 		return a.Slack.Send(to, subject, body)
@@ -167,10 +167,28 @@ func (a *App) sendVia(channel string, to []string, subject, body string) error {
 	return a.Email.Send(to, subject, body)
 }
 
+// channelConfigured reports whether the named channel's transport is wired up
+// so a send can actually succeed.
+func (a *App) channelConfigured(channel string) bool {
+	if channel == channelSlack {
+		return a.Slack.Configured()
+	}
+	return a.Email.Configured()
+}
+
+// channelUnconfiguredMsg is the 409 message when a send targets a channel whose
+// transport isn't set up, naming the env var that enables it.
+func channelUnconfiguredMsg(channel string) string {
+	if channel == channelSlack {
+		return "slack is not configured (set SLACK_BOT_TOKEN)"
+	}
+	return "email is not configured (set SMTP_HOST)"
+}
+
 // channelStatus is the per-channel availability the tab uses to enable/disable
-// its selector. Available means the channel is implemented and selectable (email
-// is, Slack isn't yet — it's the "coming soon" stub); Configured means its
-// transport is actually wired up (SMTP for email) so a send can succeed.
+// its selector. Available means the channel is implemented and selectable (both
+// email and Slack are); Configured means its transport is actually wired up
+// (SMTP for email, a bot token for Slack) so a send can succeed.
 type channelStatus struct {
 	Name       string `json:"name"`
 	Available  bool   `json:"available"`
@@ -180,7 +198,7 @@ type channelStatus struct {
 func (a *App) channelStatuses() []channelStatus {
 	return []channelStatus{
 		{Name: channelEmail, Available: true, Configured: a.Email.Configured()},
-		{Name: channelSlack, Available: a.Slack.Configured(), Configured: a.Slack.Configured()},
+		{Name: channelSlack, Available: true, Configured: a.Slack.Configured()},
 	}
 }
 
@@ -393,10 +411,10 @@ func (a *App) sendCampaign(w http.ResponseWriter, r *http.Request, c campaign) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// Only block on email being unconfigured; the Slack stub is intentionally a
-	// no-op that still "succeeds" so the channel can be exercised end to end.
-	if channel == channelEmail && !a.Email.Configured() {
-		writeErr(w, http.StatusConflict, "email is not configured (set SMTP_HOST)")
+	// Block when the chosen channel's transport isn't configured — otherwise the
+	// campaign would claim recipients and silently deliver nothing.
+	if !a.channelConfigured(channel) {
+		writeErr(w, http.StatusConflict, channelUnconfiguredMsg(channel))
 		return
 	}
 

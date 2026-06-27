@@ -141,6 +141,16 @@ spec:
               key: SMTP_PASSWORD
               optional: true
         {{- end }}
+        # Slack messaging channel (optional). The bot token is a secret, so it
+        # comes from the app Secret with optional:true — the pod stays schedulable
+        # before the key is added, and Slack delivery simply stays disabled until
+        # it is. Scopes required on the token: users:read.email + chat:write.
+        - name: SLACK_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "irl.secretName" . }}
+              key: SLACK_BOT_TOKEN
+              optional: true
         {{- if .Values.backend.metrics.enabled }}
         - name: METRICS_TOKEN
           valueFrom:

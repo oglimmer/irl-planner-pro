@@ -33,9 +33,9 @@ type App struct {
 	// Its zero value is "not configured" — Send is a no-op guarded by callers.
 	Email email.Sender
 
-	// Slack is the (currently stubbed) Slack channel for the Messaging tab.
-	// Configured() is always false today; Send logs and drops. Kept as a field
-	// so wiring real delivery later is a localized change (see internal/slack).
+	// Slack is the Slack channel for the Messaging tab: bot DMs via the Slack
+	// Web API. Configured() reports whether a bot token is set; when unset, Send
+	// errors and the channel surfaces as "not configured" (see internal/slack).
 	Slack slack.Notifier
 
 	// ready gates the readiness probe. The backend is ready as soon as the DB

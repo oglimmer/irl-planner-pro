@@ -68,6 +68,12 @@ type Config struct {
 	SMTPUseTLS      bool // STARTTLS upgrade (typically port 587)
 	SMTPImplicitTLS bool // implicit TLS / SMTPS (typically port 465, e.g. Fastmail)
 
+	// SlackBotToken is a workspace bot token (xoxb-…) for the Slack messaging
+	// channel. Empty disables Slack delivery. See internal/slack for the model:
+	// an admin installs the bot once and it can DM any employee without each one
+	// authorizing the app. Requires scopes users:read.email and chat:write.
+	SlackBotToken string
+
 	// MCP OAuth 2.1 (Phase 7). Both set → /mcp + OAuth enabled; both empty → off.
 	MCPOAuthClientID     string
 	MCPOAuthClientSecret string
@@ -111,6 +117,8 @@ func Load() Config {
 		SMTPFrom:        strings.TrimSpace(getenv("SMTP_FROM", "")),
 		SMTPUseTLS:      getenv("SMTP_USE_TLS", "true") == "true",
 		SMTPImplicitTLS: getenv("SMTP_IMPLICIT_TLS", "false") == "true",
+
+		SlackBotToken: strings.TrimSpace(getenv("SLACK_BOT_TOKEN", "")),
 
 		MCPOAuthClientID:     getenv("MCP_OAUTH_CLIENT_ID", ""),
 		MCPOAuthClientSecret: getenv("MCP_OAUTH_CLIENT_SECRET", ""),

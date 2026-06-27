@@ -22,6 +22,7 @@ import (
 	"irlplanner/internal/email"
 	"irlplanner/internal/metrics"
 	"irlplanner/internal/server"
+	"irlplanner/internal/slack"
 )
 
 func main() {
@@ -52,6 +53,7 @@ func main() {
 			UseTLS:      cfg.SMTPUseTLS,
 			ImplicitTLS: cfg.SMTPImplicitTLS,
 		},
+		Slack: slack.Notifier{Token: cfg.SlackBotToken},
 	}
 
 	// rootCtx is cancelled on SIGINT/SIGTERM. Every background worker derives

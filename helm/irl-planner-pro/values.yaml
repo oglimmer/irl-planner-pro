@@ -12,6 +12,7 @@
 # Optional keys:
 #   - OIDC_CLIENT_SECRET         (when auth.mode=oidc)
 #   - SMTP_PASSWORD              (when smtp.host is set and the relay needs auth)
+#   - SLACK_BOT_TOKEN            (xoxb-… bot token to enable the Slack channel)
 #   - METRICS_TOKEN              (when backend.metrics.exposeOnIngress=true)
 #   - MCP_OAUTH_CLIENT_SECRET    (when mcp.enabled=true — the Phase 7 MCP surface)
 existingSecret: ""

@@ -114,8 +114,8 @@ export interface MessageTemplates {
 
 export interface MessagingChannel {
   name: string // 'email' | 'slack'
-  available: boolean // implemented & selectable (Slack is not yet — "coming soon")
-  configured: boolean // transport actually wired up (SMTP for email)
+  available: boolean // implemented & selectable (email and Slack both are)
+  configured: boolean // transport actually wired up (SMTP for email, bot token for Slack)
 }
 
 export interface MessagingStats {

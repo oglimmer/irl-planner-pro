@@ -204,7 +204,7 @@ export const api = {
 
   // Messaging tab: templates, audience stats, channel availability; an
   // admin-pressed invitation to all attendees; a manual follow-up to current
-  // non-responders. `channel` defaults to 'email' ('slack' is a no-op stub).
+  // non-responders. `channel` defaults to 'email'; 'slack' sends bot DMs.
   getMessaging: (id: string) => request<MessagingStatus>(`/api/admin/events/${id}/messaging`),
   saveMessaging: (id: string, data: MessageTemplates) =>
     request<MessageTemplates>(`/api/admin/events/${id}/messaging`, {

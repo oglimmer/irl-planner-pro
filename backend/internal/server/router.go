@@ -149,8 +149,8 @@ func NewRouter(app *App) http.Handler {
 
 				// Messaging tab: editable invite/reminder templates, an
 				// admin-pressed invitation to all attendees, and a manual
-				// follow-up to current non-responders. Email only today; the
-				// Slack channel is a stub (see messaging.go / internal/slack).
+				// follow-up to current non-responders. Dispatches over email
+				// (SMTP) or Slack bot DMs (see messaging.go / internal/slack).
 				r.Get("/admin/events/{id}/messaging", app.handleGetMessaging)
 				r.Put("/admin/events/{id}/messaging", app.handleSaveMessaging)
 				r.Post("/admin/events/{id}/messaging/invite", app.handleSendInvitation)

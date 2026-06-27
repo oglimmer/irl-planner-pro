@@ -6,8 +6,8 @@ import type { MessagingStatus } from '../types'
 
 // The Messaging tab: edit the per-event invite/reminder copy, send the
 // invitation to every attendee not yet invited, and fire a manual follow-up to
-// current non-responders. Email is the only live channel; Slack is shown but
-// disabled until the backend stub becomes a real notifier.
+// current non-responders. Email (SMTP) and Slack (bot DMs) are both live
+// channels; each is selectable once configured on the server.
 const props = defineProps<{ eventId: string }>()
 
 const { confirm } = useConfirm()
@@ -133,7 +133,7 @@ async function sendFollowup() {
   const n = stats.value?.nonResponders ?? 0
   const ok = await confirm({
     title: 'Send follow-up now?',
-    message: `Email the reminder to ${n} non-responder(s) now, via ${channel.value}. Scheduled reminders still send on their own. A repeat within the same day is skipped.`,
+    message: `Send the reminder to ${n} non-responder(s) now, via ${channel.value}. Scheduled reminders still send on their own. A repeat within the same day is skipped.`,
     confirmLabel: 'Send follow-up',
   })
   if (!ok) return
@@ -185,8 +185,9 @@ onMounted(load)
           The “{{ channel }}” channel isn’t available yet — coming soon. Pick email to send.
         </p>
         <p v-else-if="!selectedConfigured" class="muted hint">
-          Email isn’t configured on the server yet (set <code>SMTP_HOST</code>). You can still
-          edit and save templates; sending will work once SMTP is set up.
+          The “{{ channel }}” channel isn’t configured on the server yet
+          (set <code>{{ channel === 'slack' ? 'SLACK_BOT_TOKEN' : 'SMTP_HOST' }}</code>). You can still
+          edit and save templates; sending will work once it’s configured.
         </p>
       </div>
 
@@ -253,18 +254,20 @@ onMounted(load)
       <div v-if="failures.length" class="card failures">
         <h3>Delivery failures</h3>
         <p class="muted">
-          {{ failures.length }} recent send(s) the mail server rejected — these were released
-          for retry, so fixing the address and resending will pick them up. A successful send
-          means the relay accepted the message, not that it was delivered (bounces aren’t tracked).
+          {{ failures.length }} recent send(s) the server rejected (see the channel + error per row) —
+          these were released for retry, so fixing the cause and resending will pick them up. A
+          successful send means the channel accepted the message, not that it was delivered
+          (email bounces and Slack delivery aren’t tracked).
         </p>
         <table>
           <thead>
-            <tr><th>Recipient</th><th>Type</th><th>When</th><th>Error</th></tr>
+            <tr><th>Recipient</th><th>Type</th><th>Channel</th><th>When</th><th>Error</th></tr>
           </thead>
           <tbody>
             <tr v-for="(f, i) in failures" :key="i">
               <td>{{ f.recipient }}</td>
               <td>{{ f.kind }}</td>
+              <td>{{ f.channel }}</td>
               <td>{{ formatWhen(f.createdAt) }}</td>
               <td class="err">{{ f.error }}</td>
             </tr>
