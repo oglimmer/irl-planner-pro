@@ -273,6 +273,12 @@ CREATE TABLE events (
     weekly_reminders     BOOLEAN NOT NULL DEFAULT true,
     reminder_hour        INTEGER NOT NULL DEFAULT 9,  -- hour-of-day (0-23) in the EVENT timezone
     daily_activity_email BOOLEAN NOT NULL DEFAULT false, -- admin digest; sent only when ≥1 activity that day
+    -- messaging templates (migration 0012) — admin-editable invite/reminder copy
+    -- for the Messaging tab. '' means "no override" → generated default (§9).
+    invite_subject     TEXT NOT NULL DEFAULT '',
+    invite_body        TEXT NOT NULL DEFAULT '',
+    reminder_subject   TEXT NOT NULL DEFAULT '',
+    reminder_body      TEXT NOT NULL DEFAULT '',
     created_by         UUID NOT NULL REFERENCES users(id),
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -406,13 +412,19 @@ the scheduler ticks multiple times or the process restarts.
 CREATE TABLE reminder_log (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_id      UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    recipient     TEXT NOT NULL,                       -- roster email
-    reminder_kind TEXT NOT NULL CHECK (reminder_kind IN ('weekly','deadline','daily_digest')),
+    recipient     TEXT NOT NULL,                       -- attendee email
+    reminder_kind TEXT NOT NULL CHECK (reminder_kind IN ('weekly','deadline','daily_digest','invitation','manual')),
     period_key    TEXT NOT NULL,                       -- e.g. '2026-W40' or '2026-10-12'
     sent_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (event_id, recipient, reminder_kind, period_key)
 );
 ```
+
+The Messaging tab (§9) reuses this same claim ledger for exactly-once admin
+sends: the `invitation` kind (fixed period key `invitation`) emails each
+attendee at most once, and the `manual` kind (event-local date period key)
+stops a repeated same-day "send follow-up now" from double-sending. A failed
+send releases its claim so the next attempt retries (migration 0012).
 
 ### 5.8 `activity_log`
 The human-readable audit trail of everything that happens on an event. Drives the
@@ -526,6 +538,31 @@ client. `loadEventByColumn` and the active-events list `LEFT JOIN` this table fo
 the `etag` only (never the blob) and expose `imageUrl` on the event JSON (`""`
 when there is no image).
 
+### 5.11 `message_send_log`
+Append-only **result** ledger: one row per outbound message attempt (invitation,
+manual follow-up, or scheduled reminder), over either channel. Distinct from
+`reminder_log` — that is the exactly-once *claim* ledger ("did we attempt this
+recipient for this window?"); this records the *outcome* ("did it succeed, and if
+not why"). The Messaging tab reads it to show recent failures so an admin can fix
+a bad address or an unmapped Slack user and resend (migration 0013).
+
+```sql
+CREATE TABLE message_send_log (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id   UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    recipient  TEXT NOT NULL,
+    kind       TEXT NOT NULL,   -- invitation | manual | weekly | deadline
+    channel    TEXT NOT NULL,   -- email | slack
+    status     TEXT NOT NULL CHECK (status IN ('sent','failed')),
+    error      TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+`status='sent'` means the channel *accepted* the message (SMTP relay / Slack API
+`ok`), not that it was delivered — asynchronous email bounces and Slack delivery
+are not tracked.
+
 ---
 
 ## 6. Authentication & access control
@@ -617,6 +654,7 @@ PUT  /api/me                           edit own profile { firstName, lastName, a
 
 ### Attendee-facing (any signed-in @id5.io user)
 ```
+GET  /api/active-events                current/upcoming events the caller can RSVP to
 GET  /api/events/:slug                 event details + typed days + timezone + imageUrl (form header)
 GET  /api/events/:slug/image           cover image bytes — PUBLIC (no auth, so a plain <img src> loads it); ETag-cached, 404 if none
 GET  /api/events/:slug/submission      caller's own submission (404 if none)
@@ -625,27 +663,35 @@ GET  /api/events/:slug/activity        caller's OWN activity entries for this ev
 ```
 
 ### Admin (requireAdmin)
+
+Event-management routes are namespaced under **`/api/admin/events/{id}`** (id-keyed)
+so they never collide with the slug-keyed attendee read `/api/events/{slug}`.
 ```
 GET    /api/users                      list users (email, firstName, lastName, name, isAdmin)
 POST   /api/users/:id/promote          grant admin
 POST   /api/users/:id/demote           revoke admin (blocked for the last admin)
 
-GET    /api/events?scope=current|past  list events, split current vs past (default current)
-POST   /api/events                     create event (+ generate event_days)
-GET    /api/events/:id                 full event config
-PUT    /api/events/:id                 update event + day types + reminder config (admins: even when past)
-POST   /api/events/:id/image           upload cover image (multipart "image"), upsert; returns { imageUrl }
-DELETE /api/events/:id/image           remove cover image (idempotent, 204)
+GET    /api/admin/events?scope=current|past  list events, split current vs past (default current)
+POST   /api/admin/events               create event (+ generate event_days)
+GET    /api/admin/events/:id           full event config
+PUT    /api/admin/events/:id           update event + day types + reminder config + message templates (admins: even when past)
+POST   /api/admin/events/:id/image     upload cover image (multipart "image", ≤4 MiB), upsert; returns { imageUrl }
+DELETE /api/admin/events/:id/image     remove cover image (idempotent, 204)
 
-POST   /api/events/:id/attendees           import CSV (multipart), additive — provisions users + links them
-POST   /api/events/:id/attendees/:userId   add an existing directory user as an attendee (idempotent, 204)
-DELETE /api/events/:id/attendees/:userId   remove an attendee (unlink only, idempotent, 204)
+POST   /api/admin/events/:id/attendees           import CSV (multipart), additive — provisions users + links them
+POST   /api/admin/events/:id/attendees/:userId   add an existing directory user as an attendee (idempotent, 204)
+DELETE /api/admin/events/:id/attendees/:userId   remove an attendee (unlink only, idempotent, 204)
 
-GET    /api/events/:id/dashboard       counts keyed by attending state + per-attendee rows (see §10)
-GET    /api/events/:id/submissions     all submissions (table view; admins may edit any)
-PUT    /api/events/:id/submissions/:userId  admin edit of an attendee's submission
-GET    /api/events/:id/activity        ALL activity for the event (timeline; flags after_deadline)
-GET    /api/events/:id/export.csv      CSV download of all submissions
+GET    /api/admin/events/:id/dashboard       counts keyed by attending state + per-attendee rows (see §10)
+GET    /api/admin/events/:id/submissions     all submissions (table view; admins may edit any)
+PUT    /api/admin/events/:id/submissions/:userId  admin edit of an attendee's submission
+GET    /api/admin/events/:id/activity?category=user|admin  ALL activity for the event (timeline; flags after_deadline; empty category = all)
+GET    /api/admin/events/:id/export.csv      CSV download of all submissions
+
+GET    /api/admin/events/:id/messaging           templates + defaults + audience stats + channel availability + recent failures
+PUT    /api/admin/events/:id/messaging           save the editable invite/reminder templates
+POST   /api/admin/events/:id/messaging/invite    send invitation to not-yet-invited attendees ({ channel }: email|slack)
+POST   /api/admin/events/:id/messaging/followup  send follow-up to current non-responders now ({ channel }: email|slack)
 ```
 
 There is no delete endpoint — events persist and become read-only-to-employees

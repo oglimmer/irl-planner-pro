@@ -182,6 +182,11 @@ ingress:
   className: ""
   annotations:
     cert-manager.io/cluster-issuer: "oglimmer-com-dns"
+    # Cover-image uploads (POST /api/admin/events/:id/image) are capped at 4 MiB
+    # by the backend, and both nginx configs allow 4m — but ingress-nginx defaults
+    # to a 1m body limit and would 413 a >1 MiB image before it reaches the
+    # backend. Keep this in step with eventImageCap in events_image.go.
+    nginx.ingress.kubernetes.io/proxy-body-size: "4m"
   hosts:
     - host: irl-planner.oglimmer.com
       paths:

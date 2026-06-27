@@ -3,8 +3,10 @@
 A web app for collecting attendee information ahead of company offsites ("IRLs").
 Admins (People team) configure an event once; employees sign in with Google SSO
 (restricted to `@id5.io`) and submit attendance + travel details via a form with
-conditional logic. The app tracks non-responders, sends reminders, logs all
-activity, and exports responses.
+conditional logic. The app tracks non-responders, sends invitations + tz-aware
+reminders over **email or Slack**, logs all activity, and exports responses.
+Events can carry a cover image, and the admin activity timeline is filterable by
+participant vs. admin actions.
 
 See **[DESIGN.md](./DESIGN.md)** for the full design & implementation plan.
 
@@ -12,6 +14,7 @@ See **[DESIGN.md](./DESIGN.md)** for the full design & implementation plan.
 
 - **Backend** — Go 1.26, chi, PostgreSQL (pgx), OIDC + JWT, Prometheus.
 - **Frontend** — Vue 3 + Vite + Pinia + vue-router (TypeScript).
+- **Messaging** — SMTP email (`internal/email`) + Slack bot DMs (`internal/slack`).
 - **Deploy** — Docker Compose (dev); Helm + ArgoCD (prod).
 
 ## Layout
@@ -78,9 +81,27 @@ Built phase by phase (see DESIGN.md §16):
 - [x] Phase 2 — Event config + timezone (CRUD, typed days, tz-aware deadlines)
 - [x] Phase 3 — Attendee form + activity log (conditional form, past-event lock, timeline)
 - [x] Phase 4 — Roster + dashboard + export (CSV upload, attending filter, auto-reload)
-- [x] Phase 5 — Notifications, reminders & digest (tz-aware scheduler, idempotent, edit emails)
+- [x] Phase 5 — Notifications, reminders & digest (tz-aware scheduler, idempotent, edit emails, Messaging tab w/ email + Slack)
 - [~] Phase 6 — Hardening & deploy (Helm chart in `helm/` done)
 - [x] Phase 7 — MCP server (OAuth 2.1 + PKCE, admin-scoped tools — off by default)
+
+### Messaging (email + Slack)
+
+The admin **Messaging tab** sends per-event invitations and manual follow-ups
+over a selectable channel, using admin-editable templates (the same copy the
+background reminder scheduler sends). Both channels are best-effort and idempotent
+(a `reminder_log` claim makes every recipient exactly-once; a `message_send_log`
+row records each outcome for the failure list):
+
+- **Email** — stdlib SMTP (`internal/email`). Empty `SMTP_HOST` disables it.
+- **Slack** — workspace **bot** DMs (`internal/slack`): the recipient's company
+  email is resolved with `users.lookupByEmail`, then `chat.postMessage` sends the
+  DM. Because it uses a bot token, the People team can message any employee
+  **without that employee installing or authorizing the app** — the enterprise
+  install model. Set `SLACK_BOT_TOKEN` (scopes `users:read.email` + `chat:write`);
+  empty disables Slack. In Helm, supply `SLACK_BOT_TOKEN` in the sealed secret.
+
+Scheduled reminders and admin notices remain email-only. See DESIGN.md §9.
 
 ### MCP server (Phase 7)
 

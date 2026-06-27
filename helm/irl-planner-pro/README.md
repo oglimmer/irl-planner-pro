@@ -12,7 +12,7 @@ Mirrors the deployment pattern of `plugin-skill-hosting`, tailored to this app
 | backend   | Deployment + Service | Go API on :8080, `/healthz` + `/readyz` probes, optional Prometheus `/metrics` |
 | frontend  | Deployment + Service + ConfigMap | nginx serving the SPA (SPA-only config; `/api` is routed by the Ingress, not nginx) |
 | postgres  | StatefulSet + Service + PVC | Bundled DB; set `postgres.enabled=false` to use an external one via the `DATABASE_URL` secret key |
-| ingress   | Ingress | cert-manager TLS; backend paths (`/api`, `/healthz`, `/readyz`) before the SPA catch-all |
+| ingress   | Ingress | cert-manager TLS; backend paths (`/api`, `/healthz`, `/readyz`) before the SPA catch-all; `proxy-body-size: 4m` for cover-image uploads; `/metrics` and the MCP paths (`/mcp`, `/oauth`, `/.well-known/*`) added only when their feature is enabled |
 
 ## Secrets
 
@@ -24,7 +24,10 @@ The chart does **not** create a Secret. Apply one named `<release>-irl-planner-p
 - `OIDC_CLIENT_SECRET` (when `auth.mode=oidc`)
 - `SMTP_USERNAME` + `SMTP_PASSWORD` (optional; both needed for an authenticating
   relay like Fastmail — without them the backend skips SMTP AUTH and sends fail 530)
-- `METRICS_TOKEN` (optional)
+- `SLACK_BOT_TOKEN` (optional; `xoxb-…` workspace bot token to enable the Slack
+  messaging channel — scopes `users:read.email` + `chat:write`)
+- `METRICS_TOKEN` (optional; when `backend.metrics.exposeOnIngress=true`)
+- `MCP_OAUTH_CLIENT_SECRET` (optional; required when `mcp.enabled=true`)
 
 See `helm/argocd/irl-planner-pro-sealed-secret.yaml` for the SealedSecret template.
 

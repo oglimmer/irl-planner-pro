@@ -25,7 +25,7 @@ Postgres + ingress) deploying to `irl-planner.oglimmer.com`. The backend is
 stateless — all state lives in Postgres, so there is no backend PVC. The chart
 does not create the app Secret; supply `<release>-irl-planner-pro-secret`
 (keys: `JWT_SECRET`, `POSTGRES_PASSWORD`, `OIDC_CLIENT_SECRET`, optional
-`SMTP_PASSWORD`/`METRICS_TOKEN`). `helm/argocd/` holds the ArgoCD Applications
+`SMTP_PASSWORD`/`SLACK_BOT_TOKEN`/`METRICS_TOKEN`). `helm/argocd/` holds the ArgoCD Applications
 and a SealedSecret template. The frontend ConfigMap ships an SPA-only nginx
 config (drops the compose `proxy_pass http://backend` blocks, which would crash
 nginx in-cluster); when adding a backend path, update BOTH the ingress `paths`
