@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { api, errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
-import { formatInZone } from '../lib/datetime'
+import { formatDeadline } from '../lib/datetime'
 import type { ActiveEvent, Attending } from '../types'
 
 const auth = useAuthStore()
@@ -81,18 +81,9 @@ function dateRange(ev: ActiveEvent): string {
   return `${day(s)}–${day(e)} ${monthYear}`
 }
 
-// Just the calendar date of the RSVP deadline, in the event timezone.
+// The RSVP deadline as a full date + time in the company timezone (Europe/Paris).
 function rsvpDate(ev: ActiveEvent): string {
-  try {
-    return new Intl.DateTimeFormat('en-GB', {
-      timeZone: ev.timezone,
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    }).format(new Date(ev.submissionDeadline))
-  } catch {
-    return formatInZone(ev.submissionDeadline, ev.timezone)
-  }
+  return formatDeadline(ev.submissionDeadline)
 }
 
 type StatusKey = 'none' | Attending

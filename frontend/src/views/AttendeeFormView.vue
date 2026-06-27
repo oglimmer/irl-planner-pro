@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api, errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useConfirm } from '../composables/useConfirm'
-import { formatDate, formatInZone } from '../lib/datetime'
+import { formatDate, formatDeadline } from '../lib/datetime'
 import ActivityLog from '../components/ActivityLog.vue'
 import type { ActivityEntry, Attending, Event, SubmissionInput, TravelMode } from '../types'
 
@@ -157,20 +157,11 @@ const dateRange = computed(() => {
   return `${day(s)}–${day(en)} ${monthYear}`
 })
 
-// Just the RSVP deadline's calendar date, in the event timezone.
+// The RSVP deadline as a full date + time in the company timezone (Europe/Paris).
 const rsvpDate = computed(() => {
   const e = event.value
   if (!e) return ''
-  try {
-    return new Intl.DateTimeFormat('en-GB', {
-      timeZone: e.timezone,
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    }).format(new Date(e.submissionDeadline))
-  } catch {
-    return formatInZone(e.submissionDeadline, e.timezone)
-  }
+  return formatDeadline(e.submissionDeadline)
 })
 
 // The focal countdown block, mirroring HomeView's feature card — but counting
@@ -279,7 +270,7 @@ async function submit() {
       variant: 'warning',
       title: 'This change is after the deadline',
       message:
-        `The RSVP deadline (${formatInZone(event.value!.submissionDeadline, event.value!.timezone)}) ` +
+        `The RSVP deadline (${formatDeadline(event.value!.submissionDeadline)}) ` +
         'has passed. Saving now will flag this change to the People team as a late ' +
         'edit, and travel may already be booked. Continue?',
       confirmLabel: 'Save late change',
@@ -365,7 +356,7 @@ onMounted(load)
 
         <div class="feature-foot">
           <span class="status" :class="`status--${statusKey}`">{{ statusLabel }}</span>
-          <span class="deadline-note">Closes {{ formatInZone(event.submissionDeadline, event.timezone) }}</span>
+          <span class="deadline-note">Closes {{ formatDeadline(event.submissionDeadline) }}</span>
         </div>
       </div>
 

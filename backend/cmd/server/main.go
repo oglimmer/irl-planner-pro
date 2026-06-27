@@ -11,6 +11,12 @@ import (
 	"syscall"
 	"time"
 
+	// Embed the IANA timezone database into the binary. The production image is
+	// distroless/static, which ships no system zoneinfo, so without this
+	// time.LoadLocation("Europe/Paris") fails and every event-tz computation
+	// (deadlines, reminders, "is past") silently falls back to UTC.
+	_ "time/tzdata"
+
 	"irlplanner/internal/config"
 	"irlplanner/internal/db"
 	"irlplanner/internal/email"

@@ -39,6 +39,27 @@ func formatLocalDateTime(t time.Time, loc *time.Location) string {
 	return t.In(loc).Format(localDateTimeLayout)
 }
 
+// companyTimezone is the fixed reference zone for all human-facing deadline
+// display (email + the SPA). The company is international, so deadlines are shown
+// in one consistent zone — HQ time — rather than each viewer's local time.
+const companyTimezone = "Europe/Paris"
+
+// deadlineDisplayLayout renders an instant for human-facing copy: a long US date
+// (spelled-out month) and 12-hour US time, e.g. "July 3, 2026 at 2:00 AM". The
+// zone is appended separately as a fixed label so it matches the SPA exactly.
+const deadlineDisplayLayout = "January 2, 2006 at 3:04 PM"
+
+// formatDeadline renders a deadline instant in the company timezone with an
+// explicit label, e.g. "July 3, 2026 at 2:00 AM (Europe/Paris)". Recipients in
+// any zone read the same unambiguous, clearly-labelled time.
+func formatDeadline(t time.Time) string {
+	loc, err := loadLocation(companyTimezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	return t.In(loc).Format(deadlineDisplayLayout) + " (" + companyTimezone + ")"
+}
+
 // parseDate parses an event-local calendar date ("2006-01-02").
 func parseDate(s string) (time.Time, error) {
 	t, err := time.Parse(dateLayout, s)

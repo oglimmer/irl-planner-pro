@@ -152,7 +152,7 @@ func (a *App) messageVars(e *Event, c contact) map[string]string {
 		"event":    e.Name,
 		"city":     e.City,
 		"link":     a.eventLink(e),
-		"deadline": e.SubmissionDeadlineLocal,
+		"deadline": formatDeadline(e.SubmissionDeadline),
 	}
 }
 

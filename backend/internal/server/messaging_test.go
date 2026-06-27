@@ -1,6 +1,31 @@
 package server
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestFormatDeadline(t *testing.T) {
+	tests := []struct {
+		name string
+		in   time.Time
+		want string
+	}{
+		// 00:00 UTC in summer is 02:00 in Paris (CEST, +2).
+		{"summer", time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC), "July 3, 2026 at 2:00 AM (Europe/Paris)"},
+		// 17:30 UTC in winter is 18:30 in Paris (CET, +1).
+		{"winter", time.Date(2026, 12, 25, 17, 30, 0, 0, time.UTC), "December 25, 2026 at 6:30 PM (Europe/Paris)"},
+		// An already-Paris-zoned instant renders the same wall clock.
+		{"non-utc input", time.Date(2026, 7, 3, 2, 0, 0, 0, time.FixedZone("CEST", 2*3600)), "July 3, 2026 at 2:00 AM (Europe/Paris)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := formatDeadline(tc.in); got != tc.want {
+				t.Errorf("formatDeadline(%v) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
 
 func TestRenderTemplate(t *testing.T) {
 	vars := map[string]string{

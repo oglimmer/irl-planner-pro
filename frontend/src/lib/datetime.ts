@@ -21,6 +21,30 @@ export function formatInZone(isoUtc: string, timeZone: string): string {
   }
 }
 
+// DISPLAY_TIMEZONE is the fixed company zone for showing the RSVP deadline. The
+// company is international, so the deadline is shown in one consistent reference
+// zone (HQ time) rather than each viewer's local time. Mirrors the backend's
+// companyTimezone so email and UI agree.
+export const DISPLAY_TIMEZONE = 'Europe/Paris'
+
+// formatDeadline renders a UTC instant as a long US date + 12-hour US time in the
+// company timezone, with an explicit zone label — e.g.
+// "July 3, 2026 at 2:00 AM (Europe/Paris)". Matches the backend's formatDeadline.
+export function formatDeadline(isoUtc: string): string {
+  const d = new Date(isoUtc)
+  if (isNaN(d.getTime())) return isoUtc
+  try {
+    const s = new Intl.DateTimeFormat('en-US', {
+      timeZone: DISPLAY_TIMEZONE,
+      dateStyle: 'long',
+      timeStyle: 'short',
+    }).format(d)
+    return `${s} (${DISPLAY_TIMEZONE})`
+  } catch {
+    return d.toISOString()
+  }
+}
+
 // formatDate renders a YYYY-MM-DD calendar date as "Mon 12 Oct 2026". Because it
 // is a plain calendar date (no zone), it is parsed as UTC midnight to avoid
 // off-by-one shifts.
