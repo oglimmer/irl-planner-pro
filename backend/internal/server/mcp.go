@@ -179,6 +179,29 @@ type mcpUploadRosterIn struct {
 	Rows  []mcpRosterRow `json:"rows" jsonschema:"name+email rows to add as attendees; additive — existing attendees are kept"`
 }
 
+type mcpAddAttendeeIn struct {
+	Event string `json:"event" jsonschema:"the event slug or id"`
+	Email string `json:"email" jsonschema:"the attendee's work email"`
+	Name  string `json:"name,omitempty" jsonschema:"full name, used only when a new directory user must be provisioned for this email"`
+}
+
+type mcpRemoveAttendeeIn struct {
+	Event string `json:"event" jsonschema:"the event slug or id"`
+	Email string `json:"email" jsonschema:"the work email of the attendee to remove"`
+}
+
+type mcpAttendee struct {
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	Attending   string `json:"attending"`   // yes | no | not_sure | no_response
+	HasLoggedIn bool   `json:"hasLoggedIn"` // false = provisioned by import, never signed in
+}
+
+type mcpAttendeesOut struct {
+	Event     string        `json:"event"`
+	Attendees []mcpAttendee `json:"attendees"`
+}
+
 // --- helpers ---------------------------------------------------------------
 
 func toolText(text string) []mcp.Content {
@@ -247,10 +270,13 @@ func (a *App) registerMCPTools(s *mcp.Server) {
 	a.addToolGetDashboard(s)
 	a.addToolListNonResponders(s)
 	a.addToolListSubmissions(s)
+	a.addToolListAttendees(s)
 	a.addToolGetActivity(s)
 	a.addToolCreateEvent(s)
 	a.addToolUpdateEvent(s)
 	a.addToolUploadRoster(s)
+	a.addToolAddAttendee(s)
+	a.addToolRemoveAttendee(s)
 	a.addToolTriggerReminders(s)
 }
 
@@ -425,6 +451,37 @@ func (a *App) addToolListSubmissions(s *mcp.Server) {
 	}))
 }
 
+func (a *App) addToolListAttendees(s *mcp.Server) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_attendees",
+		Title:       "List attendees",
+		Description: "List everyone expected at an event (the attendee roster) with their response state and whether they've ever signed in. Every attendee is a company-directory user.",
+	}, instrumentMCP("list_attendees", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpEventRefIn) (*mcp.CallToolResult, mcpAttendeesOut, error) {
+		var zero mcpAttendeesOut
+		if _, err := requireMCPAdmin(ctx); err != nil {
+			return nil, zero, err
+		}
+		e, err := a.resolveEventRef(ctx, in.Event)
+		if err != nil {
+			return nil, zero, err
+		}
+		entries, _, err := a.dashboardEntries(ctx, e.ID)
+		if err != nil {
+			return nil, zero, fmt.Errorf("db error: %w", err)
+		}
+		out := mcpAttendeesOut{Event: e.Name, Attendees: []mcpAttendee{}}
+		for _, en := range entries {
+			out.Attendees = append(out.Attendees, mcpAttendee{
+				Name:        en.Name,
+				Email:       en.Email,
+				Attending:   en.Attending,
+				HasLoggedIn: en.HasLoggedIn,
+			})
+		}
+		return okResult(fmt.Sprintf("%d attendee(s) for %q", len(out.Attendees), e.Name), out)
+	}))
+}
+
 func (a *App) addToolGetActivity(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_activity",
@@ -526,6 +583,12 @@ func (a *App) addToolCreateEvent(s *mcp.Server) {
 			return nil, nil, fmt.Errorf("db error: %w", err)
 		}
 		if err := insertDays(ctx, tx, id, days); err != nil {
+			metrics.EventMutationsTotal.WithLabelValues("create", "error").Inc()
+			return nil, nil, fmt.Errorf("db error: %w", err)
+		}
+		// Everyone is an attendee by default — snapshot every existing user (mirrors
+		// the REST handleCreateEvent path).
+		if err := seedAllUsersAsAttendees(ctx, tx, id); err != nil {
 			metrics.EventMutationsTotal.WithLabelValues("create", "error").Inc()
 			return nil, nil, fmt.Errorf("db error: %w", err)
 		}
@@ -744,6 +807,140 @@ func (a *App) addToolUploadRoster(s *mcp.Server) {
 
 		return okResult(fmt.Sprintf("added %d attendee(s) to %q", added, e.Name),
 			mcpStatusOut{OK: true, Message: fmt.Sprintf("%d attendees added", added)})
+	}))
+}
+
+func (a *App) addToolAddAttendee(s *mcp.Server) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "add_attendee",
+		Title:       "Add attendee",
+		Description: "Add a single person to an event's attendee list by email. If the email isn't a known directory user yet, a user is provisioned from it (optionally with a name) — that new employee is then a default attendee of every open event. Idempotent.",
+	}, instrumentMCP("add_attendee", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpAddAttendeeIn) (*mcp.CallToolResult, mcpStatusOut, error) {
+		var zero mcpStatusOut
+		user, err := requireMCPAdmin(ctx)
+		if err != nil {
+			return nil, zero, err
+		}
+		e, err := a.resolveEventRef(ctx, in.Event)
+		if err != nil {
+			return nil, zero, err
+		}
+		email := strings.ToLower(strings.TrimSpace(in.Email))
+		if email == "" || !strings.Contains(email, "@") {
+			return nil, zero, errors.New("a valid email is required")
+		}
+		first, last := splitName(in.Name)
+
+		tx, err := a.DB.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, zero, fmt.Errorf("db error: %w", err)
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
+
+		userID, created, err := upsertDirectoryUser(ctx, tx, email, first, last)
+		if err != nil {
+			return nil, zero, fmt.Errorf("db error: %w", err)
+		}
+		if created {
+			if err := addUserToOpenEvents(ctx, tx, userID, time.Now()); err != nil {
+				return nil, zero, fmt.Errorf("db error: %w", err)
+			}
+		}
+		res, err := tx.ExecContext(ctx,
+			`INSERT INTO event_attendees (event_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+			e.ID, userID)
+		if err != nil {
+			return nil, zero, fmt.Errorf("db error: %w", err)
+		}
+		linked, _ := res.RowsAffected()
+		if linked > 0 {
+			summary := fmt.Sprintf("%s added %s as an attendee via MCP", user.Email, email)
+			if err := a.logActivity(ctx, tx, e.ID, &user.ID, user.Email, email, actionAttendeeAdded, summary, nil, false); err != nil {
+				return nil, zero, fmt.Errorf("db error: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, zero, fmt.Errorf("db error: %w", err)
+		}
+		committed = true
+
+		msg := fmt.Sprintf("%s is an attendee of %q", email, e.Name)
+		switch {
+		case created:
+			msg = fmt.Sprintf("provisioned %s and added them to %q", email, e.Name)
+		case linked == 0:
+			msg = fmt.Sprintf("%s was already an attendee of %q", email, e.Name)
+		}
+		return okResult(msg, mcpStatusOut{OK: true, Message: msg})
+	}))
+}
+
+func (a *App) addToolRemoveAttendee(s *mcp.Server) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "remove_attendee",
+		Title:       "Remove attendee",
+		Description: "Remove a person from an event's attendee list by email. Their directory record and any submission are left intact — only the event membership is removed. Idempotent.",
+	}, instrumentMCP("remove_attendee", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpRemoveAttendeeIn) (*mcp.CallToolResult, mcpStatusOut, error) {
+		var zero mcpStatusOut
+		user, err := requireMCPAdmin(ctx)
+		if err != nil {
+			return nil, zero, err
+		}
+		e, err := a.resolveEventRef(ctx, in.Event)
+		if err != nil {
+			return nil, zero, err
+		}
+		email := strings.ToLower(strings.TrimSpace(in.Email))
+		if email == "" {
+			return nil, zero, errors.New("email is required")
+		}
+		var userID string
+		err = a.DB.QueryRowContext(ctx, `SELECT id FROM users WHERE email = $1`, email).Scan(&userID)
+		if err == sql.ErrNoRows {
+			return nil, zero, fmt.Errorf("no user with email %q", email)
+		}
+		if err != nil {
+			return nil, zero, fmt.Errorf("db error: %w", err)
+		}
+
+		tx, err := a.DB.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, zero, fmt.Errorf("db error: %w", err)
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
+
+		res, err := tx.ExecContext(ctx,
+			`DELETE FROM event_attendees WHERE event_id = $1 AND user_id = $2`, e.ID, userID)
+		if err != nil {
+			return nil, zero, fmt.Errorf("db error: %w", err)
+		}
+		removed, _ := res.RowsAffected()
+		if removed > 0 {
+			summary := fmt.Sprintf("%s removed %s from the attendee list via MCP", user.Email, email)
+			if err := a.logActivity(ctx, tx, e.ID, &user.ID, user.Email, email, actionAttendeeRemoved, summary, nil, false); err != nil {
+				return nil, zero, fmt.Errorf("db error: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, zero, fmt.Errorf("db error: %w", err)
+		}
+		committed = true
+
+		msg := fmt.Sprintf("removed %s from %q", email, e.Name)
+		if removed == 0 {
+			msg = fmt.Sprintf("%s was not an attendee of %q", email, e.Name)
+		}
+		return okResult(msg, mcpStatusOut{OK: true, Message: msg})
 	}))
 }
 

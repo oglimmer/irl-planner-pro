@@ -243,9 +243,10 @@ onMounted(async () => {
       <!-- Attendees -->
       <div v-show="tab === 'attendees'" class="attendees">
         <p class="muted">
-          Attendees are the employees expected at this event. Anyone who responds
-          is added automatically; add others below. Each becomes a company-directory
-          user, so a later sign-in reuses the same record.
+          Everyone in the company is an attendee by default, and new employees are
+          added automatically as they join. Remove anyone who isn't expected at this
+          event. Use the picker below to put someone back, or import a CSV of new
+          hires who haven't signed in yet.
         </p>
 
         <div class="add-row">
@@ -260,6 +261,7 @@ onMounted(async () => {
 
         <p class="muted">
           Or import many at once from a CSV with <code>name,email</code> columns
+          — handy for onboarding new employees who haven't used the app yet
           (additive — existing attendees are kept):
         </p>
         <div class="upload">

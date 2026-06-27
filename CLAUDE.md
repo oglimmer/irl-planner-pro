@@ -136,14 +136,21 @@ wrapper with `ApiError`). nginx serves the SPA and proxies `/api` in prod.
   **only on first login** — a later login never overwrites it, so a user's own
   edit always wins. Dashboards/exports join these in from the submitter's profile;
   do not add name/allergies columns back onto `submissions`.
-- **Attendees are company-directory users, not a separate roster.** `users` is the
-  one canonical employee record; an event's expected population is the
-  `event_attendees` join table (migration 0010). A CSV import *provisions* `users`
-  rows (NULL `last_login_at` until they sign in) and links them; responding
-  auto-adds the author (`submissions.go`); so the dashboard is one unified list with
-  **no "off-roster"** category. The legacy `event_roster` table still exists but is
-  unused — do not write to it. (Reminders/non-responders come from
-  `event_attendees`, not `event_roster`.)
+- **Attendees are company-directory users, and everyone is in by default.** `users`
+  is the one canonical employee record; an event's expected population is the
+  `event_attendees` join table (migration 0010). Membership is **default-everyone**:
+  creating an event snapshots every current user (`seedAllUsersAsAttendees`), and
+  creating a new user links them onto every non-past event
+  (`addUserToOpenEvents` — called from `findOrCreateUser` on first login and from
+  `provisionAttendees` on CSV/MCP import). A CSV import *provisions* `users` rows
+  (NULL `last_login_at` until they sign in); responding auto-adds the author
+  (`submissions.go`); so the dashboard is one unified list with **no "off-roster"**
+  category. Removal is an explicit per-event unlink and **sticks** — nothing
+  re-adds a removed person, because the only writers are these create-time seeds.
+  Do **not** add a re-running migration that backfills `event_attendees` (every
+  migration re-runs on every boot, so it would resurrect removed attendees). The
+  legacy `event_roster` table still exists but is unused — do not write to it.
+  (Reminders/non-responders come from `event_attendees`, not `event_roster`.)
 - **Conditional form rules are enforced server-side** in `submissions.go`, not
   just in the Vue form — never trust the client. Fields outside the chosen
   `attending` branch are blanked on write. See DESIGN.md §8 for the full matrix.

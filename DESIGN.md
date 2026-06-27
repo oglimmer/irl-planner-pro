@@ -307,9 +307,11 @@ CREATE TABLE event_days (
 ### 5.4 `event_attendees`
 The per-event membership: which **employees (users)** are expected at an event.
 There is a single canonical person record — the company-wide `users` directory
-(§5.1) — and an employee gets there one of three equivalent ways, all unified:
-they logged into an earlier event, they logged in after this event was created,
-or an admin imported them. This table simply links those users to an event.
+(§5.1) — and **everyone is an attendee by default**: creating an event snapshots
+every existing user onto it, and provisioning a brand-new user (first login or
+import) links them onto every event that is not yet past. Admins remove anyone
+who isn't expected; that removal is an explicit per-event unlink and is never
+re-created. This table simply links users to an event.
 
 ```sql
 CREATE TABLE event_attendees (
@@ -320,14 +322,18 @@ CREATE TABLE event_attendees (
 );
 ```
 
-Membership is maintained three ways, all **additive**: a CSV import (name +
-work email) provisions a directory user for each new email and links them; an
-admin adds an existing employee from the directory; and **submitting an RSVP
-auto-adds its author** (server/submissions.go). Because responding makes you an
-attendee, the overview is exactly this set — there is no separate "off-roster"
-category. Removing an attendee unlinks them only; their directory record and any
-submission are kept. (The legacy `event_roster` table is retained but unused;
-migration 0010 backfilled it into `users` + `event_attendees`.)
+Membership is **default-everyone**, then maintained additively. Links are
+created by: event creation (snapshot every current user); user creation, which
+links the new user onto all non-past events (`addUserToOpenEvents`, covering both
+first login and CSV/MCP provisioning); a CSV import (name + work email) that
+provisions a directory user for each new email and links them; an admin adding an
+existing employee from the directory; and **submitting an RSVP auto-adds its
+author** (server/submissions.go). Because everyone starts in and responding keeps
+you in, the overview is exactly this set — there is no separate "off-roster"
+category. Removing an attendee unlinks them only (their directory record and any
+submission are kept) and sticks, since the only writers are these create-time
+seeds. (The legacy `event_roster` table is retained but unused; migration 0010
+backfilled it into `users` + `event_attendees`.)
 
 ### 5.5 `submissions`
 One submission per (event, user). Holds all form fields including the conditional
@@ -791,9 +797,9 @@ The dashboard is organised around the **`attending` state**, not a binary
 "submitted / not". Every **attendee** (§5.4) falls into one of four mutually
 exclusive buckets — `yes`, `no`, `not_sure`, and `no_response` (no submission
 row) — and the UI lets the admin **filter the table by any combination** of these
-four states. Because every attendee is a directory user and responding auto-adds
-you as an attendee, the overview is one unified list — there is no separate
-"off-roster" section.
+four states. Because every attendee is a directory user and everyone is an
+attendee by default (§5.4), the overview is one unified list — there is no
+separate "off-roster" section.
 
 `GET /api/events/:id/dashboard` returns:
 ```json
@@ -1098,12 +1104,19 @@ changes are as visible as any other.
   shortcut over `get_dashboard`).
 - `list_submissions` — submissions for an event (optionally filtered by attending
   state), mirroring the export filter.
+- `list_attendees` — the full attendee roster for an event with each person's
+  response state and whether they've ever signed in.
 - `get_activity` — recent activity-log entries for an event (after-deadline flagged).
 
 **Write (admin):**
 - `create_event` — create an event (+ generate typed days); validates slug + tz.
+  Snapshots every existing user as a default attendee (§5.4).
 - `update_event` — change config / reminder settings / day types.
-- `upload_roster` — replace the roster from inline `name,email` rows.
+- `upload_roster` — add attendees from inline `name,email` rows (additive,
+  provisions new directory users), for onboarding new employees in bulk.
+- `add_attendee` — add one person by email; provisions a directory user if the
+  email is new (and seeds their default open-event memberships).
+- `remove_attendee` — unlink one person from an event by email (record kept).
 - `trigger_reminders` — force the reminder/digest evaluation for an event now
   (idempotent via `reminder_log`), for ad-hoc nudges.
 

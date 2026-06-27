@@ -300,6 +300,14 @@ func (a *App) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, r, err, "db error")
 		return
 	}
+	// Everyone in the company is an attendee by default: snapshot every existing
+	// user onto the new event. Later-joining users are added by addUserToOpenEvents
+	// when their account is created; removal stays an explicit per-person action.
+	if err := seedAllUsersAsAttendees(r.Context(), tx, id); err != nil {
+		metrics.EventMutationsTotal.WithLabelValues("create", "error").Inc()
+		serverErr(w, r, err, "db error")
+		return
+	}
 	if err := tx.Commit(); err != nil {
 		metrics.EventMutationsTotal.WithLabelValues("create", "error").Inc()
 		serverErr(w, r, err, "db error")

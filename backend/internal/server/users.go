@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -41,16 +43,27 @@ func (a *App) findOrCreateUser(ctx context.Context, email, firstName, lastName, 
 
 	// ON CONFLICT leaves an existing row's names untouched (a concurrent first
 	// login that lost the race must not overwrite the winner's seeded name) but
-	// still records the login.
+	// still records the login. `xmax = 0` is true only for a freshly inserted row
+	// (a conflict-update leaves xmax non-zero), letting us tell a brand-new account
+	// from one created by the racing login.
+	var inserted bool
 	err = a.DB.QueryRowContext(ctx,
 		`INSERT INTO users (email, first_name, last_name, allergies, is_admin, last_login_at)
 		 VALUES ($1, $2, $3, $4, NOT EXISTS (SELECT 1 FROM users), now())
 		 ON CONFLICT (email) DO UPDATE SET last_login_at = now()
-		 RETURNING id, email, first_name, last_name, allergies, profile_confirmed, is_admin, created_at, token_version`,
+		 RETURNING id, email, first_name, last_name, allergies, profile_confirmed, is_admin, created_at, token_version, (xmax = 0)`,
 		email, firstName, lastName, allergies).
-		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.ProfileConfirmed, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
+		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.ProfileConfirmed, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion, &inserted)
 	if err != nil {
 		return nil, err
+	}
+	// A brand-new employee is an attendee of every open event by default. This is
+	// best-effort: a failure here must not block the login, since the membership is
+	// recoverable (the next event creation snapshots them, or an admin re-adds).
+	if inserted {
+		if err := addUserToOpenEvents(ctx, a.DB, u.ID, time.Now()); err != nil {
+			log.Printf("WARN: seed default event memberships for %s: %v", u.Email, err)
+		}
 	}
 	u.setDisplayName()
 	return u, nil
