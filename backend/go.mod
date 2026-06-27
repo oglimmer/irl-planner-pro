@@ -1,6 +1,6 @@
 module irlplanner
 
-go 1.26
+go 1.26.4
 
 require (
 	github.com/coreos/go-oidc/v3 v3.19.0
@@ -8,7 +8,7 @@ require (
 	github.com/go-chi/cors v1.2.2
 	github.com/go-chi/httprate v0.15.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/prometheus/client_golang v1.23.2
 	golang.org/x/oauth2 v0.36.0
