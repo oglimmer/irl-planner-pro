@@ -195,6 +195,31 @@ type mcpRemoveAttendeeIn struct {
 	Email string `json:"email" jsonschema:"the work email of the attendee to remove"`
 }
 
+// mcpSubmitResponseIn is the RSVP payload: the writable subset of a submission
+// plus the attendee email it is recorded for. It mirrors the conditional form —
+// fields outside the chosen branch are ignored/blanked server-side.
+type mcpSubmitResponseIn struct {
+	Event                string `json:"event" jsonschema:"the event slug or id"`
+	Email                string `json:"email" jsonschema:"the attendee's work email; must be an existing directory user (use add_attendee first otherwise)"`
+	Attending            string `json:"attending" jsonschema:"yes, no, or not_sure"`
+	NotSureReason        string `json:"notSureReason,omitempty" jsonschema:"required when attending=not_sure; ignored otherwise"`
+	ArrivalDay           string `json:"arrivalDay,omitempty" jsonschema:"arrival date YYYY-MM-DD (event-local); required when attending=yes unless arrivalIndependent"`
+	ArrivalTime          string `json:"arrivalTime,omitempty" jsonschema:"arrival time HH:MM, optional"`
+	ArrivalMode          string `json:"arrivalMode,omitempty" jsonschema:"flight, car, train, or other; required when attending=yes unless arrivalIndependent"`
+	ArrivalDetails       string `json:"arrivalDetails,omitempty" jsonschema:"flight number / free-text, optional"`
+	DepartureDay         string `json:"departureDay,omitempty" jsonschema:"departure date YYYY-MM-DD (event-local); required when attending=yes unless departureIndependent"`
+	DepartureTime        string `json:"departureTime,omitempty" jsonschema:"departure time HH:MM, optional"`
+	DepartureMode        string `json:"departureMode,omitempty" jsonschema:"flight, car, train, or other; required when attending=yes unless departureIndependent"`
+	DepartureDetails     string `json:"departureDetails,omitempty" jsonschema:"flight number / free-text, optional"`
+	ArrivalIndependent   bool   `json:"arrivalIndependent,omitempty" jsonschema:"attendee self-arranges arrival; blanks the arrival leg"`
+	DepartureIndependent bool   `json:"departureIndependent,omitempty" jsonschema:"attendee self-arranges departure; blanks the departure leg"`
+	LongHaul             bool   `json:"longHaul,omitempty" jsonschema:"long-haul: needs accommodation / extra nights (only when at least one leg is People-team arranged)"`
+	ExtraStayStart       string `json:"extraStayStart,omitempty" jsonschema:"extra night before the event, YYYY-MM-DD"`
+	ExtraStayEnd         string `json:"extraStayEnd,omitempty" jsonschema:"extra night after the event, YYYY-MM-DD"`
+	Comments             string `json:"comments,omitempty" jsonschema:"free-text comments, optional"`
+	AsAdmin              bool   `json:"asAdmin,omitempty" jsonschema:"record as an admin edit (relaxes the date-window and extra-night limits, and allows editing a past event) instead of a normal attendee RSVP; default false"`
+}
+
 type mcpAttendee struct {
 	Name        string `json:"name"`
 	Email       string `json:"email"`
@@ -211,6 +236,16 @@ type mcpAttendeesOut struct {
 
 func toolText(text string) []mcp.Content {
 	return []mcp.Content{&mcp.TextContent{Text: text}}
+}
+
+// nilIfEmpty maps a trimmed-empty MCP string field to a nil *string, so an
+// omitted optional (date/mode) round-trips as SQL NULL rather than "".
+func nilIfEmpty(s string) *string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // okResult renders both the human summary and the JSON payload into the text
@@ -282,6 +317,7 @@ func (a *App) registerMCPTools(s *mcp.Server) {
 	a.addToolUploadRoster(s)
 	a.addToolAddAttendee(s)
 	a.addToolRemoveAttendee(s)
+	a.addToolSubmitResponse(s)
 	a.addToolTriggerReminders(s)
 }
 
@@ -949,6 +985,83 @@ func (a *App) addToolRemoveAttendee(s *mcp.Server) {
 			msg = fmt.Sprintf("%s was not an attendee of %q", email, e.Name)
 		}
 		return okResult(msg, mcpStatusOut{OK: true, Message: msg})
+	}))
+}
+
+func (a *App) addToolSubmitResponse(s *mcp.Server) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "submit_response",
+		Title:       "Submit RSVP / response",
+		Description: "Record an attendee's RSVP (attendance + travel) for an event on their behalf — the same conditional-form write a participant makes in the app, with the server-side rules from DESIGN.md §8 enforced (fields outside the chosen branch are blanked). The email must be an existing directory user; use add_attendee first otherwise. Recorded as the attendee's own response by default; set asAdmin=true to record an admin edit that relaxes the date-window / extra-night limits and allows a past event. Upsert: re-running replaces the prior response and appends a revision + activity-log entry.",
+	}, instrumentMCP("submit_response", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpSubmitResponseIn) (*mcp.CallToolResult, *Submission, error) {
+		admin, err := requireMCPAdmin(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		e, err := a.resolveEventRef(ctx, in.Event)
+		if err != nil {
+			return nil, nil, err
+		}
+		// A normal attendee RSVP can't touch a past event (mirrors the employee
+		// HTTP path); an admin edit can (mirrors the admin HTTP path).
+		if e.IsPast && !in.AsAdmin {
+			return nil, nil, fmt.Errorf("event %q has ended and can no longer be edited (use asAdmin to override)", e.Name)
+		}
+		email := strings.ToLower(strings.TrimSpace(in.Email))
+		if email == "" || !strings.Contains(email, "@") {
+			return nil, nil, errors.New("a valid email is required")
+		}
+
+		var owner User
+		err = a.DB.QueryRowContext(ctx,
+			`SELECT id, email, is_admin FROM users WHERE email = $1`, email).
+			Scan(&owner.ID, &owner.Email, &owner.IsAdmin)
+		if err == sql.ErrNoRows {
+			return nil, nil, fmt.Errorf("no user with email %q — add them with add_attendee first", email)
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("db error: %w", err)
+		}
+
+		req := submissionReq{
+			Attending:            strings.TrimSpace(in.Attending),
+			NotSureReason:        in.NotSureReason,
+			ArrivalDay:           nilIfEmpty(in.ArrivalDay),
+			ArrivalTime:          strings.TrimSpace(in.ArrivalTime),
+			ArrivalMode:          nilIfEmpty(in.ArrivalMode),
+			ArrivalDetails:       in.ArrivalDetails,
+			DepartureDay:         nilIfEmpty(in.DepartureDay),
+			DepartureTime:        strings.TrimSpace(in.DepartureTime),
+			DepartureMode:        nilIfEmpty(in.DepartureMode),
+			DepartureDetails:     in.DepartureDetails,
+			ArrivalIndependent:   in.ArrivalIndependent,
+			DepartureIndependent: in.DepartureIndependent,
+			LongHaul:             in.LongHaul,
+			ExtraStayStart:       nilIfEmpty(in.ExtraStayStart),
+			ExtraStayEnd:         nilIfEmpty(in.ExtraStayEnd),
+			Comments:             in.Comments,
+		}
+
+		// Default: record as the attendee's own response (actor = owner, not an
+		// admin edit) — exactly what would land if they submitted the form
+		// themselves. asAdmin attributes the change to the calling admin and
+		// relaxes validation for special cases.
+		actor := &owner
+		if in.AsAdmin {
+			actor = admin
+		}
+
+		sub, err := a.applySubmission(ctx, e, &req, owner.ID, actor, in.AsAdmin)
+		if err != nil {
+			var inv errSubmissionInvalid
+			if errors.As(err, &inv) {
+				return nil, nil, err // validation message is already user-facing
+			}
+			return nil, nil, fmt.Errorf("db error: %w", err)
+		}
+		return okResult(
+			fmt.Sprintf("recorded %s's response to %q: %s", email, e.Name, attendingLabel(sub.Attending)),
+			sub)
 	}))
 }
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -274,25 +275,60 @@ func (a *App) handleAdminUpdateSubmission(w http.ResponseWriter, r *http.Request
 	a.writeSubmission(w, r, e, targetUserID, currentUser(r), true)
 }
 
-// writeSubmission is the shared upsert path for both the employee and admin
+// errSubmissionInvalid wraps a conditional-form validation failure so callers
+// can map it to a 400 / bad-input response. Everything else applySubmission
+// returns is a server/db error.
+type errSubmissionInvalid struct{ err error }
+
+func (e errSubmissionInvalid) Error() string { return e.err.Error() }
+func (e errSubmissionInvalid) Unwrap() error { return e.err }
+
+// errSubmissionOwnerNotFound means the target user id has no users row.
+var errSubmissionOwnerNotFound = errors.New("user not found")
+
+// writeSubmission is the shared HTTP upsert path for both the employee and admin
 // writes. actor is whoever is making the change; isAdmin relaxes validation and
-// selects the admin-edit activity action.
+// selects the admin-edit activity action. It decodes the request, delegates the
+// transactional work to applySubmission, and maps its error sentinels to status
+// codes.
 func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, ownerID string, actor *User, isAdmin bool) {
 	var req submissionReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if err := req.normalizeAndValidate(e, isAdmin); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+	sub, err := a.applySubmission(r.Context(), e, &req, ownerID, actor, isAdmin)
+	if err != nil {
+		var inv errSubmissionInvalid
+		switch {
+		case errors.As(err, &inv):
+			writeErr(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, errSubmissionOwnerNotFound):
+			writeErr(w, http.StatusNotFound, "user not found")
+		default:
+			serverErr(w, r, err, "db error")
+		}
 		return
 	}
+	writeJSON(w, http.StatusOK, sub)
+}
 
-	ctx := r.Context()
+// applySubmission is the transport-agnostic core of a submission upsert, shared
+// by the HTTP handlers (writeSubmission) and the MCP submit_response tool. It
+// validates req in place, performs the upsert + revision snapshot + attendee
+// link + activity log in one transaction, fires the best-effort admin
+// notification, and returns the persisted submission. actor is whoever is making
+// the change; isAdmin relaxes validation and selects the admin-edit activity
+// action. Validation failures come back as errSubmissionInvalid and a missing
+// owner as errSubmissionOwnerNotFound; any other error is a db/server error.
+func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq, ownerID string, actor *User, isAdmin bool) (*Submission, error) {
+	if err := req.normalizeAndValidate(e, isAdmin); err != nil {
+		return nil, errSubmissionInvalid{err}
+	}
+
 	tx, err := a.DB.BeginTx(ctx, nil)
 	if err != nil {
-		serverErr(w, r, err, "db error")
-		return
+		return nil, err
 	}
 	defer tx.Rollback()
 
@@ -303,11 +339,9 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 		`SELECT email, first_name, last_name FROM users WHERE id = $1`, ownerID).
 		Scan(&ownerEmail, &ownerFirst, &ownerLast); err != nil {
 		if err == sql.ErrNoRows {
-			writeErr(w, http.StatusNotFound, "user not found")
-			return
+			return nil, errSubmissionOwnerNotFound
 		}
-		serverErr(w, r, err, "db error")
-		return
+		return nil, err
 	}
 	ownerName := strings.TrimSpace(ownerFirst + " " + ownerLast)
 	if ownerName == "" {
@@ -331,8 +365,7 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 	if err == sql.ErrNoRows {
 		existed = false
 	} else if err != nil {
-		serverErr(w, r, err, "db error")
-		return
+		return nil, err
 	}
 	prev.ArrivalDay = nullDateStr(pArrDay)
 	prev.DepartureDay = nullDateStr(pDepDay)
@@ -367,8 +400,7 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 		Scan(&subID)
 	if err != nil {
 		metrics.SubmissionMutationsTotal.WithLabelValues("write", "error").Inc()
-		serverErr(w, r, err, "db error")
-		return
+		return nil, err
 	}
 
 	// Responding makes you an attendee of the event: keep the unified overview's
@@ -376,8 +408,7 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO event_attendees (event_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
 		e.ID, ownerID); err != nil {
-		serverErr(w, r, err, "db error")
-		return
+		return nil, err
 	}
 
 	// Snapshot the new state for the revision history. The snapshot is cast to
@@ -387,32 +418,29 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO submission_revisions (submission_id, user_id, snapshot) VALUES ($1,$2,$3::jsonb)`,
 		subID, actor.ID, string(snapshot)); err != nil {
-		serverErr(w, r, err, "db error")
-		return
+		return nil, err
 	}
 
 	// Activity log. after_deadline is stamped when the change lands past the
 	// event's submission deadline — the flag the admin timeline highlights.
 	afterDeadline := time.Now().After(e.SubmissionDeadline)
-	action, summary := submissionActivity(existed, isAdmin, ownerName, actor, req, prev.Attending)
+	action, summary := submissionActivity(existed, isAdmin, ownerName, actor, *req, prev.Attending)
 	// On an update, record exactly which fields changed so the timeline shows
 	// what was edited, not just that something was. Omitted on first response.
 	var detail any
 	if existed {
-		if changes := diffSubmissionReq(prev, req); len(changes) > 0 {
+		if changes := diffSubmissionReq(prev, *req); len(changes) > 0 {
 			detail = map[string]any{"changes": changes}
 		}
 	}
 	actorID := actor.ID
 	if err := a.logActivity(ctx, tx, e.ID, &actorID, actor.Email, ownerEmail, action, summary, detail, afterDeadline); err != nil {
-		serverErr(w, r, err, "db error")
-		return
+		return nil, err
 	}
 
 	if err := tx.Commit(); err != nil {
 		metrics.SubmissionMutationsTotal.WithLabelValues("write", "error").Inc()
-		serverErr(w, r, err, "db error")
-		return
+		return nil, err
 	}
 	label := "create"
 	if existed {
@@ -426,12 +454,7 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 	// Notify admins on an edit of an existing submission (best-effort, async).
 	a.notifySubmissionChanged(e, ownerEmail, actor, existed, summary)
 
-	sub, err := a.Store.loadSubmission(ctx, e.ID, ownerID)
-	if err != nil {
-		serverErr(w, r, err, "db error")
-		return
-	}
-	writeJSON(w, http.StatusOK, sub)
+	return a.Store.loadSubmission(ctx, e.ID, ownerID)
 }
 
 // submissionActivity builds the action code and human-readable summary line.
