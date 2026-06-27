@@ -46,6 +46,7 @@ describe('useConfirm', () => {
     expect(state.value.confirmLabel).toBe('Confirm')
     expect(state.value.cancelLabel).toBe('Cancel')
     expect(state.value.danger).toBe(false)
+    expect(state.value.variant).toBe('default')
     cancel()
   })
 

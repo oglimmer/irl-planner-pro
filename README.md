@@ -44,6 +44,22 @@ go test ./...
 go run ./cmd/server     # needs DATABASE_URL to a running Postgres
 ```
 
+> **`.env` is only read by Docker Compose, not by the backend.** `config.Load()`
+> reads the real process environment (`os.Getenv`) — it does **not** parse a
+> `.env` file. So `docker compose up` picks up `.env` automatically, but
+> `go run ./cmd/server` ignores it. To run the backend directly, export the vars
+> into your shell first, e.g. in fish:
+>
+> ```fish
+> for line in (grep -vE '^\s*#|^\s*$' .env)
+>     set -gx (string split -m1 '=' $line)
+> end
+> go run ./cmd/server
+> ```
+>
+> Note `.env`'s `DATABASE_URL` uses host `db` (the Compose service name); when
+> running on the host, point it at `localhost:5432` instead.
+
 ### Frontend directly
 
 ```sh
@@ -79,3 +95,46 @@ mutation lands in the activity log. Tools: `list_events`, `get_event`,
 (read) and `create_event`, `update_event`, `upload_roster`, `trigger_reminders`
 (write). See DESIGN.md §18. In Helm, set `mcp.enabled=true` and supply
 `MCP_OAUTH_CLIENT_SECRET` in the sealed secret.
+
+#### Connecting Claude Code to `/mcp` in local dev
+
+The OAuth 2.1 flow is built for **claude.ai** (the default redirect URI is
+`https://claude.ai/api/mcp/auth_callback`, redirect URIs are exact-matched, and
+there is no dynamic client registration), so it doesn't fit the **Claude Code
+CLI** cleanly. For local dev, skip OAuth entirely: the `/mcp` gate also accepts
+an ordinary session JWT (not just an `mcp_access` token), so you can pass a token
+via a custom header. Every MCP tool requires **admin**, and the **first user to
+sign in becomes admin**, so mint the token for that first user.
+
+1. **Enable `/mcp` + dev auth** in `.env` (both client vars must be non-empty or
+   `/mcp` isn't mounted; values are arbitrary for the header bypass):
+
+   ```sh
+   AUTH_MODE=password
+   MCP_OAUTH_CLIENT_ID=dev
+   MCP_OAUTH_CLIENT_SECRET=dev
+   PUBLIC_BASE_URL=http://localhost:8080
+   ```
+
+2. **Boot the stack:** `docker compose up --build` (→ http://localhost:8080).
+
+3. **Mint an admin session token** (first email becomes admin if `users` is empty):
+
+   ```sh
+   curl -s -X POST http://localhost:8080/api/auth/dev-login \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"you@id5.io","name":"You Dev"}' | jq -r .token
+   ```
+
+4. **Register it with Claude Code** (HTTP transport + the token as a header):
+
+   ```sh
+   claude mcp add --transport http irl http://localhost:8080/mcp \
+     --header "Authorization: Bearer <token-from-step-3>"
+   ```
+
+Then `/mcp` inside Claude Code lists `irl` as connected; `claude mcp get irl`
+verifies it. Point Claude Code at the **backend** (`:8080`) — the Vite dev proxy
+forwards `/api` and `/healthz` but **not** `/mcp`. The token is a 30-day session
+JWT; re-mint via dev-login if `JWT_SECRET` or the user's `token_version` changes.
+Use the default `--scope local`; don't commit a bearer token to a shared scope.

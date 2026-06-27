@@ -3,10 +3,11 @@ import { computed, onMounted, ref } from 'vue'
 import { api, errMsg } from '../api'
 import { formatDate } from '../lib/datetime'
 import { useAutoReload } from '../composables/useAutoReload'
+import { useColumnSort } from '../composables/useColumnSort'
 import { useConfirm } from '../composables/useConfirm'
 import ActivityLog from '../components/ActivityLog.vue'
 import AttendingFilter from '../components/AttendingFilter.vue'
-import type { ActivityEntry, AttendingState, Dashboard, Event, UserSummary } from '../types'
+import type { ActivityEntry, AttendingState, Dashboard, DashboardEntry, Event, UserSummary } from '../types'
 
 const props = defineProps<{ id: string }>()
 
@@ -20,6 +21,76 @@ const tab = ref<'responses' | 'activity' | 'attendees'>('responses')
 const dashboard = ref<Dashboard | null>(null)
 const filter = ref<AttendingState[]>([])
 const activity = ref<ActivityEntry[]>([])
+
+// Per-tab client-side search (contains, case-insensitive). Each tab keeps its
+// own query so switching tabs doesn't surprise the user with a stale filter.
+const responsesSearch = ref('')
+const attendeesSearch = ref('')
+const activitySearch = ref('')
+
+// Attending sorts in a logical pipeline order rather than alphabetically; status
+// ranks the most notable flags highest so a descending sort surfaces them first.
+const attendingRank: Record<AttendingState, number> = {
+  yes: 0,
+  not_sure: 1,
+  no: 2,
+  no_response: 3,
+}
+
+// Responses table: Name / Email / Attending / Status, all sortable.
+type ResponseKey = 'name' | 'email' | 'attending' | 'status'
+const responsesSort = useColumnSort<ResponseKey>()
+const responseColumns: { key: ResponseKey; label: string }[] = [
+  { key: 'name', label: 'Name' },
+  { key: 'email', label: 'Email' },
+  { key: 'attending', label: 'Attending' },
+  { key: 'status', label: 'Status' },
+]
+function responseSortValue(e: DashboardEntry, key: ResponseKey): string | number {
+  switch (key) {
+    case 'name':
+      return e.name.toLowerCase()
+    case 'email':
+      return e.email.toLowerCase()
+    case 'attending':
+      return attendingRank[e.attending]
+    case 'status':
+      return (e.afterDeadlineEdit ? 2 : 0) + (e.hasLoggedIn ? 0 : 1)
+  }
+}
+
+// Attendees table: Name / Email / Attending / Signed in (the last column is the
+// Remove action, not sortable). Attending and sign-in are two separate facts, so
+// they get their own sortable columns.
+type AttendeeKey = 'name' | 'email' | 'attending' | 'signedIn'
+const attendeesSort = useColumnSort<AttendeeKey>()
+const attendeeColumns: { key: AttendeeKey; label: string }[] = [
+  { key: 'name', label: 'Name' },
+  { key: 'email', label: 'Email' },
+  { key: 'attending', label: 'Attending' },
+  { key: 'signedIn', label: 'Signed in' },
+]
+function attendeeSortValue(e: DashboardEntry, key: AttendeeKey): string | number {
+  switch (key) {
+    case 'name':
+      return e.name.toLowerCase()
+    case 'email':
+      return e.email.toLowerCase()
+    case 'attending':
+      return attendingRank[e.attending]
+    case 'signedIn':
+      // Ascending surfaces the not-signed-in (false → 0) people first.
+      return e.hasLoggedIn ? 1 : 0
+  }
+}
+
+// Activity is a timeline, not a table — so instead of column headers it gets a
+// search plus a newest/oldest toggle (RFC3339 timestamps sort lexically).
+const activityNewestFirst = ref(true)
+
+function matches(q: string, ...fields: (string | undefined)[]): boolean {
+  return fields.some((f) => (f ?? '').toLowerCase().includes(q))
+}
 
 // Company directory, for the "add an employee" picker on the Attendees tab.
 const directory = ref<UserSummary[]>([])
@@ -43,9 +114,37 @@ const attendingLabels: Record<AttendingState, string> = {
 const filteredEntries = computed(() => {
   const d = dashboard.value
   if (!d) return []
-  if (filter.value.length === 0) return d.entries
-  const set = new Set(filter.value)
-  return d.entries.filter((e) => set.has(e.attending))
+  let rows = d.entries
+
+  if (filter.value.length) {
+    const set = new Set(filter.value)
+    rows = rows.filter((e) => set.has(e.attending))
+  }
+
+  const q = responsesSearch.value.trim().toLowerCase()
+  if (q) rows = rows.filter((e) => matches(q, e.name, e.email))
+
+  return responsesSort.sortRows(rows, responseSortValue)
+})
+
+// Attendees tab: same directory rows, with their own search + sort (no attending
+// filter — the Attendees tab is about who's on the list, not who responded).
+const attendeeEntries = computed(() => {
+  const d = dashboard.value
+  if (!d) return []
+  let rows = d.entries
+  const q = attendeesSearch.value.trim().toLowerCase()
+  if (q) rows = rows.filter((e) => matches(q, e.name, e.email))
+  return attendeesSort.sortRows(rows, attendeeSortValue)
+})
+
+// Activity tab: search across summary + actor/subject email, then order by time.
+const filteredActivity = computed(() => {
+  let rows = activity.value
+  const q = activitySearch.value.trim().toLowerCase()
+  if (q) rows = rows.filter((e) => matches(q, e.summary, e.actorEmail, e.subjectEmail))
+  const dir = activityNewestFirst.value ? -1 : 1
+  return [...rows].sort((a, b) => dir * a.createdAt.localeCompare(b.createdAt))
 })
 
 // Directory users not yet on this event's attendee list — the picker's options.
@@ -198,6 +297,13 @@ onMounted(async () => {
           <div class="toolbar">
             <AttendingFilter v-model="filter" :counts="dashboard.counts" />
             <div class="right">
+              <input
+                v-model="responsesSearch"
+                type="search"
+                class="search"
+                placeholder="Search name or email…"
+                aria-label="Search responses by name or email"
+              >
               <label class="reload">
                 Refresh
                 <select v-model.number="intervalMs">
@@ -214,7 +320,22 @@ onMounted(async () => {
 
           <table class="grid">
             <thead>
-              <tr><th>Name</th><th>Email</th><th>Attending</th><th /></tr>
+              <tr>
+                <th
+                  v-for="col in responseColumns"
+                  :key="col.key"
+                  class="sortable"
+                  :class="{ sorted: responsesSort.isSorted(col.key) }"
+                  :aria-sort="responsesSort.ariaSort(col.key)"
+                  role="button"
+                  tabindex="0"
+                  @click="responsesSort.toggleSort(col.key)"
+                  @keydown.enter.prevent="responsesSort.toggleSort(col.key)"
+                  @keydown.space.prevent="responsesSort.toggleSort(col.key)"
+                >
+                  {{ col.label }}<span class="arrow">{{ responsesSort.sortArrow(col.key) }}</span>
+                </th>
+              </tr>
             </thead>
             <tbody>
               <tr v-for="e in filteredEntries" :key="e.userId">
@@ -237,7 +358,26 @@ onMounted(async () => {
 
       <!-- Activity -->
       <div v-show="tab === 'activity'">
-        <ActivityLog :entries="activity" :timezone="event.timezone" show-actor />
+        <div class="toolbar">
+          <input
+            v-model="activitySearch"
+            type="search"
+            class="search"
+            placeholder="Search activity, actor or attendee…"
+            aria-label="Search activity"
+          >
+          <button
+            type="button"
+            class="btn secondary"
+            @click="activityNewestFirst = !activityNewestFirst"
+          >
+            {{ activityNewestFirst ? 'Newest first ↓' : 'Oldest first ↑' }}
+          </button>
+        </div>
+        <p class="muted summary">
+          {{ filteredActivity.length }} of {{ activity.length }} events shown.
+        </p>
+        <ActivityLog :entries="filteredActivity" :timezone="event.timezone" show-actor />
       </div>
 
       <!-- Attendees -->
@@ -272,22 +412,59 @@ onMounted(async () => {
         </div>
         <p v-if="uploadMsg" class="muted">{{ uploadMsg }}</p>
 
-        <table v-if="dashboard && dashboard.entries.length" class="grid">
-          <thead><tr><th>Name</th><th>Email</th><th>Status</th><th /></tr></thead>
-          <tbody>
-            <tr v-for="e in dashboard.entries" :key="e.userId">
-              <td>{{ e.name }}</td>
-              <td>{{ e.email }}</td>
-              <td>
-                <span :class="['pill', e.attending]">{{ attendingLabels[e.attending] }}</span>
-                <span v-if="!e.hasLoggedIn" class="badge muted-badge">not signed in</span>
-              </td>
-              <td>
-                <button type="button" class="btn-link danger" @click="removeAttendee(e.userId, e.name)">Remove</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <template v-if="dashboard && dashboard.entries.length">
+          <div class="toolbar">
+            <input
+              v-model="attendeesSearch"
+              type="search"
+              class="search"
+              placeholder="Search name or email…"
+              aria-label="Search attendees by name or email"
+            >
+            <p class="muted summary">
+              {{ attendeeEntries.length }} of {{ dashboard.entries.length }} attendees shown.
+            </p>
+          </div>
+
+          <table class="grid">
+            <thead>
+              <tr>
+                <th
+                  v-for="col in attendeeColumns"
+                  :key="col.key"
+                  class="sortable"
+                  :class="{ sorted: attendeesSort.isSorted(col.key) }"
+                  :aria-sort="attendeesSort.ariaSort(col.key)"
+                  role="button"
+                  tabindex="0"
+                  @click="attendeesSort.toggleSort(col.key)"
+                  @keydown.enter.prevent="attendeesSort.toggleSort(col.key)"
+                  @keydown.space.prevent="attendeesSort.toggleSort(col.key)"
+                >
+                  {{ col.label }}<span class="arrow">{{ attendeesSort.sortArrow(col.key) }}</span>
+                </th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="e in attendeeEntries" :key="e.userId">
+                <td>{{ e.name }}</td>
+                <td>{{ e.email }}</td>
+                <td><span :class="['pill', e.attending]">{{ attendingLabels[e.attending] }}</span></td>
+                <td>
+                  <span v-if="e.hasLoggedIn" class="signed-in">Yes</span>
+                  <span v-else class="signed-out">No</span>
+                </td>
+                <td>
+                  <button type="button" class="btn-link danger" @click="removeAttendee(e.userId, e.name)">Remove</button>
+                </td>
+              </tr>
+              <tr v-if="attendeeEntries.length === 0">
+                <td colspan="5" class="muted">No matching attendees.</td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
         <p v-else class="muted">No attendees yet.</p>
       </div>
     </template>
@@ -383,6 +560,30 @@ onMounted(async () => {
   letter-spacing: 0.05em;
   color: var(--muted);
 }
+.search {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  min-width: 14rem;
+}
+.grid th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.grid th.sortable:hover {
+  color: var(--text);
+}
+.grid th.sorted {
+  color: var(--text);
+}
+.grid th .arrow {
+  display: inline-block;
+  width: 0.9em;
+  margin-left: 0.2em;
+  font-size: 0.7em;
+}
 .pill {
   font-size: 0.8rem;
   padding: 0.15rem 0.55rem;
@@ -400,6 +601,15 @@ onMounted(async () => {
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
   margin-left: 0.4rem;
+}
+.signed-in {
+  font-size: 0.8rem;
+  color: var(--ok);
+}
+.signed-out {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--danger);
 }
 .add-row {
   display: flex;

@@ -489,7 +489,7 @@ cmd_helm_push() {
     log_info "Packaging Helm chart v$chart_version..."
     local tmp_dir
     tmp_dir=$(mktemp -d)
-    trap "rm -rf '$tmp_dir'" EXIT
+    trap 'rm -rf "$tmp_dir"' EXIT
 
     if ! helm package "$chart_dir" -d "$tmp_dir"; then
         log_error "Failed to package Helm chart"
@@ -575,7 +575,8 @@ get_platform_args() {
 build_image() {
     local component="$1"
     local dockerfile_args="$2"
-    local platform_args=$(get_platform_args)
+    local platform_args
+    platform_args=$(get_platform_args)
 
     # Create array of image tags - passed as remaining arguments
     shift 2

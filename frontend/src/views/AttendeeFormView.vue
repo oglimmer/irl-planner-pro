@@ -2,11 +2,13 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api, errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
+import { useConfirm } from '../composables/useConfirm'
 import { formatDate, formatInZone } from '../lib/datetime'
 import ActivityLog from '../components/ActivityLog.vue'
 import type { ActivityEntry, Attending, Event, SubmissionInput, TravelMode } from '../types'
 
 const auth = useAuthStore()
+const { confirm } = useConfirm()
 
 const props = defineProps<{ slug: string }>()
 
@@ -108,6 +110,16 @@ const departureTimeLabel = computed(() =>
 )
 
 const readOnly = computed(() => event.value?.isPast ?? false)
+
+// The RSVP deadline has passed but the event itself is still open, so edits are
+// allowed yet land *after deadline*. The server already stamps these, but we warn
+// the attendee first (see submit) so the late change is a deliberate choice.
+const afterDeadline = computed(() => {
+  const e = event.value
+  if (!e || readOnly.value) return false
+  const t = new Date(e.submissionDeadline).getTime()
+  return !isNaN(t) && Date.now() > t
+})
 
 // Google Maps search link for a hotel address, opened in a new tab.
 function mapsUrl(address: string): string {
@@ -260,6 +272,21 @@ async function load() {
 }
 
 async function submit() {
+  // After the deadline the event is still editable, but the change is flagged to
+  // the People team — make the attendee confirm so it is never an accidental edit.
+  if (afterDeadline.value) {
+    const ok = await confirm({
+      variant: 'warning',
+      title: 'This change is after the deadline',
+      message:
+        `The RSVP deadline (${formatInZone(event.value!.submissionDeadline, event.value!.timezone)}) ` +
+        'has passed. Saving now will flag this change to the People team as a late ' +
+        'edit, and travel may already be booked. Continue?',
+      confirmLabel: 'Save late change',
+      cancelLabel: 'Go back',
+    })
+    if (!ok) return
+  }
   saving.value = true
   error.value = ''
   saved.value = false

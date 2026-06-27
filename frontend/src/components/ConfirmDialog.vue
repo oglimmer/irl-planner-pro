@@ -34,7 +34,16 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
       aria-modal="true"
       @click.self="cancel"
     >
-      <div class="confirm-box">
+      <div class="confirm-box" :class="{ warning: state.variant === 'warning' }">
+        <div v-if="state.variant === 'warning'" class="warn-banner">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M12 2 1 21h22L12 2Zm0 6a1 1 0 0 1 1 1v5a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1Zm0 9.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z"
+            />
+          </svg>
+          <span>After the deadline</span>
+        </div>
         <h2 v-if="state.title" class="confirm-title">{{ state.title }}</h2>
         <p class="confirm-message">{{ state.message }}</p>
         <div class="confirm-actions">
@@ -74,6 +83,23 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   border-radius: var(--radius);
   padding: 1.25rem 1.4rem 1.1rem;
   box-shadow: 0 10px 30px rgba(20, 24, 35, 0.2);
+}
+.confirm-box.warning {
+  border-color: var(--danger);
+  border-top: 4px solid var(--danger);
+  box-shadow: 0 10px 30px rgb(var(--rust-rgb) / 0.28);
+}
+.warn-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.85rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--danger);
 }
 .confirm-title {
   margin: 0 0 0.5rem;

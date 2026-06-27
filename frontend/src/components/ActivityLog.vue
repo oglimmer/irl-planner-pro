@@ -13,10 +13,19 @@ defineProps<{
 
 <template>
   <ul v-if="entries.length" class="timeline">
-    <li v-for="e in entries" :key="e.id" :class="{ late: e.afterDeadline }">
+    <li v-for="e in entries" :key="e.id" :class="e.afterDeadline ? 'late' : 'ontime'">
       <div class="line">
+        <span v-if="e.afterDeadline" class="badge late">
+          <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M12 2 1 21h22L12 2Zm0 6a1 1 0 0 1 1 1v5a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1Zm0 9.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z"
+            />
+          </svg>
+          After deadline
+        </span>
+        <span v-else class="badge ontime">On time</span>
         <span class="summary">{{ e.summary }}</span>
-        <span v-if="e.afterDeadline" class="badge">after deadline</span>
       </div>
       <ul v-if="e.detail?.changes?.length" class="changes">
         <li v-for="(c, i) in e.detail.changes" :key="i">
@@ -48,8 +57,16 @@ defineProps<{
   border-left: 3px solid var(--border);
   padding: 0.3rem 0 0.3rem 0.85rem;
 }
+/* On-time entries get a quiet green rail; after-deadline entries become a loud
+   red-tinted alert card so the People team can spot late changes at a glance. */
+.timeline > li.ontime {
+  border-left-color: var(--success);
+}
 .timeline > li.late {
-  border-left-color: var(--danger);
+  border-left: 4px solid var(--danger);
+  background: rgb(var(--rust-rgb) / 0.07);
+  border-radius: 0 6px 6px 0;
+  padding: 0.55rem 0.7rem 0.55rem 0.85rem;
 }
 .changes {
   list-style: none;
@@ -89,13 +106,24 @@ defineProps<{
   color: var(--text);
 }
 .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   font-size: 0.68rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  background: rgb(var(--rust-rgb) / 0.10);
-  color: var(--danger);
-  padding: 0.1rem 0.45rem;
+  padding: 0.12rem 0.5rem;
   border-radius: 999px;
+  white-space: nowrap;
+}
+.badge.late {
+  background: var(--danger);
+  color: #fff;
+}
+.badge.ontime {
+  background: rgb(var(--success-rgb) / 0.12);
+  color: var(--success);
 }
 .meta {
   color: var(--muted);

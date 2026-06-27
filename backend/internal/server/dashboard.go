@@ -24,8 +24,8 @@ type DashboardEntry struct {
 
 // Dashboard is the admin response overview, organised by attending state.
 type Dashboard struct {
-	Total   int             `json:"total"`
-	Counts  map[string]int  `json:"counts"`
+	Total   int              `json:"total"`
+	Counts  map[string]int   `json:"counts"`
 	Entries []DashboardEntry `json:"entries"`
 }
 

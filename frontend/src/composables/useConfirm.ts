@@ -8,6 +8,10 @@ export interface ConfirmOptions {
   // danger styles the confirm button as destructive and focuses Cancel by
   // default, so an accidental Enter does not trigger the irreversible action.
   danger?: boolean
+  // 'warning' renders a loud, high-visibility alert (warning icon, red banner)
+  // for prompts the user must not skim past — e.g. an after-deadline edit that
+  // gets flagged to the People team.
+  variant?: 'default' | 'warning'
 }
 
 interface ConfirmState {
@@ -17,6 +21,7 @@ interface ConfirmState {
   confirmLabel: string
   cancelLabel: string
   danger: boolean
+  variant: 'default' | 'warning'
 }
 
 // Single shared dialog: one <ConfirmDialog> is mounted in App.vue and every
@@ -29,6 +34,7 @@ const state = ref<ConfirmState>({
   confirmLabel: 'Confirm',
   cancelLabel: 'Cancel',
   danger: false,
+  variant: 'default',
 })
 
 let resolver: ((ok: boolean) => void) | null = null
@@ -51,6 +57,7 @@ function confirm(options: ConfirmOptions): Promise<boolean> {
     confirmLabel: options.confirmLabel ?? 'Confirm',
     cancelLabel: options.cancelLabel ?? 'Cancel',
     danger: options.danger ?? false,
+    variant: options.variant ?? 'default',
   }
   return new Promise<boolean>((resolve) => {
     resolver = resolve
