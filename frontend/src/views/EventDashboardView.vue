@@ -1,14 +1,24 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, errMsg } from '../api'
-import { formatDate } from '../lib/datetime'
+import { formatDate, formatInZone } from '../lib/datetime'
 import { useAutoReload } from '../composables/useAutoReload'
 import { useColumnSort } from '../composables/useColumnSort'
+import { useColumnConfig } from '../composables/useColumnConfig'
 import { useConfirm } from '../composables/useConfirm'
 import ActivityLog from '../components/ActivityLog.vue'
 import AttendingFilter from '../components/AttendingFilter.vue'
+import ColumnPicker from '../components/ColumnPicker.vue'
 import EventMessaging from './EventMessaging.vue'
-import type { ActivityEntry, AttendingState, Dashboard, DashboardEntry, Event, UserSummary } from '../types'
+import type {
+  ActivityEntry,
+  AttendingState,
+  Dashboard,
+  DashboardEntry,
+  Event,
+  Submission,
+  UserSummary,
+} from '../types'
 
 const props = defineProps<{ id: string }>()
 
@@ -20,6 +30,7 @@ const copied = ref(false)
 const tab = ref<'responses' | 'activity' | 'attendees' | 'messaging'>('responses')
 
 const dashboard = ref<Dashboard | null>(null)
+const submissions = ref<Submission[]>([])
 const filter = ref<AttendingState[]>([])
 const activity = ref<ActivityEntry[]>([])
 
@@ -43,26 +54,122 @@ const attendingRank: Record<AttendingState, number> = {
   no_response: 3,
 }
 
-// Responses table: Name / Email / Attending / Status, all sortable.
-type ResponseKey = 'name' | 'email' | 'attending' | 'status'
-const responsesSort = useColumnSort<ResponseKey>()
-const responseColumns: { key: ResponseKey; label: string }[] = [
-  { key: 'name', label: 'Name' },
-  { key: 'email', label: 'Email' },
-  { key: 'attending', label: 'Attending' },
-  { key: 'status', label: 'Status' },
+// Responses table is a configurable data table: every attendee + submission field
+// below is available, and the admin picks which to show (persisted per-browser).
+// A ResponseRow is a dashboard entry joined to that user's submission (null for
+// non-responders), so columns can read either side.
+interface ResponseRow extends DashboardEntry {
+  sub: Submission | null
+}
+
+const submissionByUser = computed(() => {
+  const m = new Map<string, Submission>()
+  for (const s of submissions.value) m.set(s.userId, s)
+  return m
+})
+
+function fmtDay(d: string | null | undefined): string {
+  return d ? formatDate(d) : ''
+}
+function yesNo(b: boolean | undefined): string {
+  return b === undefined ? '' : b ? 'Yes' : 'No'
+}
+function cap(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
+}
+
+// Each column knows how to render a plain-text cell (`text`) and how to produce a
+// comparable sort value. A few columns render rich cells instead of text, flagged
+// by `kind`; for those `text` still feeds the sort value unless `sort` overrides.
+interface ResponseColumn {
+  key: string
+  label: string
+  kind?: 'attending' | 'status' | 'signedIn'
+  text: (r: ResponseRow) => string
+  sort?: (r: ResponseRow) => string | number
+}
+
+const responseColumns: ResponseColumn[] = [
+  { key: 'name', label: 'Name', text: (r) => r.name },
+  { key: 'email', label: 'Email', text: (r) => r.email },
+  {
+    key: 'attending',
+    label: 'Attending',
+    kind: 'attending',
+    text: (r) => attendingLabels[r.attending],
+    sort: (r) => attendingRank[r.attending],
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    kind: 'status',
+    text: (r) => `${r.hasLoggedIn ? '' : 'not signed in'} ${r.afterDeadlineEdit ? 'edited after deadline' : ''}`.trim(),
+    sort: (r) => (r.afterDeadlineEdit ? 2 : 0) + (r.hasLoggedIn ? 0 : 1),
+  },
+  {
+    key: 'signedIn',
+    label: 'Signed in',
+    kind: 'signedIn',
+    text: (r) => (r.hasLoggedIn ? 'Yes' : 'No'),
+    sort: (r) => (r.hasLoggedIn ? 1 : 0),
+  },
+  { key: 'notSureReason', label: 'Not-sure reason', text: (r) => r.sub?.notSureReason ?? '' },
+  { key: 'arrivalDay', label: 'Arrival day', text: (r) => fmtDay(r.sub?.arrivalDay) },
+  { key: 'arrivalTime', label: 'Arrival time', text: (r) => r.sub?.arrivalTime ?? '' },
+  { key: 'arrivalMode', label: 'Arrival mode', text: (r) => cap(r.sub?.arrivalMode ?? '') },
+  { key: 'arrivalDetails', label: 'Arrival details', text: (r) => r.sub?.arrivalDetails ?? '' },
+  { key: 'arrivalIndependent', label: 'Arrival self-arranged', text: (r) => yesNo(r.sub?.arrivalIndependent) },
+  { key: 'departureDay', label: 'Departure day', text: (r) => fmtDay(r.sub?.departureDay) },
+  { key: 'departureTime', label: 'Departure time', text: (r) => r.sub?.departureTime ?? '' },
+  { key: 'departureMode', label: 'Departure mode', text: (r) => cap(r.sub?.departureMode ?? '') },
+  { key: 'departureDetails', label: 'Departure details', text: (r) => r.sub?.departureDetails ?? '' },
+  { key: 'departureIndependent', label: 'Departure self-arranged', text: (r) => yesNo(r.sub?.departureIndependent) },
+  { key: 'longHaul', label: 'Long haul', text: (r) => yesNo(r.sub?.longHaul) },
+  { key: 'extraStayStart', label: 'Extra night before', text: (r) => fmtDay(r.sub?.extraStayStart) },
+  { key: 'extraStayEnd', label: 'Extra night after', text: (r) => fmtDay(r.sub?.extraStayEnd) },
+  { key: 'allergies', label: 'Allergies', text: (r) => r.sub?.allergies ?? '' },
+  { key: 'comments', label: 'Comments', text: (r) => r.sub?.comments ?? '' },
+  {
+    key: 'updatedAt',
+    label: 'Last updated',
+    text: (r) => (r.sub ? formatInZone(r.sub.updatedAt, event.value?.timezone ?? 'UTC') : ''),
+    sort: (r) => r.sub?.updatedAt ?? '',
+  },
 ]
-function responseSortValue(e: DashboardEntry, key: ResponseKey): string | number {
-  switch (key) {
-    case 'name':
-      return e.name.toLowerCase()
-    case 'email':
-      return e.email.toLowerCase()
-    case 'attending':
-      return attendingRank[e.attending]
-    case 'status':
-      return (e.afterDeadlineEdit ? 2 : 0) + (e.hasLoggedIn ? 0 : 1)
+
+const responseColumnByKey = new Map(responseColumns.map((c) => [c.key, c]))
+const responseColumnKeys = responseColumns.map((c) => c.key)
+const responseColumnDefaults = ['name', 'email', 'attending', 'status']
+
+const responsesSort = useColumnSort<string>()
+const { selected: selectedColumns, reset: resetColumns } = useColumnConfig(
+  'irl.responseColumns.v1',
+  responseColumnKeys,
+  responseColumnDefaults,
+)
+
+// When the table grows wide, the admin can break it out of the centered page
+// column to use the full browser width. Persisted per-browser like the columns.
+const fullWidth = ref(localStorage.getItem('irl.responsesFullWidth') === '1')
+watch(fullWidth, (v) => {
+  try {
+    localStorage.setItem('irl.responsesFullWidth', v ? '1' : '0')
+  } catch {
+    // storage unavailable — toggle still works in-session
   }
+})
+
+// Visible columns are always rendered in canonical (definition) order, regardless
+// of the order keys were toggled in.
+const visibleColumns = computed(() => {
+  const set = new Set(selectedColumns.value)
+  return responseColumns.filter((c) => set.has(c.key))
+})
+
+function responseSortValue(r: ResponseRow, key: string): string | number {
+  const col = responseColumnByKey.get(key)
+  if (!col) return ''
+  return col.sort ? col.sort(r) : col.text(r).toLowerCase()
 }
 
 // Attendees table: Name / Email / Attending / Signed in (the last column is the
@@ -120,7 +227,10 @@ const attendingLabels: Record<AttendingState, string> = {
 const filteredEntries = computed(() => {
   const d = dashboard.value
   if (!d) return []
-  let rows = d.entries
+  let rows: ResponseRow[] = d.entries.map((e) => ({
+    ...e,
+    sub: submissionByUser.value.get(e.userId) ?? null,
+  }))
 
   if (filter.value.length) {
     const set = new Set(filter.value)
@@ -178,6 +288,20 @@ async function loadDashboard() {
   } catch (e) {
     error.value = errMsg(e)
   }
+}
+
+async function loadSubmissions() {
+  try {
+    submissions.value = await api.listSubmissions(props.id)
+  } catch (e) {
+    error.value = errMsg(e)
+  }
+}
+
+// The Responses tab needs both the attendee overview and the full submission
+// detail (for the optional travel/profile columns), so refresh them together.
+async function loadResponses() {
+  await Promise.all([loadDashboard(), loadSubmissions()])
 }
 
 async function loadActivity() {
@@ -260,8 +384,8 @@ async function removeAttendee(userId: string, name: string) {
   }
 }
 
-// Poll the dashboard on the chosen interval (default 1m).
-const { intervalMs, options } = useAutoReload(loadDashboard)
+// Poll the responses (dashboard + submissions) on the chosen interval (default 1m).
+const { intervalMs, options } = useAutoReload(loadResponses)
 
 onMounted(async () => {
   try {
@@ -304,64 +428,90 @@ onMounted(async () => {
       <!-- Responses -->
       <div v-show="tab === 'responses'">
         <div v-if="dashboard" class="responses">
-          <div class="toolbar">
-            <AttendingFilter v-model="filter" :counts="dashboard.counts" />
-            <div class="right">
-              <input
-                v-model="responsesSearch"
-                type="search"
-                class="search"
-                placeholder="Search name or email…"
-                aria-label="Search responses by name or email"
-              >
-              <label class="reload">
-                Refresh
-                <select v-model.number="intervalMs">
-                  <option v-for="o in options" :key="o.label" :value="o.ms">{{ o.label }}</option>
-                </select>
-              </label>
-              <button class="btn" @click="exportCsv">Export CSV</button>
+          <div class="responses-controls">
+            <div class="controls-row">
+              <div class="search-wrap">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" />
+                  <line x1="20" y1="20" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  v-model="responsesSearch"
+                  type="search"
+                  class="search"
+                  placeholder="Search name or email…"
+                  aria-label="Search responses by name or email"
+                >
+              </div>
+              <div class="tools">
+                <label class="reload">
+                  Refresh
+                  <select v-model.number="intervalMs">
+                    <option v-for="o in options" :key="o.label" :value="o.ms">{{ o.label }}</option>
+                  </select>
+                </label>
+                <ColumnPicker
+                  v-model="selectedColumns"
+                  v-model:full-width="fullWidth"
+                  :columns="responseColumns"
+                  @reset="resetColumns"
+                />
+                <button class="btn" @click="exportCsv">Export CSV</button>
+              </div>
+            </div>
+
+            <div class="controls-row filter-row">
+              <AttendingFilter v-model="filter" :counts="dashboard.counts" />
+              <p class="muted count">
+                {{ filteredEntries.length }} of {{ dashboard.total }} shown
+              </p>
             </div>
           </div>
 
-          <p class="muted summary">
-            {{ filteredEntries.length }} of {{ dashboard.total }} attendees shown.
-          </p>
-
-          <table class="grid">
-            <thead>
-              <tr>
-                <th
-                  v-for="col in responseColumns"
-                  :key="col.key"
-                  class="sortable"
-                  :class="{ sorted: responsesSort.isSorted(col.key) }"
-                  :aria-sort="responsesSort.ariaSort(col.key)"
-                  role="button"
-                  tabindex="0"
-                  @click="responsesSort.toggleSort(col.key)"
-                  @keydown.enter.prevent="responsesSort.toggleSort(col.key)"
-                  @keydown.space.prevent="responsesSort.toggleSort(col.key)"
-                >
-                  {{ col.label }}<span class="arrow">{{ responsesSort.sortArrow(col.key) }}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="e in filteredEntries" :key="e.userId">
-                <td>{{ e.name }}</td>
-                <td>{{ e.email }}</td>
-                <td><span :class="['pill', e.attending]">{{ attendingLabels[e.attending] }}</span></td>
-                <td>
-                  <span v-if="!e.hasLoggedIn" class="badge muted-badge">not signed in</span>
-                  <span v-if="e.afterDeadlineEdit" class="badge late">edited after deadline</span>
-                </td>
-              </tr>
-              <tr v-if="filteredEntries.length === 0">
-                <td colspan="4" class="muted">No matching attendees.</td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="table-scroll" :class="{ 'full-bleed': fullWidth }">
+            <table class="grid">
+              <thead>
+                <tr>
+                  <th
+                    v-for="col in visibleColumns"
+                    :key="col.key"
+                    class="sortable"
+                    :class="{ sorted: responsesSort.isSorted(col.key) }"
+                    :aria-sort="responsesSort.ariaSort(col.key)"
+                    role="button"
+                    tabindex="0"
+                    @click="responsesSort.toggleSort(col.key)"
+                    @keydown.enter.prevent="responsesSort.toggleSort(col.key)"
+                    @keydown.space.prevent="responsesSort.toggleSort(col.key)"
+                  >
+                    {{ col.label }}<span class="arrow">{{ responsesSort.sortArrow(col.key) }}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="e in filteredEntries" :key="e.userId">
+                  <td v-for="col in visibleColumns" :key="col.key">
+                    <span
+                      v-if="col.kind === 'attending'"
+                      :class="['pill', e.attending]"
+                    >{{ attendingLabels[e.attending] }}</span>
+                    <template v-else-if="col.kind === 'status'">
+                      <span v-if="!e.hasLoggedIn" class="badge muted-badge">not signed in</span>
+                      <span v-if="e.afterDeadlineEdit" class="badge late">edited after deadline</span>
+                    </template>
+                    <template v-else-if="col.kind === 'signedIn'">
+                      <span v-if="e.hasLoggedIn" class="signed-in">Yes</span>
+                      <span v-else class="signed-out">No</span>
+                    </template>
+                    <template v-else>{{ col.text(e) }}</template>
+                  </td>
+                </tr>
+                <tr v-if="filteredEntries.length === 0">
+                  <td :colspan="visibleColumns.length" class="muted">No matching attendees.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
         <p v-else class="muted">Loading…</p>
       </div>
@@ -614,7 +764,85 @@ onMounted(async () => {
 .right .btn {
   flex-shrink: 0;
 }
+
+/* Responses tab control bar: a search + tools row, then a filter + count row. */
+.responses-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin: 0.25rem 0 1.1rem;
+}
+.controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem 1.25rem;
+  flex-wrap: wrap;
+}
+.controls-row.filter-row {
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+.search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 16rem;
+  max-width: 26rem;
+}
+.search-wrap .search-icon {
+  position: absolute;
+  left: 0.65rem;
+  width: 1rem;
+  height: 1rem;
+  color: var(--muted);
+  pointer-events: none;
+}
+.search-wrap .search {
+  width: 100%;
+  max-width: none;
+  padding: 0.45rem 0.6rem 0.45rem 2.1rem;
+}
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.tools .btn {
+  flex-shrink: 0;
+}
+.count {
+  margin: 0;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .summary { margin: 0.75rem 0; }
+/* The Responses table is configurable and can grow wide, so let it scroll
+   horizontally rather than squeezing or overflowing the page. */
+.table-scroll {
+  overflow-x: auto;
+}
+/* Break the table out of the centered page column (main is max-width:1080px,
+   margin:0 auto) so it spans the full browser width. The negative 50vw margins
+   on a 50%-offset, 100vw-wide box pull it back to both viewport edges; the
+   horizontal padding keeps the content off the very edge, matching main. */
+.table-scroll.full-bleed {
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
+  padding: 0 32px;
+  box-sizing: border-box;
+}
+@media (max-width: 720px) {
+  .table-scroll.full-bleed {
+    padding: 0 18px;
+  }
+}
 .grid {
   width: 100%;
   border-collapse: collapse;
