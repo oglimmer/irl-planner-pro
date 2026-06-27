@@ -75,6 +75,8 @@ mcp:
     # connector callback.
     redirectURIs:
       - https://claude.ai/api/mcp/auth_callback
+      # Claude Code CLI loopback callback (claude mcp add --callback-port 8765)
+      - http://localhost:8765/callback
 
 # SMTP for outbound invitations, reminders + admin notifications. Leave host
 # empty to disable email entirely — sends become best-effort no-ops.
