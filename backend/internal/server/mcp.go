@@ -243,7 +243,7 @@ func (a *App) resolveEventRef(ctx context.Context, ref string) (*Event, error) {
 		return nil, errors.New("event (slug or id) is required")
 	}
 	now := time.Now()
-	e, err := a.loadEventByColumn(ctx, "slug", strings.ToLower(ref), now)
+	e, err := a.Store.loadEventByColumn(ctx, "slug", strings.ToLower(ref), now)
 	if err == nil {
 		return e, nil
 	}
@@ -251,7 +251,7 @@ func (a *App) resolveEventRef(ctx context.Context, ref string) (*Event, error) {
 		return nil, err
 	}
 	if uuidRe.MatchString(ref) {
-		e, err = a.loadEventByColumn(ctx, "id", ref, now)
+		e, err = a.Store.loadEventByColumn(ctx, "id", ref, now)
 		if err == nil {
 			return e, nil
 		}
@@ -359,7 +359,7 @@ func (a *App) addToolGetDashboard(s *mcp.Server) {
 		if err != nil {
 			return nil, zero, err
 		}
-		entries, counts, err := a.dashboardEntries(ctx, e.ID)
+		entries, counts, err := a.Store.dashboardEntries(ctx, e.ID)
 		if err != nil {
 			return nil, zero, fmt.Errorf("db error: %w", err)
 		}
@@ -387,7 +387,7 @@ func (a *App) addToolListNonResponders(s *mcp.Server) {
 		if err != nil {
 			return nil, zero, err
 		}
-		entries, _, err := a.dashboardEntries(ctx, e.ID)
+		entries, _, err := a.Store.dashboardEntries(ctx, e.ID)
 		if err != nil {
 			return nil, zero, fmt.Errorf("db error: %w", err)
 		}
@@ -438,7 +438,7 @@ func (a *App) addToolListSubmissions(s *mcp.Server) {
 
 		out := mcpSubmissionsOut{Event: e.Name, Submissions: []Submission{}}
 		for _, uid := range userIDs {
-			sub, err := a.loadSubmission(ctx, e.ID, uid)
+			sub, err := a.Store.loadSubmission(ctx, e.ID, uid)
 			if err != nil {
 				return nil, zero, fmt.Errorf("db error: %w", err)
 			}
@@ -465,7 +465,7 @@ func (a *App) addToolListAttendees(s *mcp.Server) {
 		if err != nil {
 			return nil, zero, err
 		}
-		entries, _, err := a.dashboardEntries(ctx, e.ID)
+		entries, _, err := a.Store.dashboardEntries(ctx, e.ID)
 		if err != nil {
 			return nil, zero, fmt.Errorf("db error: %w", err)
 		}
@@ -603,7 +603,7 @@ func (a *App) addToolCreateEvent(s *mcp.Server) {
 		committed = true
 		metrics.EventMutationsTotal.WithLabelValues("create", "success").Inc()
 
-		e, err := a.loadEventByColumn(ctx, "id", id, time.Now())
+		e, err := a.Store.loadEventByColumn(ctx, "id", id, time.Now())
 		if err != nil {
 			return nil, nil, fmt.Errorf("db error: %w", err)
 		}
@@ -738,7 +738,7 @@ func (a *App) addToolUpdateEvent(s *mcp.Server) {
 		committed = true
 		metrics.EventMutationsTotal.WithLabelValues("update", "success").Inc()
 
-		e, err := a.loadEventByColumn(ctx, "id", cur.ID, time.Now())
+		e, err := a.Store.loadEventByColumn(ctx, "id", cur.ID, time.Now())
 		if err != nil {
 			return nil, nil, fmt.Errorf("db error: %w", err)
 		}

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -213,7 +212,7 @@ func validateExtraStay(startPtr, endPtr **string, start, end time.Time, isAdmin 
 func (a *App) handleGetMySubmission(w http.ResponseWriter, r *http.Request) {
 	slug := strings.ToLower(chi.URLParam(r, "slug"))
 	user := currentUser(r)
-	eventID, err := a.eventIDBySlug(r.Context(), slug)
+	eventID, err := a.Store.eventIDBySlug(r.Context(), slug)
 	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "event not found")
 		return
@@ -222,7 +221,7 @@ func (a *App) handleGetMySubmission(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, r, err, "db error")
 		return
 	}
-	sub, err := a.loadSubmission(r.Context(), eventID, user.ID)
+	sub, err := a.Store.loadSubmission(r.Context(), eventID, user.ID)
 	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "no submission yet")
 		return
@@ -240,7 +239,7 @@ func (a *App) handlePutMySubmission(w http.ResponseWriter, r *http.Request) {
 	slug := strings.ToLower(chi.URLParam(r, "slug"))
 	user := currentUser(r)
 
-	e, err := a.loadEventByColumn(r.Context(), "slug", slug, time.Now())
+	e, err := a.Store.loadEventByColumn(r.Context(), "slug", slug, time.Now())
 	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "event not found")
 		return
@@ -263,7 +262,7 @@ func (a *App) handleAdminUpdateSubmission(w http.ResponseWriter, r *http.Request
 	eventID := chi.URLParam(r, "id")
 	targetUserID := chi.URLParam(r, "userId")
 
-	e, err := a.loadEventByColumn(r.Context(), "id", eventID, time.Now())
+	e, err := a.Store.loadEventByColumn(r.Context(), "id", eventID, time.Now())
 	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "event not found")
 		return
@@ -427,7 +426,7 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 	// Notify admins on an edit of an existing submission (best-effort, async).
 	a.notifySubmissionChanged(e, ownerEmail, actor, existed, summary)
 
-	sub, err := a.loadSubmission(ctx, e.ID, ownerID)
+	sub, err := a.Store.loadSubmission(ctx, e.ID, ownerID)
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return
@@ -519,41 +518,6 @@ func attendingLabel(a string) string {
 }
 
 // --- helpers ---------------------------------------------------------------
-
-func (a *App) eventIDBySlug(ctx context.Context, slug string) (string, error) {
-	var id string
-	err := a.DB.QueryRowContext(ctx, `SELECT id FROM events WHERE slug = $1`, slug).Scan(&id)
-	return id, err
-}
-
-func (a *App) loadSubmission(ctx context.Context, eventID, userID string) (*Submission, error) {
-	s := &Submission{}
-	var arrivalDay, departureDay, extraStart, extraEnd sql.NullTime
-	var arrivalMode, departureMode sql.NullString
-	err := a.DB.QueryRowContext(ctx,
-		`SELECT s.id, s.event_id, s.user_id, u.email, u.first_name, u.last_name, s.attending, s.not_sure_reason,
-		        s.arrival_day, s.arrival_time, s.arrival_mode, s.arrival_details,
-		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
-		        s.arrival_independent, s.departure_independent, s.long_haul, s.extra_stay_start, s.extra_stay_end, u.allergies, s.comments,
-		        s.created_at, s.updated_at
-		   FROM submissions s JOIN users u ON u.id = s.user_id
-		  WHERE s.event_id = $1 AND s.user_id = $2`, eventID, userID).
-		Scan(&s.ID, &s.EventID, &s.UserID, &s.Email, &s.FirstName, &s.LastName, &s.Attending, &s.NotSureReason,
-			&arrivalDay, &s.ArrivalTime, &arrivalMode, &s.ArrivalDetails,
-			&departureDay, &s.DepartureTime, &departureMode, &s.DepartureDetails,
-			&s.ArrivalIndependent, &s.DepartureIndependent, &s.LongHaul, &extraStart, &extraEnd, &s.Allergies, &s.Comments,
-			&s.CreatedAt, &s.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	s.ArrivalDay = nullDateStr(arrivalDay)
-	s.DepartureDay = nullDateStr(departureDay)
-	s.ExtraStayStart = nullDateStr(extraStart)
-	s.ExtraStayEnd = nullDateStr(extraEnd)
-	s.ArrivalMode = nullStr(arrivalMode)
-	s.DepartureMode = nullStr(departureMode)
-	return s, nil
-}
 
 // datePtr converts an optional canonical date string to a time.Time for a DATE
 // column (nil → SQL NULL). Passing a time.Time (not a string) lets pgx bind the

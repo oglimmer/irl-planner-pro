@@ -42,6 +42,26 @@ var migration0009 string
 //go:embed migrations/0010_event_attendees.sql
 var migration0010 string
 
+// migrations lists all embedded migrations in apply order.
+// Each entry must have a corresponding //go:embed var above.
+// Adding a new migration requires (1) the file, (2) the embed var, (3) an
+// entry here. The loop below makes (3) impossible to forget relative to (2).
+var migrations = []struct {
+	name string
+	sql  string
+}{
+	{"0001_init", migration0001},
+	{"0002_profile_names", migration0002},
+	{"0003_profile_allergies", migration0003},
+	{"0004_oauth", migration0004},
+	{"0005_travel_independent", migration0005},
+	{"0006_profile_confirmed", migration0006},
+	{"0007_travel_independent_per_leg", migration0007},
+	{"0008_event_hotel_link", migration0008},
+	{"0009_event_image", migration0009},
+	{"0010_event_attendees", migration0010},
+}
+
 // Open opens the application's *sql.DB through pgx's database/sql adapter and
 // configures it for use behind a transaction-pool PgBouncer (the common HA
 // layout in front of managed Postgres).
@@ -80,35 +100,10 @@ func Open(url string) (*sql.DB, error) {
 // Migrate applies the embedded migrations in order. Each script is idempotent
 // (IF NOT EXISTS), so re-running is safe.
 func Migrate(db *sql.DB) error {
-	if _, err := db.Exec(migration0001); err != nil {
-		return fmt.Errorf("0001_init: %w", err)
-	}
-	if _, err := db.Exec(migration0002); err != nil {
-		return fmt.Errorf("0002_profile_names: %w", err)
-	}
-	if _, err := db.Exec(migration0003); err != nil {
-		return fmt.Errorf("0003_profile_allergies: %w", err)
-	}
-	if _, err := db.Exec(migration0004); err != nil {
-		return fmt.Errorf("0004_oauth: %w", err)
-	}
-	if _, err := db.Exec(migration0005); err != nil {
-		return fmt.Errorf("0005_travel_independent: %w", err)
-	}
-	if _, err := db.Exec(migration0006); err != nil {
-		return fmt.Errorf("0006_profile_confirmed: %w", err)
-	}
-	if _, err := db.Exec(migration0007); err != nil {
-		return fmt.Errorf("0007_travel_independent_per_leg: %w", err)
-	}
-	if _, err := db.Exec(migration0008); err != nil {
-		return fmt.Errorf("0008_event_hotel_link: %w", err)
-	}
-	if _, err := db.Exec(migration0009); err != nil {
-		return fmt.Errorf("0009_event_image: %w", err)
-	}
-	if _, err := db.Exec(migration0010); err != nil {
-		return fmt.Errorf("0010_event_attendees: %w", err)
+	for _, m := range migrations {
+		if _, err := db.Exec(m.sql); err != nil {
+			return fmt.Errorf("%s: %w", m.name, err)
+		}
 	}
 	return nil
 }

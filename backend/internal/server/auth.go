@@ -92,7 +92,7 @@ func (a *App) resolveToken(ctx context.Context, tok string, allowMCPScope bool) 
 	if typ == tokenTypeMCPAccess && !allowMCPScope {
 		return nil, "token not valid for this endpoint", nil
 	}
-	u, err := a.userByID(ctx, userID)
+	u, err := a.Store.userByID(ctx, userID)
 	if err == sql.ErrNoRows {
 		return nil, "unknown user", nil
 	}
@@ -183,18 +183,6 @@ func (a *App) mcpTokenGateMiddleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), ctxUserKey, u)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-func (a *App) userByID(ctx context.Context, id string) (*User, error) {
-	u := &User{}
-	err := a.DB.QueryRowContext(ctx,
-		`SELECT id, email, first_name, last_name, allergies, profile_confirmed, is_admin, created_at, token_version FROM users WHERE id = $1`, id).
-		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.ProfileConfirmed, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
-	if err != nil {
-		return nil, err
-	}
-	u.setDisplayName()
-	return u, nil
 }
 
 // randHex returns n random bytes hex-encoded (2n chars).

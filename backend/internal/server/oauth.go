@@ -258,7 +258,7 @@ func (a *App) handleOAuthAuthorizeSubmit(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	user, err := a.findOrCreateUser(r.Context(), email, "", "", "")
+	user, err := a.Store.findOrCreateUser(r.Context(), email, "", "", "")
 	if err != nil {
 		log.Printf("ERROR: oauth authorize provisioning: %v", err)
 		rerender("An error occurred. Please try again.")

@@ -100,7 +100,7 @@ func withUser(ctx context.Context, id, email string) context.Context {
 func TestCreateEventHandlerDBRoundtrip(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
 
 	body, _ := json.Marshal(eventReq{
 		Slug: "dubrovnik-oct-2026", Name: "IRL Dubrovnik October 2026",
@@ -143,8 +143,8 @@ func TestCreateEventHandlerDBRoundtrip(t *testing.T) {
 func TestListCurrentEventsAnnotatesRSVP(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
-	user, _ := a.findOrCreateUser(ctx, "bob@id5.io", "Bob", "Jones", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	user, _ := a.Store.findOrCreateUser(ctx, "bob@id5.io", "Bob", "Jones", "")
 
 	mkEvent := func(slug, start, end string) string {
 		body, _ := json.Marshal(eventReq{

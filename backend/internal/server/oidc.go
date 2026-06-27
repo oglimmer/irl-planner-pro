@@ -261,7 +261,7 @@ func (a *App) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if first == "" && last == "" {
 		first, last = splitName(claims.Name)
 	}
-	user, err := a.findOrCreateUser(r.Context(), email, first, last, "")
+	user, err := a.Store.findOrCreateUser(r.Context(), email, first, last, "")
 	if err != nil {
 		log.Printf("ERROR: oidc user provisioning: %v", err)
 		fail(oidcErrAccount)

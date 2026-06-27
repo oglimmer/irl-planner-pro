@@ -21,8 +21,12 @@ import (
 
 type App struct {
 	Cfg  config.Config
-	DB   *sql.DB
+	DB   *sql.DB      // raw pool; used directly for some queries and all tx work
 	OIDC *oidcRuntime // populated only when Cfg.AuthMode == "oidc"
+
+	// Store owns data-access helpers (see store.go for scope and rationale).
+	// Callers use a.Store.* directly.
+	Store *Store
 
 	// Email sends outbound notifications (reminders, digests, admin alerts).
 	// Its zero value is "not configured" — Send is a no-op guarded by callers.

@@ -34,8 +34,9 @@ func main() {
 	metrics.RegisterDBStats(pool)
 
 	app := &server.App{
-		Cfg: cfg,
-		DB:  pool,
+		Cfg:   cfg,
+		DB:    pool,
+		Store: server.NewStore(pool),
 		Email: email.Sender{
 			Host:     cfg.SMTPHost,
 			Port:     cfg.SMTPPort,

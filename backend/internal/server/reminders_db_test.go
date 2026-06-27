@@ -9,7 +9,7 @@ import (
 func TestClaimReminderIdempotent(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
 
 	var eventID string
 	if err := a.DB.QueryRowContext(ctx,
@@ -43,7 +43,7 @@ func TestClaimReminderIdempotent(t *testing.T) {
 func TestNonResponders(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
 
 	var eventID string
 	if err := a.DB.QueryRowContext(ctx,
@@ -69,8 +69,8 @@ func TestNonResponders(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Bob responds.
-	bob, _ := a.findOrCreateUser(ctx, "bob@id5.io", "Bob", "B", "")
-	e, _ := a.loadEventByColumn(ctx, "id", eventID, time.Now())
+	bob, _ := a.Store.findOrCreateUser(ctx, "bob@id5.io", "Bob", "B", "")
+	e, _ := a.Store.loadEventByColumn(ctx, "id", eventID, time.Now())
 	req := &submissionReq{Attending: "no"}
 	if err := req.normalizeAndValidate(e, false); err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestNonResponders(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	nr, err := a.nonResponders(ctx, eventID)
+	nr, err := a.Store.nonResponders(ctx, eventID)
 	if err != nil {
 		t.Fatal(err)
 	}

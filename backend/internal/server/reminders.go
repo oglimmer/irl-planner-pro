@@ -59,7 +59,7 @@ func (a *App) runReminderTick(ctx context.Context, now time.Time) {
 		return
 	}
 	for _, id := range ids {
-		e, err := a.loadEventByColumn(ctx, "id", id, now)
+		e, err := a.Store.loadEventByColumn(ctx, "id", id, now)
 		if err != nil {
 			log.Printf("WARN: reminder tick: load event %s: %v", id, err)
 			continue
@@ -94,7 +94,7 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 	if len(windows) == 0 {
 		return
 	}
-	nonResponders, err := a.nonResponders(ctx, e.ID)
+	nonResponders, err := a.Store.nonResponders(ctx, e.ID)
 	if err != nil {
 		log.Printf("WARN: reminder: non-responders for %s: %v", e.ID, err)
 		return
@@ -227,28 +227,6 @@ func (a *App) claimReminder(ctx context.Context, eventID, recipient, kind, perio
 	}
 	n, _ := res.RowsAffected()
 	return n > 0, nil
-}
-
-// nonResponders returns the emails of event attendees with no submission yet.
-func (a *App) nonResponders(ctx context.Context, eventID string) ([]string, error) {
-	rows, err := a.DB.QueryContext(ctx,
-		`SELECT u.email FROM event_attendees ea
-		   JOIN users u ON u.id = ea.user_id
-		   LEFT JOIN submissions s ON s.event_id = ea.event_id AND s.user_id = ea.user_id
-		  WHERE ea.event_id = $1 AND s.id IS NULL`, eventID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var e string
-		if err := rows.Scan(&e); err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
 }
 
 // activitySince returns activity entries newer than `since` for the digest.

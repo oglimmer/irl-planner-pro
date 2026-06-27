@@ -145,63 +145,6 @@ func eventImageURL(slug string, etag sql.NullString) string {
 	return "/api/events/" + slug + "/image?v=" + etag.String
 }
 
-// loadEventByColumn loads an event (and its days) by a unique column (id or slug).
-func (a *App) loadEventByColumn(ctx context.Context, column, value string, now time.Time) (*Event, error) {
-	e := &Event{}
-	var start, end, deadline time.Time
-	var imageEtag sql.NullString
-	err := a.DB.QueryRowContext(ctx,
-		`SELECT e.id, e.slug, e.name, e.country, e.city, e.hotel_name, e.hotel_address, e.hotel_link, e.timezone,
-		        e.start_date, e.end_date, e.submission_deadline, e.reminder_days_before,
-		        e.weekly_reminders, e.reminder_hour, e.daily_activity_email, e.created_at, e.updated_at,
-		        i.etag
-		   FROM events e LEFT JOIN event_images i ON i.event_id = e.id
-		  WHERE e.`+column+` = $1`, value).
-		Scan(&e.ID, &e.Slug, &e.Name, &e.Country, &e.City, &e.HotelName, &e.HotelAddress, &e.HotelLink, &e.Timezone,
-			&start, &end, &deadline, &e.ReminderDaysBefore,
-			&e.WeeklyReminders, &e.ReminderHour, &e.DailyActivityEmail, &e.CreatedAt, &e.UpdatedAt,
-			&imageEtag)
-	if err != nil {
-		return nil, err
-	}
-	e.ImageURL = eventImageURL(e.Slug, imageEtag)
-	e.StartDate = start.Format(dateLayout)
-	e.EndDate = end.Format(dateLayout)
-	e.SubmissionDeadline = deadline.UTC()
-	loc, lerr := loadLocation(e.Timezone)
-	if lerr != nil {
-		loc = time.UTC
-	}
-	e.SubmissionDeadlineLocal = formatLocalDateTime(deadline, loc)
-	e.IsPast = isEventPast(end, loc, now)
-
-	days, err := a.loadEventDays(ctx, e.ID)
-	if err != nil {
-		return nil, err
-	}
-	e.Days = days
-	return e, nil
-}
-
-func (a *App) loadEventDays(ctx context.Context, eventID string) ([]EventDay, error) {
-	rows, err := a.DB.QueryContext(ctx,
-		`SELECT day_date, day_type FROM event_days WHERE event_id = $1 ORDER BY day_date`, eventID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	days := []EventDay{}
-	for rows.Next() {
-		var d time.Time
-		var typ string
-		if err := rows.Scan(&d, &typ); err != nil {
-			return nil, err
-		}
-		days = append(days, EventDay{Date: d.Format(dateLayout), Type: typ})
-	}
-	return days, rows.Err()
-}
-
 // --- handlers --------------------------------------------------------------
 
 func (a *App) handleListEvents(w http.ResponseWriter, r *http.Request) {
@@ -315,7 +258,7 @@ func (a *App) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	metrics.EventMutationsTotal.WithLabelValues("create", "success").Inc()
 
-	e, err := a.loadEventByColumn(r.Context(), "id", id, time.Now())
+	e, err := a.Store.loadEventByColumn(r.Context(), "id", id, time.Now())
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return
@@ -325,7 +268,7 @@ func (a *App) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	e, err := a.loadEventByColumn(r.Context(), "id", id, time.Now())
+	e, err := a.Store.loadEventByColumn(r.Context(), "id", id, time.Now())
 	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "event not found")
 		return
@@ -395,7 +338,7 @@ func (a *App) handleUpdateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	metrics.EventMutationsTotal.WithLabelValues("update", "success").Inc()
 
-	e, err := a.loadEventByColumn(r.Context(), "id", id, time.Now())
+	e, err := a.Store.loadEventByColumn(r.Context(), "id", id, time.Now())
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return
@@ -406,7 +349,7 @@ func (a *App) handleUpdateEvent(w http.ResponseWriter, r *http.Request) {
 // handleGetEventBySlug is the attendee-facing event read (the shareable URL).
 func (a *App) handleGetEventBySlug(w http.ResponseWriter, r *http.Request) {
 	slug := strings.ToLower(chi.URLParam(r, "slug"))
-	e, err := a.loadEventByColumn(r.Context(), "slug", slug, time.Now())
+	e, err := a.Store.loadEventByColumn(r.Context(), "slug", slug, time.Now())
 	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "event not found")
 		return

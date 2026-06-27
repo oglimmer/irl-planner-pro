@@ -1,13 +1,10 @@
 package server
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -17,58 +14,6 @@ import (
 // both win). The name and allergies are seeded only when the account is first
 // created (from the IdP / first-login form); on subsequent logins they are left
 // untouched so a user's own profile edit is never clobbered.
-func (a *App) findOrCreateUser(ctx context.Context, email, firstName, lastName, allergies string) (*User, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
-	firstName = strings.TrimSpace(firstName)
-	lastName = strings.TrimSpace(lastName)
-	allergies = strings.TrimSpace(allergies)
-
-	u := &User{}
-	err := a.DB.QueryRowContext(ctx,
-		`SELECT id, email, first_name, last_name, allergies, profile_confirmed, is_admin, created_at, token_version FROM users WHERE email = $1`, email).
-		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.ProfileConfirmed, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion)
-	if err == nil {
-		// Existing user (incl. one provisioned by an admin import who is logging in
-		// for the first time): keep whatever name they (or a prior login) already
-		// have, but stamp last_login_at so the directory knows they've signed in.
-		if _, err := a.DB.ExecContext(ctx, `UPDATE users SET last_login_at = now() WHERE id = $1`, u.ID); err != nil {
-			return nil, err
-		}
-		u.setDisplayName()
-		return u, nil
-	}
-	if err != sql.ErrNoRows {
-		return nil, err
-	}
-
-	// ON CONFLICT leaves an existing row's names untouched (a concurrent first
-	// login that lost the race must not overwrite the winner's seeded name) but
-	// still records the login. `xmax = 0` is true only for a freshly inserted row
-	// (a conflict-update leaves xmax non-zero), letting us tell a brand-new account
-	// from one created by the racing login.
-	var inserted bool
-	err = a.DB.QueryRowContext(ctx,
-		`INSERT INTO users (email, first_name, last_name, allergies, is_admin, last_login_at)
-		 VALUES ($1, $2, $3, $4, NOT EXISTS (SELECT 1 FROM users), now())
-		 ON CONFLICT (email) DO UPDATE SET last_login_at = now()
-		 RETURNING id, email, first_name, last_name, allergies, profile_confirmed, is_admin, created_at, token_version, (xmax = 0)`,
-		email, firstName, lastName, allergies).
-		Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.Allergies, &u.ProfileConfirmed, &u.IsAdmin, &u.CreatedAt, &u.TokenVersion, &inserted)
-	if err != nil {
-		return nil, err
-	}
-	// A brand-new employee is an attendee of every open event by default. This is
-	// best-effort: a failure here must not block the login, since the membership is
-	// recoverable (the next event creation snapshots them, or an admin re-adds).
-	if inserted {
-		if err := addUserToOpenEvents(ctx, a.DB, u.ID, time.Now()); err != nil {
-			log.Printf("WARN: seed default event memberships for %s: %v", u.Email, err)
-		}
-	}
-	u.setDisplayName()
-	return u, nil
-}
-
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, currentUser(r))
 }
@@ -251,7 +196,7 @@ func (a *App) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 	if first == "" && last == "" {
 		first, last = splitName(req.Name)
 	}
-	user, err := a.findOrCreateUser(r.Context(), req.Email, first, last, req.Allergies)
+	user, err := a.Store.findOrCreateUser(r.Context(), req.Email, first, last, req.Allergies)
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return

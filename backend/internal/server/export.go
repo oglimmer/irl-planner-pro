@@ -17,7 +17,7 @@ import (
 func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	e, err := a.loadEventByColumn(r.Context(), "id", id, time.Now())
+	e, err := a.Store.loadEventByColumn(r.Context(), "id", id, time.Now())
 	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "event not found")
 		return
@@ -125,7 +125,7 @@ func (a *App) handleListSubmissions(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []Submission{}
 	for _, uid := range userIDs {
-		s, err := a.loadSubmission(r.Context(), id, uid)
+		s, err := a.Store.loadSubmission(r.Context(), id, uid)
 		if err != nil {
 			serverErr(w, r, err, "db error")
 			return
