@@ -123,6 +123,11 @@ type mcpEventRefIn struct {
 	Event string `json:"event" jsonschema:"the event slug (e.g. dubrovnik-oct-2026) or its id"`
 }
 
+type mcpGetActivityIn struct {
+	Event    string `json:"event" jsonschema:"the event slug or id"`
+	Category string `json:"category,omitempty" jsonschema:"optional filter: 'user' for participant actions (submissions) or 'admin' for administrative actions (event config, roster, reminders); empty means all"`
+}
+
 type mcpListSubmissionsIn struct {
 	Event     string `json:"event" jsonschema:"the event slug or id"`
 	Attending string `json:"attending,omitempty" jsonschema:"optional comma-separated filter over yes,no,not_sure,no_response; empty means all"`
@@ -486,17 +491,20 @@ func (a *App) addToolGetActivity(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_activity",
 		Title:       "Get activity",
-		Description: "Recent activity-log entries for an event, newest first (after-deadline changes are flagged).",
-	}, instrumentMCP("get_activity", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpEventRefIn) (*mcp.CallToolResult, mcpActivityOut, error) {
+		Description: "Recent activity-log entries for an event, newest first (after-deadline changes are flagged). Filter by category: 'user' for participant actions, 'admin' for administrative ones.",
+	}, instrumentMCP("get_activity", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpGetActivityIn) (*mcp.CallToolResult, mcpActivityOut, error) {
 		var zero mcpActivityOut
 		if _, err := requireMCPAdmin(ctx); err != nil {
 			return nil, zero, err
+		}
+		if in.Category != "" && in.Category != categoryUser && in.Category != categoryAdmin {
+			return nil, zero, fmt.Errorf("category must be 'user' or 'admin'")
 		}
 		e, err := a.resolveEventRef(ctx, in.Event)
 		if err != nil {
 			return nil, zero, err
 		}
-		entries, err := a.queryActivity(ctx, e.ID, "")
+		entries, err := a.queryActivity(ctx, e.ID, "", in.Category)
 		if err != nil {
 			return nil, zero, fmt.Errorf("db error: %w", err)
 		}

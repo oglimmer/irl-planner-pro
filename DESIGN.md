@@ -426,14 +426,16 @@ CREATE TABLE activity_log (
     actor_email TEXT NOT NULL DEFAULT '',     -- denormalised for stable display
     subject_email TEXT NOT NULL DEFAULT '',   -- whose data was affected (the attendee)
     action      TEXT NOT NULL,                -- see action vocabulary below
+    category    TEXT NOT NULL DEFAULT 'admin', -- 'user' | 'admin' — what was done, not who did it
     summary     TEXT NOT NULL DEFAULT '',     -- pre-rendered, human-readable line
     detail      JSONB,                        -- optional structured diff / context
     after_deadline BOOLEAN NOT NULL DEFAULT false, -- true if created past the event deadline
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX activity_log_event_idx   ON activity_log(event_id, created_at DESC);
-CREATE INDEX activity_log_subject_idx ON activity_log(event_id, subject_email);
+CREATE INDEX activity_log_event_idx    ON activity_log(event_id, created_at DESC);
+CREATE INDEX activity_log_subject_idx  ON activity_log(event_id, subject_email);
+CREATE INDEX activity_log_category_idx ON activity_log(event_id, category, created_at DESC);
 ```
 
 **Action vocabulary** (extensible): `submission.created`, `submission.updated`,
@@ -444,6 +446,20 @@ CREATE INDEX activity_log_subject_idx ON activity_log(event_id, subject_email);
 digest email render without re-deriving anything. `after_deadline` is stamped by
 comparing `now()` to the event's `submission_deadline` — it's the single flag the
 admin UI uses to highlight late changes.
+
+**`category` classifies *what was done*, not who did it.** It is a pure function
+of `action`, computed at write time (`actionCategory` in `activity.go`) and
+backfilled by migration 0011 with the same mapping — the two must stay in sync.
+Only the two participant submission verbs (`submission.created`,
+`submission.updated`) are `user`; everything else — event config, roster
+management, `admin.edited_submission`, `reminder.sent` — is `admin`. The key
+consequence: an admin account is also an employee, so when an admin submits
+**their own** attendance the entry is `user`, not `admin`. This lets the admin
+all-activity view default to the participant stream (the common review case) and
+narrow to administrative actions on demand. The admin endpoint accepts
+`?category=user|admin` (empty = all); the MCP `get_activity` tool takes the same
+optional `category`. The employee "my activity" view is unaffected (it is already
+scoped to the caller's own subject).
 
 `submission_revisions` (§5.6) is the *full-snapshot* store (for precise
 field-level diffs); `activity_log` is the *timeline* layered on top.
@@ -912,7 +928,10 @@ The `activity_log` (§5.8) is surfaced two ways, both rendered by the shared
   subject, action, time in event tz). Any entry with `after_deadline = true` — and
   any `admin.edited_submission` — is visually highlighted so a change made after the
   deadline, or an admin editing on someone's behalf, is immediately obvious.
-  Filterable by attendee and by "after-deadline only".
+  A **Participant / Admin / All** segmented filter on `category` (§5.8) sits at the
+  front of the toolbar and **defaults to Participant** — the People team almost
+  always wants to review what attendees did, and only occasionally audits admin
+  configuration. The tab also filters by free-text search and toggles sort order.
 
 This is the mechanism that makes post-deadline editing *allowed but conspicuous*
 (§6): nothing is blocked, but every late or admin-made change is on the record and
@@ -1106,7 +1125,9 @@ changes are as visible as any other.
   state), mirroring the export filter.
 - `list_attendees` — the full attendee roster for an event with each person's
   response state and whether they've ever signed in.
-- `get_activity` — recent activity-log entries for an event (after-deadline flagged).
+- `get_activity` — recent activity-log entries for an event (after-deadline
+  flagged), with an optional `category` filter (`user` = participant actions,
+  `admin` = administrative ones; empty = all).
 
 **Write (admin):**
 - `create_event` — create an event (+ generate typed days); validates slug + tz.

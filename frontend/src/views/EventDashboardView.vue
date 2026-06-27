@@ -28,6 +28,11 @@ const responsesSearch = ref('')
 const attendeesSearch = ref('')
 const activitySearch = ref('')
 
+// Activity category filter. Defaults to 'user' (participant actions) — the
+// common review case — with 'admin' and 'all' available. This classifies what
+// was done, not who did it. See ActivityEntry.category.
+const activityCategory = ref<'user' | 'admin' | 'all'>('user')
+
 // Attending sorts in a logical pipeline order rather than alphabetically; status
 // ranks the most notable flags highest so a descending sort surfaces them first.
 const attendingRank: Record<AttendingState, number> = {
@@ -141,6 +146,9 @@ const attendeeEntries = computed(() => {
 // Activity tab: search across summary + actor/subject email, then order by time.
 const filteredActivity = computed(() => {
   let rows = activity.value
+  if (activityCategory.value !== 'all') {
+    rows = rows.filter((e) => e.category === activityCategory.value)
+  }
   const q = activitySearch.value.trim().toLowerCase()
   if (q) rows = rows.filter((e) => matches(q, e.summary, e.actorEmail, e.subjectEmail))
   const dir = activityNewestFirst.value ? -1 : 1
@@ -359,6 +367,29 @@ onMounted(async () => {
       <!-- Activity -->
       <div v-show="tab === 'activity'">
         <div class="toolbar">
+          <div class="catfilter" role="group" aria-label="Filter activity by type">
+            <button
+              type="button"
+              :class="{ active: activityCategory === 'user' }"
+              @click="activityCategory = 'user'"
+            >
+              Participant
+            </button>
+            <button
+              type="button"
+              :class="{ active: activityCategory === 'admin' }"
+              @click="activityCategory = 'admin'"
+            >
+              Admin
+            </button>
+            <button
+              type="button"
+              :class="{ active: activityCategory === 'all' }"
+              @click="activityCategory = 'all'"
+            >
+              All
+            </button>
+          </div>
           <input
             v-model="activitySearch"
             type="search"
@@ -533,6 +564,31 @@ onMounted(async () => {
   gap: 0.75rem;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+/* Segmented control for the activity category (Participant / Admin / All). */
+.catfilter {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.catfilter button {
+  padding: 0.4rem 0.8rem;
+  border: none;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-left: 1px solid var(--border);
+}
+.catfilter button:first-child {
+  border-left: none;
+}
+.catfilter button.active {
+  background: rgb(var(--accent-rgb) / 0.12);
+  color: var(--accent);
+  font-weight: 600;
 }
 .reload {
   display: flex;

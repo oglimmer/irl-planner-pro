@@ -160,6 +160,10 @@ export interface ActivityEntry {
   actorEmail: string
   subjectEmail: string
   action: string
+  // Classifies what was done, not who did it: 'user' = participant action (a
+  // submission), 'admin' = administrative action (event config, roster,
+  // reminders). An admin submitting their own attendance produces a 'user' entry.
+  category: 'user' | 'admin'
   summary: string
   detail?: { changes?: ActivityChange[] }
   afterDeadline: boolean
