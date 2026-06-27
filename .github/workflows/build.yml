@@ -29,7 +29,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         id: filter
         with:
@@ -48,7 +48,7 @@ jobs:
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: arc-irl-planner-pro   # in-cluster ARC runner scale set
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Log in to ghcr.io
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
@@ -73,7 +73,7 @@ jobs:
     if: ${{ needs.changes.outputs.frontend == 'true' }}
     runs-on: arc-irl-planner-pro
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Log in to ghcr.io
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
