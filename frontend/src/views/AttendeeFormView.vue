@@ -252,6 +252,58 @@ const extraNightAfter = computed({
   set: (v: boolean) => (form.extraStayEnd = v ? afterDate.value : null),
 })
 
+// Becomes true the first time the attendee tries to save. Until then we show the
+// neutral "required" hints and live ✓s, but never the red "missing" markers — so
+// the form doesn't shout at someone who is still filling it in.
+const triedSave = ref(false)
+
+type FieldKey =
+  | 'notSureReason'
+  | 'arrivalDay'
+  | 'arrivalMode'
+  | 'arrivalTime'
+  | 'arrivalDetails'
+  | 'departureDay'
+  | 'departureMode'
+  | 'departureTime'
+  | 'departureDetails'
+
+// Which fields are mandatory depends on the chosen branch — this mirrors the
+// server's conditional rules in submissions.go / validateTravelLeg. `filled` is
+// what counts as a real answer; it drives the inline ✓ / required / missing marks.
+const fields = computed<Record<FieldKey, { required: boolean; filled: boolean }>>(() => {
+  const yes = form.attending === 'yes'
+  const arrFlight = yes && !form.arrivalIndependent && form.arrivalMode === 'flight'
+  const depFlight = yes && !form.departureIndependent && form.departureMode === 'flight'
+  return {
+    notSureReason: { required: form.attending === 'not_sure', filled: !!form.notSureReason.trim() },
+    arrivalDay: { required: yes, filled: form.arrivalIndependent || !!form.arrivalDay },
+    arrivalMode: { required: yes && !form.arrivalIndependent, filled: !!form.arrivalMode },
+    arrivalTime: { required: arrFlight, filled: !!form.arrivalTime },
+    arrivalDetails: { required: arrFlight, filled: !!form.arrivalDetails.trim() },
+    departureDay: { required: yes, filled: form.departureIndependent || !!form.departureDay },
+    departureMode: { required: yes && !form.departureIndependent, filled: !!form.departureMode },
+    departureTime: { required: depFlight, filled: !!form.departureTime },
+    departureDetails: { required: depFlight, filled: !!form.departureDetails.trim() },
+  }
+})
+
+const missingCount = computed(
+  () => Object.values(fields.value).filter((f) => f.required && !f.filled).length,
+)
+
+// Class bindings for a required field's <label>: `req-field` shows the neutral
+// hint, `filled` flips it to a live ✓, and `missing` (only after a save attempt)
+// turns it into a red "missing" marker plus a red control border.
+function fieldClass(key: FieldKey) {
+  const f = fields.value[key]
+  return {
+    'req-field': f.required,
+    filled: f.required && f.filled,
+    missing: f.required && !f.filled && triedSave.value,
+  }
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -288,6 +340,18 @@ async function load() {
 }
 
 async function submit() {
+  // Custom required-field validation (the form is `novalidate`, so no native
+  // bubbles). Surface which fields are missing inline rather than blocking the
+  // submit silently — and don't even prompt the after-deadline confirm yet.
+  triedSave.value = true
+  if (missingCount.value > 0) {
+    saved.value = false
+    error.value =
+      missingCount.value === 1
+        ? 'One required field is still missing — see the highlighted field below.'
+        : `${missingCount.value} required fields are still missing — see the highlighted fields below.`
+    return
+  }
   // After the deadline the event is still editable, but the change is flagged to
   // the People team — make the attendee confirm so it is never an accidental edit.
   if (afterDeadline.value) {
@@ -396,7 +460,7 @@ onMounted(load)
       People team if something needs changing.
     </p>
 
-    <form class="form" @submit.prevent="submit">
+    <form class="form" novalidate @submit.prevent="submit">
       <fieldset :disabled="readOnly || saving">
         <div class="field">
           <span class="q">Are you attending?</span>
@@ -414,7 +478,7 @@ onMounted(load)
             ends. Let us know what you currently think, what the decision depends on,
             and when you might be able to tell us the final decision.
           </p>
-          <label>
+          <label :class="fieldClass('notSureReason')">
             Why aren't you sure yet?
             <textarea v-model="form.notSureReason" rows="2" required />
           </label>
@@ -435,7 +499,7 @@ onMounted(load)
           <div class="leg">
             <h3>Arrival</h3>
             <div class="row">
-              <label>Day
+              <label :class="fieldClass('arrivalDay')">Day
                 <select v-model="arrivalDaySelection" required>
                   <option :value="null" disabled>Select a day</option>
                   <option :value="INDEPENDENT_TRAVEL">
@@ -444,18 +508,24 @@ onMounted(load)
                   <option v-for="d in travelDates" :key="d" :value="d">{{ formatDate(d) }}</option>
                 </select>
               </label>
-              <label v-if="!form.arrivalIndependent">{{ arrivalTimeLabel }}
-                <input v-model="form.arrivalTime" type="time" :required="form.arrivalMode === 'flight'">
+              <label v-if="!form.arrivalIndependent" :class="fieldClass('arrivalTime')">{{ arrivalTimeLabel }}
+                <input
+                  v-model="form.arrivalTime"
+                  type="time"
+                  class="time"
+                  :class="{ empty: !form.arrivalTime }"
+                  :required="form.arrivalMode === 'flight'"
+                >
               </label>
             </div>
             <div v-if="!form.arrivalIndependent" class="row">
-              <label>Travel mode
+              <label :class="fieldClass('arrivalMode')">Travel mode
                 <select v-model="form.arrivalMode" required>
                   <option :value="null" disabled>Select</option>
                   <option v-for="m in TRAVEL_MODES" :key="m.value" :value="m.value">{{ m.label }}</option>
                 </select>
               </label>
-              <label>{{ arrivalDetailsLabel }}
+              <label :class="fieldClass('arrivalDetails')">{{ arrivalDetailsLabel }}
                 <input
                   v-model="form.arrivalDetails"
                   type="text"
@@ -469,7 +539,7 @@ onMounted(load)
           <div class="leg">
             <h3>Departure</h3>
             <div class="row">
-              <label>Day
+              <label :class="fieldClass('departureDay')">Day
                 <select v-model="departureDaySelection" required>
                   <option :value="null" disabled>Select a day</option>
                   <option :value="INDEPENDENT_TRAVEL">
@@ -478,18 +548,24 @@ onMounted(load)
                   <option v-for="d in travelDates" :key="d" :value="d">{{ formatDate(d) }}</option>
                 </select>
               </label>
-              <label v-if="!form.departureIndependent">{{ departureTimeLabel }}
-                <input v-model="form.departureTime" type="time" :required="form.departureMode === 'flight'">
+              <label v-if="!form.departureIndependent" :class="fieldClass('departureTime')">{{ departureTimeLabel }}
+                <input
+                  v-model="form.departureTime"
+                  type="time"
+                  class="time"
+                  :class="{ empty: !form.departureTime }"
+                  :required="form.departureMode === 'flight'"
+                >
               </label>
             </div>
             <div v-if="!form.departureIndependent" class="row">
-              <label>Travel mode
+              <label :class="fieldClass('departureMode')">Travel mode
                 <select v-model="form.departureMode" required>
                   <option :value="null" disabled>Select</option>
                   <option v-for="m in TRAVEL_MODES" :key="m.value" :value="m.value">{{ m.label }}</option>
                 </select>
               </label>
-              <label>{{ departureDetailsLabel }}
+              <label :class="fieldClass('departureDetails')">{{ departureDetailsLabel }}
                 <input
                   v-model="form.departureDetails"
                   type="text"
@@ -809,6 +885,54 @@ input[type='radio'] {
   accent-color: var(--accent);
   width: 15px;
   height: 15px;
+}
+
+/* Safari/WebKit render an empty <input type="time"> with the field-format
+   text (e.g. "12:30 PM") at full value color, so an empty field looks
+   pre-filled. Time inputs have no ::placeholder, so we fade the format text
+   ourselves whenever the field is empty — kept barely visible so it clearly
+   reads as a placeholder, never as a real entered value. */
+input.time.empty::-webkit-datetime-edit {
+  color: rgb(var(--text-rgb) / 0.25);
+}
+
+/* Required-field markers. A required <label> carries `req-field`; the corner
+   tag progresses neutral "required" → green "✓" once filled → red "missing"
+   after a save attempt (the `missing` class is only added post-submit). */
+.req-field {
+  position: relative;
+}
+.req-field::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  content: 'required';
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.65;
+  pointer-events: none;
+}
+.req-field.filled::after {
+  content: '✓';
+  font-size: 12px;
+  color: var(--success);
+  opacity: 1;
+}
+.req-field.missing::after {
+  content: 'missing';
+  color: var(--danger);
+  opacity: 1;
+}
+.req-field.missing select,
+.req-field.missing input {
+  border-bottom-color: var(--danger);
+}
+.req-field.missing textarea {
+  border-color: var(--danger);
 }
 
 .submitting-as {
