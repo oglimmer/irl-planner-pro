@@ -1025,6 +1025,13 @@ OIDC_GOOGLE_WORKSPACE_DOMAINS=id5.io
 PEOPLE_TEAM_EMAIL=people@id5.io          # recipient for "submission changed" + digest notices
 
 # SMTP (reminders + admin notifications). Empty SMTP_HOST disables email.
+# The sender (internal/email) is a provider-agnostic stdlib net/smtp client
+# (STARTTLS or implicit TLS + AUTH PLAIN), so any relay works with config alone.
+# Production target is AWS SES via its SMTP interface — no code change, just point
+# at the regional SES SMTP endpoint with SES-generated SMTP credentials:
+#   SMTP_HOST=email-smtp.<region>.amazonaws.com   SMTP_PORT=587   SMTP_USE_TLS=true
+# (SMTP_FROM must be a verified SES identity; the account must be out of the SES
+#  sandbox to reach arbitrary recipients.) Port 465 instead → SMTP_IMPLICIT_TLS=true.
 SMTP_HOST=
 SMTP_PORT=587
 SMTP_USERNAME=

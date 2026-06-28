@@ -89,6 +89,16 @@ mcp:
 #   useTLS=true       → STARTTLS upgrade   (typically port 587)
 #   both false        → plain SMTP, no TLS (trusted relay only)
 # from may be a bare address or a display-name form: '"Name" <addr@host>'.
+#
+# AWS SES (production): the backend speaks plain SMTP, so SES needs no code change.
+# Point host at the regional SES SMTP endpoint, use STARTTLS on 587, verify `from`
+# as a SES identity, and put the SES-generated SMTP credentials (NOT AWS access
+# keys) into the app Secret as SMTP_USERNAME + SMTP_PASSWORD:
+#   host: email-smtp.eu-central-1.amazonaws.com
+#   port: 587
+#   useTLS: true
+#   implicitTLS: false
+#   from: '"ID5 IRL" <noreply@id5.io>'
 smtp:
   host: "192.168.178.52"
   port: 25

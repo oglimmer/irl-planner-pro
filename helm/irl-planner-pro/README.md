@@ -23,7 +23,10 @@ The chart does **not** create a Secret. Apply one named `<release>-irl-planner-p
 - `POSTGRES_PASSWORD` (when `postgres.enabled=true`) or `DATABASE_URL` (when `false`)
 - `OIDC_CLIENT_SECRET` (when `auth.mode=oidc`)
 - `SMTP_USERNAME` + `SMTP_PASSWORD` (optional; both needed for an authenticating
-  relay like Fastmail — without them the backend skips SMTP AUTH and sends fail 530)
+  relay — without them the backend skips SMTP AUTH and sends fail 530). For AWS
+  SES (the production target) these are the SES-generated **SMTP credentials**, not
+  your AWS access keys; set `smtp.host`/`port`/`useTLS` to the regional SES SMTP
+  endpoint in `values.yaml` and verify `smtp.from` as a SES identity
 - `SLACK_BOT_TOKEN` (optional; `xoxb-…` workspace bot token to enable the Slack
   messaging channel — scopes `users:read.email` + `chat:write`)
 - `METRICS_TOKEN` (optional; when `backend.metrics.exposeOnIngress=true`)
