@@ -71,6 +71,7 @@ func TestSubmissionArrivalIndependentDepartureBooked(t *testing.T) {
 		ArrivalDay:         strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
 		DepartureDay: strp("2026-10-16"), DepartureMode: strp("train"), DepartureDetails: "TGV 9876",
 	}
+	// Departure is by train, so its time/details stay optional even though set.
 	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
 		t.Fatalf("arrival-independent + booked departure should be valid: %v", err)
 	}
@@ -86,7 +87,7 @@ func TestSubmissionArrivalIndependentDepartureBooked(t *testing.T) {
 func TestSubmissionDepartureIndependentNeedsNoDetails(t *testing.T) {
 	req := &submissionReq{
 		Attending:  "yes",
-		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
+		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalTime: "09:00", ArrivalDetails: "BA100",
 		DepartureIndependent: true,
 	}
 	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
@@ -100,7 +101,7 @@ func TestSubmissionLongHaulKeptWhenOneLegBooked(t *testing.T) {
 	req := &submissionReq{
 		Attending:          "yes",
 		ArrivalIndependent: true,
-		DepartureDay:       strp("2026-10-16"), DepartureMode: strp("flight"), DepartureDetails: "BA200",
+		DepartureDay:       strp("2026-10-16"), DepartureMode: strp("flight"), DepartureTime: "18:00", DepartureDetails: "BA200",
 		LongHaul: true, ExtraStayStart: strp("2026-10-11"),
 	}
 	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
@@ -121,23 +122,49 @@ func TestSubmissionIndependentTravelClearedWhenNotYes(t *testing.T) {
 	}
 }
 
-// Details (flight number / free text) are optional: a leg with a day + mode but
-// no details is valid.
-func TestSubmissionYesModeAllowsEmptyDetails(t *testing.T) {
+// For non-flight modes, time and details (free text) stay optional: a leg with a
+// day + mode but no time/details is valid.
+func TestSubmissionNonFlightModeAllowsEmptyTimeAndDetails(t *testing.T) {
 	req := &submissionReq{
 		Attending:  "yes",
-		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "",
-		DepartureDay: strp("2026-10-16"), DepartureMode: strp("flight"), DepartureDetails: "",
+		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("car"), ArrivalDetails: "",
+		DepartureDay: strp("2026-10-16"), DepartureMode: strp("train"), DepartureDetails: "",
 	}
 	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
-		t.Fatalf("empty details should be allowed: %v", err)
+		t.Fatalf("empty time/details should be allowed for non-flight modes: %v", err)
+	}
+}
+
+// A flight requires both a time and a flight number, for employees and admins
+// alike (it is a data-completeness rule, not a relaxable window).
+func TestSubmissionFlightRequiresTimeAndNumber(t *testing.T) {
+	missingTime := &submissionReq{
+		Attending:  "yes",
+		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalTime: "", ArrivalDetails: "BA100",
+		DepartureIndependent: true,
+	}
+	if err := missingTime.normalizeAndValidate(sampleEvent(), false); err == nil {
+		t.Error("flight without a time should be rejected")
+	}
+
+	missingNumber := &submissionReq{
+		Attending:  "yes",
+		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalTime: "09:00", ArrivalDetails: "",
+		DepartureIndependent: true,
+	}
+	if err := missingNumber.normalizeAndValidate(sampleEvent(), false); err == nil {
+		t.Error("flight without a flight number should be rejected")
+	}
+	// Same rule for admins — no relaxation.
+	if err := missingNumber.normalizeAndValidate(sampleEvent(), true); err == nil {
+		t.Error("flight without a flight number should be rejected for admins too")
 	}
 }
 
 func TestSubmissionValidYes(t *testing.T) {
 	req := &submissionReq{
 		Attending:  "yes",
-		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
+		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalTime: "09:00", ArrivalDetails: "BA100",
 		DepartureDay: strp("2026-10-16"), DepartureMode: strp("train"), DepartureDetails: "TGV 9876",
 	}
 	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
@@ -148,8 +175,8 @@ func TestSubmissionValidYes(t *testing.T) {
 func TestSubmissionArrivalDayOutOfRange(t *testing.T) {
 	req := &submissionReq{
 		Attending:  "yes",
-		ArrivalDay: strp("2026-09-01"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
-		DepartureDay: strp("2026-10-16"), DepartureMode: strp("flight"), DepartureDetails: "BA200",
+		ArrivalDay: strp("2026-09-01"), ArrivalMode: strp("flight"), ArrivalTime: "09:00", ArrivalDetails: "BA100",
+		DepartureDay: strp("2026-10-16"), DepartureMode: strp("flight"), DepartureTime: "18:00", DepartureDetails: "BA200",
 	}
 	if err := req.normalizeAndValidate(sampleEvent(), false); err == nil {
 		t.Fatal("expected error: arrival day far outside the event window")
@@ -163,8 +190,8 @@ func TestSubmissionArrivalDayOutOfRange(t *testing.T) {
 func baseYes() *submissionReq {
 	return &submissionReq{
 		Attending:  "yes",
-		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalDetails: "BA100",
-		DepartureDay: strp("2026-10-16"), DepartureMode: strp("flight"), DepartureDetails: "BA200",
+		ArrivalDay: strp("2026-10-12"), ArrivalMode: strp("flight"), ArrivalTime: "09:00", ArrivalDetails: "BA100",
+		DepartureDay: strp("2026-10-16"), DepartureMode: strp("flight"), DepartureTime: "18:00", DepartureDetails: "BA200",
 		LongHaul: true,
 	}
 }

@@ -104,10 +104,20 @@ watch(needsTravelSupport, (needs) => {
 })
 
 const arrivalTimeLabel = computed(() =>
-  form.arrivalMode === 'flight' ? 'Flight arrival time' : 'Time',
+  form.arrivalMode === 'flight' ? 'Flight arrival time' : 'Time (optional)',
 )
 const departureTimeLabel = computed(() =>
-  form.departureMode === 'flight' ? 'Flight departure time' : 'Time',
+  form.departureMode === 'flight' ? 'Flight departure time' : 'Time (optional)',
+)
+
+// Flight number is mandatory for flights and optional for every other mode, so
+// the label flips between a required flight-number field and a free-text details
+// field (mirrors the server rule in submissions.go / validateTravelLeg).
+const arrivalDetailsLabel = computed(() =>
+  form.arrivalMode === 'flight' ? 'Flight number' : 'Travel details (optional)',
+)
+const departureDetailsLabel = computed(() =>
+  form.departureMode === 'flight' ? 'Flight number' : 'Travel details (optional)',
 )
 
 const readOnly = computed(() => event.value?.isPast ?? false)
@@ -435,7 +445,7 @@ onMounted(load)
                 </select>
               </label>
               <label v-if="!form.arrivalIndependent">{{ arrivalTimeLabel }}
-                <input v-model="form.arrivalTime" type="time">
+                <input v-model="form.arrivalTime" type="time" :required="form.arrivalMode === 'flight'">
               </label>
             </div>
             <div v-if="!form.arrivalIndependent" class="row">
@@ -445,8 +455,13 @@ onMounted(load)
                   <option v-for="m in TRAVEL_MODES" :key="m.value" :value="m.value">{{ m.label }}</option>
                 </select>
               </label>
-              <label>Flight number / details (optional)
-                <input v-model="form.arrivalDetails" type="text" placeholder="BA123, or other info">
+              <label>{{ arrivalDetailsLabel }}
+                <input
+                  v-model="form.arrivalDetails"
+                  type="text"
+                  placeholder="BA123, or other info"
+                  :required="form.arrivalMode === 'flight'"
+                >
               </label>
             </div>
           </div>
@@ -464,7 +479,7 @@ onMounted(load)
                 </select>
               </label>
               <label v-if="!form.departureIndependent">{{ departureTimeLabel }}
-                <input v-model="form.departureTime" type="time">
+                <input v-model="form.departureTime" type="time" :required="form.departureMode === 'flight'">
               </label>
             </div>
             <div v-if="!form.departureIndependent" class="row">
@@ -474,8 +489,13 @@ onMounted(load)
                   <option v-for="m in TRAVEL_MODES" :key="m.value" :value="m.value">{{ m.label }}</option>
                 </select>
               </label>
-              <label>Flight number / details (optional)
-                <input v-model="form.departureDetails" type="text" placeholder="BA456, or other info">
+              <label>{{ departureDetailsLabel }}
+                <input
+                  v-model="form.departureDetails"
+                  type="text"
+                  placeholder="BA456, or other info"
+                  :required="form.departureMode === 'flight'"
+                >
               </label>
             </div>
           </div>

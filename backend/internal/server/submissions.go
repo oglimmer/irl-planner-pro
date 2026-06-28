@@ -112,12 +112,12 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 	// otherwise the leg's day/mode/details are required.
 	if req.ArrivalIndependent {
 		req.ArrivalDay, req.ArrivalMode, req.ArrivalTime, req.ArrivalDetails = nil, nil, "", ""
-	} else if err := validateTravelLeg("arrival", &req.ArrivalDay, &req.ArrivalMode, &req.ArrivalDetails, start, end, isAdmin); err != nil {
+	} else if err := validateTravelLeg("arrival", &req.ArrivalDay, &req.ArrivalMode, &req.ArrivalTime, &req.ArrivalDetails, start, end, isAdmin); err != nil {
 		return err
 	}
 	if req.DepartureIndependent {
 		req.DepartureDay, req.DepartureMode, req.DepartureTime, req.DepartureDetails = nil, nil, "", ""
-	} else if err := validateTravelLeg("departure", &req.DepartureDay, &req.DepartureMode, &req.DepartureDetails, start, end, isAdmin); err != nil {
+	} else if err := validateTravelLeg("departure", &req.DepartureDay, &req.DepartureMode, &req.DepartureTime, &req.DepartureDetails, start, end, isAdmin); err != nil {
 		return err
 	}
 
@@ -136,11 +136,11 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 }
 
 // validateTravelLeg checks one arrival/departure leg: a day and mode are
-// required; details (flight number / free text) are optional. The day must fall
-// in the allowed window (event range ±1 day for employees, unrestricted for
-// admins). The details param is accepted for signature symmetry with the other
-// leg fields but is intentionally not validated.
-func validateTravelLeg(label string, day **string, mode **string, _ *string, start, end time.Time, isAdmin bool) error {
+// required. The day must fall in the allowed window (event range ±1 day for
+// employees, unrestricted for admins). For a flight, the time and details
+// (flight number) are also required so the People team can track the flight; for
+// every other mode both stay optional.
+func validateTravelLeg(label string, day **string, mode **string, travelTime *string, details *string, start, end time.Time, isAdmin bool) error {
 	if *day == nil || strings.TrimSpace(**day) == "" {
 		return errors.New(label + " day is required")
 	}
@@ -166,6 +166,15 @@ func validateTravelLeg(label string, day **string, mode **string, _ *string, sta
 		return errors.New(label + " travel mode is invalid")
 	}
 	*mode = &m
+
+	if m == "flight" {
+		if strings.TrimSpace(*travelTime) == "" {
+			return errors.New(label + " flight time is required")
+		}
+		if strings.TrimSpace(*details) == "" {
+			return errors.New(label + " flight number is required")
+		}
+	}
 	return nil
 }
 

@@ -204,13 +204,13 @@ type mcpSubmitResponseIn struct {
 	Attending            string `json:"attending" jsonschema:"yes, no, or not_sure"`
 	NotSureReason        string `json:"notSureReason,omitempty" jsonschema:"required when attending=not_sure; ignored otherwise"`
 	ArrivalDay           string `json:"arrivalDay,omitempty" jsonschema:"arrival date YYYY-MM-DD (event-local); required when attending=yes unless arrivalIndependent"`
-	ArrivalTime          string `json:"arrivalTime,omitempty" jsonschema:"arrival time HH:MM, optional"`
+	ArrivalTime          string `json:"arrivalTime,omitempty" jsonschema:"arrival time HH:MM; required when arrivalMode=flight, optional otherwise"`
 	ArrivalMode          string `json:"arrivalMode,omitempty" jsonschema:"flight, car, train, or other; required when attending=yes unless arrivalIndependent"`
-	ArrivalDetails       string `json:"arrivalDetails,omitempty" jsonschema:"flight number / free-text, optional"`
+	ArrivalDetails       string `json:"arrivalDetails,omitempty" jsonschema:"flight number when arrivalMode=flight (required); free-text details otherwise (optional)"`
 	DepartureDay         string `json:"departureDay,omitempty" jsonschema:"departure date YYYY-MM-DD (event-local); required when attending=yes unless departureIndependent"`
-	DepartureTime        string `json:"departureTime,omitempty" jsonschema:"departure time HH:MM, optional"`
+	DepartureTime        string `json:"departureTime,omitempty" jsonschema:"departure time HH:MM; required when departureMode=flight, optional otherwise"`
 	DepartureMode        string `json:"departureMode,omitempty" jsonschema:"flight, car, train, or other; required when attending=yes unless departureIndependent"`
-	DepartureDetails     string `json:"departureDetails,omitempty" jsonschema:"flight number / free-text, optional"`
+	DepartureDetails     string `json:"departureDetails,omitempty" jsonschema:"flight number when departureMode=flight (required); free-text details otherwise (optional)"`
 	ArrivalIndependent   bool   `json:"arrivalIndependent,omitempty" jsonschema:"attendee self-arranges arrival; blanks the arrival leg"`
 	DepartureIndependent bool   `json:"departureIndependent,omitempty" jsonschema:"attendee self-arranges departure; blanks the departure leg"`
 	LongHaul             bool   `json:"longHaul,omitempty" jsonschema:"long-haul: needs accommodation / extra nights (only when at least one leg is People-team arranged)"`

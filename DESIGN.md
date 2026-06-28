@@ -743,9 +743,11 @@ never trusted).
   time/mode/details and skips its validation. The long-haul/accommodation section
   is hidden and blanked only when **both** legs are independent.
 - **Arrival** — day (constrained to the event date range), time, mode
-  (`flight`/`car`/`train`/`other`), details (flight number, or free text for other
-  modes — **optional**). When the mode is `flight` the **Time** field is labelled
-  "Flight arrival time" ("Flight departure time" on the departure leg).
+  (`flight`/`car`/`train`/`other`), details (flight number / free text). When the
+  mode is `flight` the **Time** field is labelled "Flight arrival time" ("Flight
+  departure time" on the departure leg) and the details field "Flight number", and
+  **both time and flight number are required**; for every other mode time and
+  details stay **optional** (the details label reads "Travel details (optional)").
 - **Departure** — same shape.
 - **Long-haul traveller?** (international flight 7h+) → `long_haul` yes/no.
   - If `long_haul = yes` → **"Would you require an extra night?"** with two
@@ -769,8 +771,8 @@ never trusted).
 | allergies / dietary | not on the submission — set on the user profile (`/profile`, optional) |
 | `not_sure_reason` | `attending = 'not_sure'` |
 | `arrival_independent` / `departure_independent` | optional; only when `attending = 'yes'`. When a leg's flag is true that leg is blanked and not validated. When **both** are true, `long_haul` + extra-night dates are blanked too |
-| `arrival_*` | `attending = 'yes'` **and** `arrival_independent = false` (day + mode required; time + details optional) |
-| `departure_*` | `attending = 'yes'` **and** `departure_independent = false` (day + mode required; time + details optional) |
+| `arrival_*` | `attending = 'yes'` **and** `arrival_independent = false` (day + mode required; when mode = `flight`, time + flight-number details also required, else optional) |
+| `departure_*` | `attending = 'yes'` **and** `departure_independent = false` (day + mode required; when mode = `flight`, time + flight-number details also required, else optional) |
 | `extra_stay_start` / `extra_stay_end` | optional; one-day cap from event bounds for employees, unrestricted for admins |
 | comments | optional |
 

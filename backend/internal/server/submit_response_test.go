@@ -64,14 +64,16 @@ func TestApplySubmissionAsAttendeeRSVP(t *testing.T) {
 	arrDay, depDay := "2026-10-14", "2026-10-16"
 	arrMode, depMode := "flight", "flight"
 	req := submissionReq{
-		Attending:      "yes",
-		ArrivalDay:     &arrDay,
-		ArrivalMode:    &arrMode,
-		ArrivalTime:    "12:30",
-		ArrivalDetails: "AF1234",
-		DepartureDay:   &depDay,
-		DepartureMode:  &depMode,
-		Comments:       "Looking forward to it",
+		Attending:        "yes",
+		ArrivalDay:       &arrDay,
+		ArrivalMode:      &arrMode,
+		ArrivalTime:      "12:30",
+		ArrivalDetails:   "AF1234",
+		DepartureDay:     &depDay,
+		DepartureMode:    &depMode,
+		DepartureTime:    "18:00",
+		DepartureDetails: "AF5678",
+		Comments:         "Looking forward to it",
 	}
 
 	// Recorded as the attendee themselves (isAdmin=false, actor=owner).
