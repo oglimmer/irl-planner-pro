@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { errMsg } from '../api'
+import SubmitFeedback from '../components/SubmitFeedback.vue'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -64,8 +65,12 @@ async function save() {
         <textarea v-model="allergies" rows="2" />
       </label>
       <button class="btn" type="submit" :disabled="saving">Save</button>
-      <span v-if="saved" class="ok">Saved.</span>
-      <span v-if="error" class="error">{{ error }}</span>
+      <SubmitFeedback
+        :error="error"
+        :success="saved"
+        success-title="Profile saved! 🎉"
+        success-message="Your details will be used for every event."
+      />
     </form>
   </section>
 </template>
@@ -109,11 +114,5 @@ input:disabled {
 }
 .btn {
   align-self: flex-start;
-}
-.ok {
-  color: var(--accent);
-}
-.error {
-  color: var(--danger);
 }
 </style>

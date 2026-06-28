@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/auth'
 import { useConfirm } from '../composables/useConfirm'
 import { formatDate, formatDeadline } from '../lib/datetime'
 import ActivityLog from '../components/ActivityLog.vue'
+import SubmitFeedback from '../components/SubmitFeedback.vue'
 import type { ActivityEntry, Attending, Event, SubmissionInput, TravelMode } from '../types'
 
 const auth = useAuthStore()
@@ -195,6 +196,20 @@ const statusLabel = computed(() => {
       return 'Awaiting your RSVP'
   }
 })
+
+// Joyful, choice-aware confirmation shown after a successful save. The headline
+// celebrates a "yes" the loudest while still warmly acknowledging the other
+// branches; the sub-line distinguishes a first submission from a later edit.
+const successTitle = computed(() => {
+  if (form.attending === 'yes') return savedWasUpdate.value ? 'Updated — see you there! 🎉' : "You're going! 🎉"
+  if (form.attending === 'no') return 'Response saved — thanks for letting us know'
+  return savedWasUpdate.value ? 'Response updated' : 'Response saved — thanks!'
+})
+const successMessage = computed(() =>
+  form.attending === 'yes'
+    ? 'Your travel details are with the People team. You can come back and edit any time before the deadline.'
+    : 'You can come back and change your answer any time before the deadline.',
+)
 
 function addDays(ymd: string, n: number): string {
   const d = new Date(`${ymd}T00:00:00Z`)
@@ -501,8 +516,12 @@ onMounted(load)
           </label>
         </template>
 
-        <p v-if="error" class="error">{{ error }}</p>
-        <p v-if="saved" class="ok">{{ savedWasUpdate ? 'Updated. Thank you!' : 'Saved. Thank you!' }}</p>
+        <SubmitFeedback
+          :error="error"
+          :success="saved"
+          :success-title="successTitle"
+          :success-message="successMessage"
+        />
 
         <div v-if="!readOnly" class="actions">
           <button class="btn" type="submit" :disabled="saving || !form.attending">
@@ -891,11 +910,6 @@ input[type='radio'] {
   margin: 0.15rem 0;
 }
 
-.ok {
-  color: var(--success);
-  font-family: var(--mono);
-  font-size: 13px;
-}
 .actions {
   margin-top: 0.5rem;
 }
