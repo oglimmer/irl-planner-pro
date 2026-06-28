@@ -489,7 +489,10 @@ cmd_helm_push() {
     log_info "Packaging Helm chart v$chart_version..."
     local tmp_dir
     tmp_dir=$(mktemp -d)
-    trap 'rm -rf "$tmp_dir"' EXIT
+    # Expand $tmp_dir now, not at exit: it is a local, so it is out of scope by
+    # the time the EXIT trap fires (and would be 'unbound' under set -u).
+    # shellcheck disable=SC2064
+    trap "rm -rf '$tmp_dir'" EXIT
 
     if ! helm package "$chart_dir" -d "$tmp_dir"; then
         log_error "Failed to package Helm chart"
