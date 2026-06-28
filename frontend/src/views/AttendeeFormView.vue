@@ -94,6 +94,14 @@ const departureDaySelection = computed<string | null>({
 // Long-haul accommodation only applies when the People team books at least one
 // leg. When the attendee self-arranges both, clear and hide that whole block
 // (mirrors the server rule in submissions.go).
+// Changing the attendance answer invalidates any prior save outcome: a success
+// banner for a previous choice (or a stale validation error) is misleading once
+// the user picks a different answer, so clear both.
+watch(() => form.attending, () => {
+  error.value = ''
+  saved.value = false
+})
+
 const needsTravelSupport = computed(() => !(form.arrivalIndependent && form.departureIndependent))
 watch(needsTravelSupport, (needs) => {
   if (!needs) {
