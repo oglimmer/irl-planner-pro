@@ -1,28 +1,18 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { api, errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
+import { useAsyncData } from '../composables/useAsyncData'
 import { useConfirm } from '../composables/useConfirm'
 import type { UserSummary } from '../types'
 
 const auth = useAuthStore()
 const { confirm } = useConfirm()
-const users = ref<UserSummary[]>([])
-const loading = ref(true)
-const error = ref('')
+const { data: users, loading, error, reload } = useAsyncData<UserSummary[]>(
+  () => api.listUsers(),
+  [],
+)
 const busyId = ref<string | null>(null)
-
-async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    users.value = await api.listUsers()
-  } catch (e) {
-    error.value = errMsg(e)
-  } finally {
-    loading.value = false
-  }
-}
 
 async function setAdmin(u: UserSummary, makeAdmin: boolean) {
   const who = u.name || u.email
@@ -40,15 +30,13 @@ async function setAdmin(u: UserSummary, makeAdmin: boolean) {
   try {
     if (makeAdmin) await api.promoteUser(u.id)
     else await api.demoteUser(u.id)
-    await load()
+    await reload()
   } catch (e) {
     error.value = errMsg(e)
   } finally {
     busyId.value = null
   }
 }
-
-onMounted(load)
 </script>
 
 <template>

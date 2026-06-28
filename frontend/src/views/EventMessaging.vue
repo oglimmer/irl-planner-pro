@@ -280,7 +280,7 @@ onMounted(load)
             <tr><th>Recipient</th><th>Type</th><th>Channel</th><th>When</th><th>Error</th></tr>
           </thead>
           <tbody>
-            <tr v-for="(f, i) in failures" :key="i">
+            <tr v-for="f in failures" :key="`${f.recipient}-${f.kind}-${f.createdAt}`">
               <td>{{ f.recipient }}</td>
               <td>{{ f.kind }}</td>
               <td>{{ f.channel }}</td>

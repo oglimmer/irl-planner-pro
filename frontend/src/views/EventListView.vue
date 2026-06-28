@@ -1,28 +1,17 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
-import { api, errMsg } from '../api'
+import { ref, watch } from 'vue'
+import { api } from '../api'
+import { useAsyncData } from '../composables/useAsyncData'
 import { formatDate } from '../lib/datetime'
 import type { Event } from '../types'
 
 const scope = ref<'current' | 'past'>('current')
-const events = ref<Event[]>([])
-const loading = ref(true)
-const error = ref('')
+const { data: events, loading, error, reload } = useAsyncData<Event[]>(
+  () => api.listEvents(scope.value),
+  [],
+)
 
-async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    events.value = await api.listEvents(scope.value)
-  } catch (e) {
-    error.value = errMsg(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-watch(scope, load)
-onMounted(load)
+watch(scope, reload)
 </script>
 
 <template>

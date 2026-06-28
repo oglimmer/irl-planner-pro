@@ -32,8 +32,13 @@ const TRAVEL_MODES: { value: TravelMode; label: string }[] = [
   { value: 'other', label: 'Other' },
 ]
 
-const form = reactive<SubmissionInput>({
-  attending: '' as Attending,
+// The form mirrors SubmissionInput but starts with attendance unanswered (''),
+// which the over-the-wire type doesn't allow — so the local state widens just
+// that field. submit() narrows it back to a real Attending before sending.
+type AttendeeFormState = Omit<SubmissionInput, 'attending'> & { attending: Attending | '' }
+
+const form = reactive<AttendeeFormState>({
+  attending: '',
   notSureReason: '',
   arrivalDay: null,
   arrivalTime: '',
@@ -188,7 +193,7 @@ const deadlineBlock = computed<{ value: string; caption: string }>(() => {
 // Live RSVP status chip — tracks the radio selection as the user picks, reusing
 // HomeView's status--* color tokens.
 type StatusKey = 'none' | Attending
-const statusKey = computed<StatusKey>(() => (form.attending || 'none') as StatusKey)
+const statusKey = computed<StatusKey>(() => form.attending || 'none')
 const statusLabel = computed(() => {
   switch (form.attending) {
     case 'yes':
@@ -304,6 +309,10 @@ async function submit() {
   // bubbles). Surface which fields are missing inline rather than blocking the
   // submit silently — and don't even prompt the after-deadline confirm yet.
   triedSave.value = true
+  // No attendance answer yet — the submit button is disabled in this state, but
+  // guard anyway so the rest can treat `attending` as a real choice.
+  const attending = form.attending
+  if (!attending) return
   if (missingCount.value > 0) {
     saved.value = false
     error.value =
@@ -331,7 +340,7 @@ async function submit() {
   error.value = ''
   saved.value = false
   try {
-    await api.putMySubmission(props.slug, { ...form })
+    await api.putMySubmission(props.slug, { ...form, attending })
     savedWasUpdate.value = hasSubmitted.value
     saved.value = true
     hasSubmitted.value = true

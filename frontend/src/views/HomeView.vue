@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { api, errMsg } from '../api'
+import { computed } from 'vue'
+import { api } from '../api'
 import { useAuthStore } from '../stores/auth'
+import { useAsyncData } from '../composables/useAsyncData'
 import { formatDeadline } from '../lib/datetime'
 import type { ActiveEvent, Attending } from '../types'
 
 const auth = useAuthStore()
 
-const events = ref<ActiveEvent[]>([])
-const loading = ref(true)
-const error = ref('')
+const { data: events, loading, error } = useAsyncData<ActiveEvent[]>(
+  () => api.activeEvents(),
+  [],
+)
 
 const firstName = computed(() => {
   const u = auth.user
@@ -106,20 +108,6 @@ function statusLabel(ev: ActiveEvent): string {
 function ctaLabel(ev: ActiveEvent): string {
   return ev.hasSubmitted ? 'View or edit your response' : 'RSVP now'
 }
-
-async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    events.value = await api.activeEvents()
-  } catch (e) {
-    error.value = errMsg(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(load)
 </script>
 
 <template>

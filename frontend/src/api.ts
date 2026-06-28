@@ -58,29 +58,41 @@ export function errStatus(e: unknown): number | undefined {
   return e instanceof ApiError ? e.status : undefined
 }
 
-async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
-  const headers = new Headers(opts.headers)
-  if (opts.body && !headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json')
-  }
+// authHeaders builds request headers with the bearer token attached. It bails
+// before any network call once the token is past its exp — the server would only
+// answer 401 anyway. Shared by the JSON `request` path and the multipart/blob
+// helpers below so the token handling lives in exactly one place.
+function authHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init)
   const t = token()
   if (t) {
-    // Bail before the network call once the token is past its exp — the server
-    // would only answer 401 anyway.
     if (isJwtExpired(t)) throw new ApiError(401, 'session expired')
     headers.set('Authorization', `Bearer ${t}`)
   }
-  const res = await fetch(path, { ...opts, headers })
-  if (!res.ok) {
-    let msg = res.statusText
-    try {
-      const data = await res.json()
-      if (data && data.error) msg = data.error
-    } catch {
-      // non-JSON body — keep the status text
-    }
-    throw new ApiError(res.status, msg)
+  return headers
+}
+
+// throwForStatus turns a non-2xx response into an ApiError, preferring the JSON
+// `error` field the backend sends and falling back to the status text.
+async function throwForStatus(res: Response): Promise<void> {
+  if (res.ok) return
+  let msg = res.statusText
+  try {
+    const data = await res.json()
+    if (data && data.error) msg = data.error
+  } catch {
+    // non-JSON body — keep the status text
   }
+  throw new ApiError(res.status, msg)
+}
+
+async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
+  const headers = authHeaders(opts.headers)
+  if (opts.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  const res = await fetch(path, { ...opts, headers })
+  await throwForStatus(res)
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
@@ -152,23 +164,12 @@ export const api = {
   importAttendees: async (id: string, file: File): Promise<AttendeeImportResult> => {
     const form = new FormData()
     form.append('file', file)
-    const headers = new Headers()
-    const t = localStorage.getItem('token')
-    if (t) {
-      if (isJwtExpired(t)) throw new ApiError(401, 'session expired')
-      headers.set('Authorization', `Bearer ${t}`)
-    }
-    const res = await fetch(`/api/admin/events/${id}/attendees`, { method: 'POST', headers, body: form })
-    if (!res.ok) {
-      let msg = res.statusText
-      try {
-        const data = await res.json()
-        if (data && data.error) msg = data.error
-      } catch {
-        // non-JSON body
-      }
-      throw new ApiError(res.status, msg)
-    }
+    const res = await fetch(`/api/admin/events/${id}/attendees`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: form,
+    })
+    await throwForStatus(res)
     return res.json() as Promise<AttendeeImportResult>
   },
   addAttendee: (id: string, userId: string) =>
@@ -180,23 +181,12 @@ export const api = {
   uploadEventImage: async (id: string, file: File): Promise<{ imageUrl: string }> => {
     const form = new FormData()
     form.append('image', file)
-    const headers = new Headers()
-    const t = localStorage.getItem('token')
-    if (t) {
-      if (isJwtExpired(t)) throw new ApiError(401, 'session expired')
-      headers.set('Authorization', `Bearer ${t}`)
-    }
-    const res = await fetch(`/api/admin/events/${id}/image`, { method: 'POST', headers, body: form })
-    if (!res.ok) {
-      let msg = res.statusText
-      try {
-        const data = await res.json()
-        if (data && data.error) msg = data.error
-      } catch {
-        // non-JSON body
-      }
-      throw new ApiError(res.status, msg)
-    }
+    const res = await fetch(`/api/admin/events/${id}/image`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: form,
+    })
+    await throwForStatus(res)
     return res.json() as Promise<{ imageUrl: string }>
   },
   deleteEventImage: (id: string) =>
@@ -228,14 +218,8 @@ export const api = {
   // header, so a plain <a> download can't be used). states = attending subset.
   fetchExport: async (id: string, states: string[]): Promise<Blob> => {
     const q = states.length ? `?attending=${states.join(',')}` : ''
-    const headers = new Headers()
-    const t = localStorage.getItem('token')
-    if (t) {
-      if (isJwtExpired(t)) throw new ApiError(401, 'session expired')
-      headers.set('Authorization', `Bearer ${t}`)
-    }
-    const res = await fetch(`/api/admin/events/${id}/export.csv${q}`, { headers })
-    if (!res.ok) throw new ApiError(res.status, res.statusText)
+    const res = await fetch(`/api/admin/events/${id}/export.csv${q}`, { headers: authHeaders() })
+    await throwForStatus(res)
     return res.blob()
   },
 }

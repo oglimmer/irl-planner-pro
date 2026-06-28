@@ -28,7 +28,7 @@ defineProps<{
         <span class="summary">{{ e.summary }}</span>
       </div>
       <ul v-if="e.detail?.changes?.length" class="changes">
-        <li v-for="(c, i) in e.detail.changes" :key="i">
+        <li v-for="c in e.detail.changes" :key="c.field">
           <span class="field">{{ c.field }}</span>
           <span class="from">{{ c.from || '—' }}</span>
           <span class="arrow">→</span>
