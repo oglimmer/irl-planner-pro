@@ -4,7 +4,7 @@ import { api, errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useConfirm } from '../composables/useConfirm'
 import { addDays, formatDate, formatDateRange, formatDeadline, tripLength as tripLengthOf } from '../lib/datetime'
-import { fieldChecks, missingRequiredCount, type FieldKey } from '../lib/submissionRules'
+import { extraNightErrors, fieldChecks, missingRequiredCount, type FieldKey } from '../lib/submissionRules'
 import ActivityLog from '../components/ActivityLog.vue'
 import SubmitFeedback from '../components/SubmitFeedback.vue'
 import type { ActivityEntry, Attending, Event, SubmissionInput, TravelMode } from '../types'
@@ -319,6 +319,15 @@ async function submit() {
       missingCount.value === 1
         ? 'One required field is still missing — see the highlighted field below.'
         : `${missingCount.value} required fields are still missing — see the highlighted fields below.`
+    return
+  }
+  // Cross-field check: arriving the day before / leaving the day after the event
+  // only holds up if the matching long-haul "Extra night" box is ticked, so the
+  // night has accommodation. Spell out what's still unchecked (mirrors the server).
+  const stayErrors = extraNightErrors(form, beforeDate.value, afterDate.value, formatDate)
+  if (stayErrors.length > 0) {
+    saved.value = false
+    error.value = stayErrors.join(' ')
     return
   }
   // After the deadline the event is still editable, but the change is flagged to

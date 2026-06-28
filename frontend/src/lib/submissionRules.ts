@@ -69,3 +69,75 @@ export function fieldChecks(form: SubmissionFormState): Record<FieldKey, FieldCh
 export function missingRequiredCount(form: SubmissionFormState): number {
   return Object.values(fieldChecks(form)).filter((f) => f.required && !f.filled).length
 }
+
+// The extra-night consistency check additionally reads the long-haul block, which
+// is not part of the required-field matrix above.
+export interface StayFormState extends SubmissionFormState {
+  longHaul: boolean
+  extraStayStart: string | null
+  extraStayEnd: string | null
+}
+
+// extraNightErrors enforces the two-way consistency between a leg's travel day and
+// its long-haul "Extra night" box. They must agree:
+//   • Picking the day *before* the event as your arrival (or the day *after* as
+//     your departure) needs the matching night booked — long-haul + the Extra-night
+//     box ticked — otherwise no accommodation covers that night.
+//   • Conversely, a ticked Extra-night box with an in-window travel day is an
+//     orphan the People team would never book, so it must be removed (or the
+//     travel day extended to match).
+// It returns a human message per offending side (empty when all good), explaining
+// exactly what to fix. `beforeDate`/`afterDate` are the event start −1 / end +1 ISO
+// dates (the only out-of-window days the form offers); `fmt` renders an ISO date
+// for display. A self-arranged leg is skipped (its day is blank and a company night
+// can still legitimately sit alongside it). Mirrors the server check in
+// submissions.go / normalizeAndValidate.
+export function extraNightErrors(
+  form: StayFormState,
+  beforeDate: string,
+  afterDate: string,
+  fmt: (iso: string) => string,
+): string[] {
+  if (form.attending !== 'yes') return []
+  const errs: string[] = []
+
+  if (!form.arrivalIndependent) {
+    const arrivesEarly = form.arrivalDay != null && form.arrivalDay <= beforeDate
+    const bookedBefore = form.longHaul && form.extraStayStart != null
+    if (arrivesEarly && !bookedBefore) {
+      const need: string[] = []
+      if (!form.longHaul) need.push('mark yourself as a long-haul traveller')
+      need.push(`tick “Extra night before — ${fmt(beforeDate)}”`)
+      errs.push(
+        `You're arriving on ${fmt(beforeDate)}, the day before the event starts — to stay that night you must ` +
+          `${need.join(' and ')} in the accommodation section, or pick a later arrival day.`,
+      )
+    } else if (bookedBefore && !arrivesEarly) {
+      errs.push(
+        `You've ticked “Extra night before — ${fmt(beforeDate)}” but your arrival isn't set to that day, ` +
+          `so the extra night isn't needed — untick it, or set your arrival day to ${fmt(beforeDate)}.`,
+      )
+    }
+  }
+
+  if (!form.departureIndependent) {
+    const leavesLate = form.departureDay != null && form.departureDay >= afterDate
+    const bookedAfter = form.longHaul && form.extraStayEnd != null
+    if (leavesLate && !bookedAfter) {
+      const need: string[] = []
+      if (!form.longHaul) need.push('mark yourself as a long-haul traveller')
+      need.push(`tick “Extra night after — ${fmt(afterDate)}”`)
+      errs.push(
+        `You're leaving on ${fmt(afterDate)}, the day after the event ends — to stay that night you must ` +
+          `${need.join(' and ')} in the accommodation section, or pick an earlier departure day.`,
+      )
+    } else if (bookedAfter && !leavesLate) {
+      errs.push(
+        `You've ticked “Extra night after — ${fmt(afterDate)}” but your departure isn't set to that day, ` +
+          `so the extra night isn't needed — untick it, or set your departure day to ${fmt(afterDate)}.`,
+      )
+    }
+  }
+
+  return errs
+}

@@ -132,6 +132,45 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 	} else if err := validateExtraStay(&req.ExtraStayStart, &req.ExtraStayEnd, start, end, isAdmin); err != nil {
 		return err
 	}
+
+	// A leg's travel day and its long-haul extra-night booking must agree, both
+	// ways: arriving before the first day (or leaving after the last) needs the
+	// matching night booked, and a booked night with an in-window day is an orphan
+	// to remove. Runs after the long-haul block above has settled ExtraStay* (so a
+	// non-long-haul night is already nil here). Self-arranged legs are skipped — a
+	// company night can sit alongside one. Mirrors submissionRules.ts /
+	// extraNightErrors; like the date-window check it relaxes for admins, who record
+	// out-of-window days for special cases.
+	if !isAdmin {
+		if !req.ArrivalIndependent {
+			arrivesEarly := false
+			if req.ArrivalDay != nil {
+				if d, err := parseDate(*req.ArrivalDay); err == nil && d.Before(start) {
+					arrivesEarly = true
+				}
+			}
+			switch {
+			case arrivesEarly && req.ExtraStayStart == nil:
+				return errors.New("to arrive before the event you must be a long-haul traveller and book the extra night before")
+			case !arrivesEarly && req.ExtraStayStart != nil:
+				return errors.New("the extra night before isn't needed unless you arrive the day before — remove it or change your arrival day")
+			}
+		}
+		if !req.DepartureIndependent {
+			leavesLate := false
+			if req.DepartureDay != nil {
+				if d, err := parseDate(*req.DepartureDay); err == nil && d.After(end) {
+					leavesLate = true
+				}
+			}
+			switch {
+			case leavesLate && req.ExtraStayEnd == nil:
+				return errors.New("to leave after the event you must be a long-haul traveller and book the extra night after")
+			case !leavesLate && req.ExtraStayEnd != nil:
+				return errors.New("the extra night after isn't needed unless you leave the day after — remove it or change your departure day")
+			}
+		}
+	}
 	return nil
 }
 

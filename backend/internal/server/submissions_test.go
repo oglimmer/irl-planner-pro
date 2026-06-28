@@ -198,10 +198,39 @@ func baseYes() *submissionReq {
 
 func TestExtraNightOneDayAllowedForEmployee(t *testing.T) {
 	req := baseYes()
+	// The travel days must reflect the booked nights: arrive the day before the
+	// first day and leave the day after the last.
+	req.ArrivalDay = strp("2026-10-11")
+	req.DepartureDay = strp("2026-10-17")
 	req.ExtraStayStart = strp("2026-10-11") // one night before start (10-12)
 	req.ExtraStayEnd = strp("2026-10-17")   // one night after end (10-16)
 	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
 		t.Fatalf("one extra night each side should be allowed: %v", err)
+	}
+}
+
+// Reverse of the early-arrival rule: a booked extra night before with an in-window
+// arrival is an orphan and must be removed (or the arrival day extended).
+func TestExtraNightBeforeWithoutEarlyArrivalRejected(t *testing.T) {
+	req := baseYes() // arrival 10-12 (the first day), long-haul
+	req.ExtraStayStart = strp("2026-10-11")
+	if err := req.normalizeAndValidate(sampleEvent(), false); err == nil {
+		t.Fatal("an extra night before with an in-window arrival should be rejected")
+	}
+	// Admins keep the freedom to record it.
+	req = baseYes()
+	req.ExtraStayStart = strp("2026-10-11")
+	if err := req.normalizeAndValidate(sampleEvent(), true); err != nil {
+		t.Fatalf("admin should be allowed an unmatched extra night before: %v", err)
+	}
+}
+
+// Reverse of the late-departure rule, on the departure side.
+func TestExtraNightAfterWithoutLateDepartureRejected(t *testing.T) {
+	req := baseYes() // departure 10-16 (the last day), long-haul
+	req.ExtraStayEnd = strp("2026-10-17")
+	if err := req.normalizeAndValidate(sampleEvent(), false); err == nil {
+		t.Fatal("an extra night after with an in-window departure should be rejected")
 	}
 }
 
@@ -228,6 +257,60 @@ func TestExtraStayClearedWhenNotLongHaul(t *testing.T) {
 	}
 	if req.ExtraStayStart != nil || req.ExtraStayEnd != nil {
 		t.Error("extra stay should be cleared when long_haul is false")
+	}
+}
+
+// Arriving the day before the event (10-11, start is 10-12) is only valid when
+// the long-haul extra night before is booked; otherwise it's rejected.
+func TestEarlyArrivalRequiresExtraNightBefore(t *testing.T) {
+	req := baseYes()
+	req.ArrivalDay = strp("2026-10-11") // day before the first day
+	if err := req.normalizeAndValidate(sampleEvent(), false); err == nil {
+		t.Fatal("early arrival without the extra night before should be rejected")
+	}
+
+	// Not a long-haul traveller: ExtraStay* is blanked by the long-haul block, so
+	// the early arrival is still rejected.
+	req = baseYes()
+	req.ArrivalDay = strp("2026-10-11")
+	req.LongHaul = false
+	req.ExtraStayStart = strp("2026-10-11")
+	if err := req.normalizeAndValidate(sampleEvent(), false); err == nil {
+		t.Fatal("early arrival without long-haul should be rejected")
+	}
+
+	// Long-haul with the matching extra night booked: accepted.
+	req = baseYes()
+	req.ArrivalDay = strp("2026-10-11")
+	req.ExtraStayStart = strp("2026-10-11")
+	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
+		t.Fatalf("early arrival with the extra night before should be allowed: %v", err)
+	}
+}
+
+// Leaving the day after the event (10-17, end is 10-16) mirrors the arrival rule.
+func TestLateDepartureRequiresExtraNightAfter(t *testing.T) {
+	req := baseYes()
+	req.DepartureDay = strp("2026-10-17") // day after the last day
+	if err := req.normalizeAndValidate(sampleEvent(), false); err == nil {
+		t.Fatal("late departure without the extra night after should be rejected")
+	}
+
+	req = baseYes()
+	req.DepartureDay = strp("2026-10-17")
+	req.ExtraStayEnd = strp("2026-10-17")
+	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
+		t.Fatalf("late departure with the extra night after should be allowed: %v", err)
+	}
+}
+
+// Like the date-window check, the consistency rule relaxes for admins: they may
+// record an out-of-window day without the matching extra night for special cases.
+func TestEarlyArrivalRuleRelaxedForAdmins(t *testing.T) {
+	req := baseYes()
+	req.ArrivalDay = strp("2026-10-11")
+	if err := req.normalizeAndValidate(sampleEvent(), true); err != nil {
+		t.Fatalf("admin early arrival without the extra night should be allowed: %v", err)
 	}
 }
 
