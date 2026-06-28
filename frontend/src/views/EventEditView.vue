@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, errMsg } from '../api'
-import { COMMON_TIMEZONES, formatDate } from '../lib/datetime'
+import { COMMON_TIMEZONES, defaultDayType, eventDayRange, formatDate } from '../lib/datetime'
 import { useAuthStore } from '../stores/auth'
 import type { DayType, EventInput } from '../types'
 
@@ -91,17 +91,7 @@ const tzOptions = computed(() => {
 })
 
 // The ordered list of dates between start and end (inclusive).
-const dayList = computed<string[]>(() => {
-  if (!form.startDate || !form.endDate) return []
-  const start = new Date(`${form.startDate}T00:00:00Z`)
-  const end = new Date(`${form.endDate}T00:00:00Z`)
-  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return []
-  const out: string[] = []
-  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
-    out.push(d.toISOString().slice(0, 10))
-  }
-  return out
-})
+const dayList = computed<string[]>(() => eventDayRange(form.startDate, form.endDate))
 
 // Keep dayTypes in sync with the current range: default first/last to travel and
 // the rest to event, but never clobber a value the user already set.
@@ -113,7 +103,7 @@ watch(
     }
     dates.forEach((date, i) => {
       if (!dayTypes[date]) {
-        dayTypes[date] = i === 0 || i === dates.length - 1 ? 'travel' : 'event'
+        dayTypes[date] = defaultDayType(i, dates.length)
       }
     })
   },

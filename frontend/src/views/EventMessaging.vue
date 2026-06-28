@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api, errMsg } from '../api'
 import { useConfirm } from '../composables/useConfirm'
 import type { MessagingStatus } from '../types'
@@ -82,6 +82,22 @@ async function refresh() {
   }
 }
 
+// Background sends settle asynchronously, so we poll a couple of times after one
+// fires. Track the timers and cancel any still pending on unmount, so a refresh
+// can't run against (and write `status` on) a torn-down component.
+const pollTimers = new Set<ReturnType<typeof setTimeout>>()
+function scheduleRefresh(ms: number) {
+  const id = setTimeout(() => {
+    pollTimers.delete(id)
+    void refresh()
+  }, ms)
+  pollTimers.add(id)
+}
+onUnmounted(() => {
+  for (const id of pollTimers) clearTimeout(id)
+  pollTimers.clear()
+})
+
 async function saveTemplates() {
   savingTemplates.value = true
   error.value = ''
@@ -120,8 +136,8 @@ async function sendInvitation() {
     const res = await api.sendInvitation(props.eventId, channel.value)
     notice.value = `Inviting ${res.queued} attendee(s) in the background — already-invited people are skipped. This can take a few minutes; counts update as it sends.`
     // Poll progress a couple of times without disturbing the editors.
-    setTimeout(refresh, 3000)
-    setTimeout(refresh, 15000)
+    scheduleRefresh(3000)
+    scheduleRefresh(15000)
   } catch (e) {
     error.value = errMsg(e)
   } finally {
@@ -143,8 +159,8 @@ async function sendFollowup() {
   try {
     const res = await api.sendFollowup(props.eventId, channel.value)
     notice.value = `Sending the follow-up to ${res.queued} non-responder(s) in the background. This can take a few minutes.`
-    setTimeout(refresh, 3000)
-    setTimeout(refresh, 15000)
+    scheduleRefresh(3000)
+    scheduleRefresh(15000)
   } catch (e) {
     error.value = errMsg(e)
   } finally {

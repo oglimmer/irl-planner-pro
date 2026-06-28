@@ -3,7 +3,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api, errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useConfirm } from '../composables/useConfirm'
-import { formatDate, formatDeadline } from '../lib/datetime'
+import { addDays, formatDate, formatDateRange, formatDeadline, tripLength as tripLengthOf } from '../lib/datetime'
+import { fieldChecks, missingRequiredCount, type FieldKey } from '../lib/submissionRules'
 import ActivityLog from '../components/ActivityLog.vue'
 import SubmitFeedback from '../components/SubmitFeedback.vue'
 import type { ActivityEntry, Attending, Event, SubmissionInput, TravelMode } from '../types'
@@ -133,12 +134,15 @@ const readOnly = computed(() => event.value?.isPast ?? false)
 // The RSVP deadline has passed but the event itself is still open, so edits are
 // allowed yet land *after deadline*. The server already stamps these, but we warn
 // the attendee first (see submit) so the late change is a deliberate choice.
-const afterDeadline = computed(() => {
+// Evaluated as a plain function rather than a computed because it depends on the
+// current wall-clock time (Date.now), which is not reactive — a cached computed
+// loaded before the deadline would never flip to true within the session.
+function isAfterDeadline(): boolean {
   const e = event.value
   if (!e || readOnly.value) return false
   const t = new Date(e.submissionDeadline).getTime()
   return !isNaN(t) && Date.now() > t
-})
+}
 
 // Google Maps search link for a hotel address, opened in a new tab.
 function mapsUrl(address: string): string {
@@ -151,30 +155,13 @@ const placeLine = computed(() =>
 )
 
 // Trip length in whole calendar days, inclusive of both ends.
-const tripLength = computed(() => {
-  const e = event.value
-  if (!e) return 0
-  const s = new Date(`${e.startDate}T00:00:00Z`).getTime()
-  const en = new Date(`${e.endDate}T00:00:00Z`).getTime()
-  return Math.round((en - s) / 86_400_000) + 1
-})
+const tripLength = computed(() => (event.value ? tripLengthOf(event.value.startDate, event.value.endDate) : 0))
 
 // Compact, editorial date range — "27–31 Jul 2026" when same month, else two
-// full dates. Plain calendar dates parsed as UTC to avoid timezone drift.
-const dateRange = computed(() => {
-  const e = event.value
-  if (!e) return ''
-  const s = new Date(`${e.startDate}T00:00:00Z`)
-  const en = new Date(`${e.endDate}T00:00:00Z`)
-  const dmy = (d: Date) =>
-    new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric' }).format(d)
-  if (e.startDate === e.endDate) return dmy(s)
-  const sameMonth = s.getUTCFullYear() === en.getUTCFullYear() && s.getUTCMonth() === en.getUTCMonth()
-  if (!sameMonth) return `${dmy(s)} – ${dmy(en)}`
-  const day = (d: Date) => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: '2-digit' }).format(d)
-  const monthYear = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'short', year: 'numeric' }).format(s)
-  return `${day(s)}–${day(en)} ${monthYear}`
-})
+// full dates.
+const dateRange = computed(() =>
+  event.value ? formatDateRange(event.value.startDate, event.value.endDate) : '',
+)
 
 // The RSVP deadline as a full date + time in the company timezone (Europe/Paris).
 const rsvpDate = computed(() => {
@@ -229,12 +216,6 @@ const successMessage = computed(() =>
     : 'You can come back and change your answer any time before the deadline.',
 )
 
-function addDays(ymd: string, n: number): string {
-  const d = new Date(`${ymd}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + n)
-  return d.toISOString().slice(0, 10)
-}
-
 // Travel dates the attendee may pick: event window ±1 day (the extra-night span).
 const travelDates = computed<string[]>(() => {
   if (!event.value) return []
@@ -265,40 +246,11 @@ const extraNightAfter = computed({
 // the form doesn't shout at someone who is still filling it in.
 const triedSave = ref(false)
 
-type FieldKey =
-  | 'notSureReason'
-  | 'arrivalDay'
-  | 'arrivalMode'
-  | 'arrivalTime'
-  | 'arrivalDetails'
-  | 'departureDay'
-  | 'departureMode'
-  | 'departureTime'
-  | 'departureDetails'
-
-// Which fields are mandatory depends on the chosen branch — this mirrors the
-// server's conditional rules in submissions.go / validateTravelLeg. `filled` is
-// what counts as a real answer; it drives the inline ✓ / required / missing marks.
-const fields = computed<Record<FieldKey, { required: boolean; filled: boolean }>>(() => {
-  const yes = form.attending === 'yes'
-  const arrFlight = yes && !form.arrivalIndependent && form.arrivalMode === 'flight'
-  const depFlight = yes && !form.departureIndependent && form.departureMode === 'flight'
-  return {
-    notSureReason: { required: form.attending === 'not_sure', filled: !!form.notSureReason.trim() },
-    arrivalDay: { required: yes, filled: form.arrivalIndependent || !!form.arrivalDay },
-    arrivalMode: { required: yes && !form.arrivalIndependent, filled: !!form.arrivalMode },
-    arrivalTime: { required: arrFlight, filled: !!form.arrivalTime },
-    arrivalDetails: { required: arrFlight, filled: !!form.arrivalDetails.trim() },
-    departureDay: { required: yes, filled: form.departureIndependent || !!form.departureDay },
-    departureMode: { required: yes && !form.departureIndependent, filled: !!form.departureMode },
-    departureTime: { required: depFlight, filled: !!form.departureTime },
-    departureDetails: { required: depFlight, filled: !!form.departureDetails.trim() },
-  }
-})
-
-const missingCount = computed(
-  () => Object.values(fields.value).filter((f) => f.required && !f.filled).length,
-)
+// Which fields are mandatory depends on the chosen branch. The rule matrix lives
+// in lib/submissionRules.ts (a pure, unit-tested mirror of the server's
+// validateTravelLeg) so the UI marks and the backend stay in lock-step.
+const fields = computed(() => fieldChecks(form))
+const missingCount = computed(() => missingRequiredCount(form))
 
 // Class bindings for a required field's <label>: `req-field` shows the neutral
 // hint, `filled` flips it to a live ✓, and `missing` (only after a save attempt)
@@ -362,7 +314,7 @@ async function submit() {
   }
   // After the deadline the event is still editable, but the change is flagged to
   // the People team — make the attendee confirm so it is never an accidental edit.
-  if (afterDeadline.value) {
+  if (isAfterDeadline()) {
     const ok = await confirm({
       variant: 'warning',
       title: 'This change is after the deadline',
@@ -623,6 +575,7 @@ onMounted(load)
         <SubmitFeedback
           :error="error"
           :success="saved"
+          error-title="Couldn't save your response"
           :success-title="successTitle"
           :success-message="successMessage"
         />

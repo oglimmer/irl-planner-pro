@@ -6,16 +6,27 @@
 // `prefers-reduced-motion`.
 import { ref, watch } from 'vue'
 
-const props = defineProps<{
-  /** Non-empty string shows the error banner (takes precedence over success). */
-  error?: string
-  /** True shows the joyful success banner. */
-  success?: boolean
-  /** Headline for the success banner, e.g. "You're all set!". */
-  successTitle?: string
-  /** Optional supporting line under the success headline. */
-  successMessage?: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    /** Non-empty string shows the error banner (takes precedence over success). */
+    error?: string
+    /** True shows the joyful success banner. */
+    success?: boolean
+    /** Headline for the error banner; defaults to a generic save failure. */
+    errorTitle?: string
+    /** Headline for the success banner, e.g. "You're all set!". */
+    successTitle?: string
+    /** Optional supporting line under the success headline. */
+    successMessage?: string
+  }>(),
+  {
+    error: '',
+    success: false,
+    errorTitle: "Couldn't save your changes",
+    successTitle: '',
+    successMessage: '',
+  },
+)
 
 // Bumping these keys remounts the banner so its entrance animation replays each
 // time a new result arrives — even when going success → success or error → error.
@@ -83,7 +94,7 @@ const CONFETTI = Array.from({ length: 18 }, (_, i) => {
         </svg>
       </span>
       <div class="fb-text">
-        <strong class="fb-title">Couldn't save your response</strong>
+        <strong class="fb-title">{{ props.errorTitle }}</strong>
         <span class="fb-msg">{{ error }}</span>
       </div>
     </div>

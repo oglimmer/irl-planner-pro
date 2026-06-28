@@ -1,6 +1,8 @@
 // Date/time helpers that render UTC instants in a given event timezone.
 // All display goes through these so the UI consistently shows event-local time.
 
+import type { DayType } from '../types'
+
 // formatInZone renders an RFC3339/ISO UTC instant in the given IANA timezone,
 // e.g. "12 Oct 2026, 17:00 CEST". Falls back to the raw string on bad input.
 export function formatInZone(isoUtc: string, timeZone: string): string {
@@ -58,6 +60,66 @@ export function formatDate(ymd: string): string {
     month: 'short',
     year: 'numeric',
   }).format(d)
+}
+
+// --- Calendar-date math (zone-free YYYY-MM-DD) -----------------------------
+// Plain calendar dates are parsed at UTC midnight throughout, so day arithmetic
+// never drifts by a day across the viewer's local timezone.
+
+// addDays returns the YYYY-MM-DD `n` days after `ymd` (n may be negative).
+// Returns the input unchanged when it isn't a valid date.
+export function addDays(ymd: string, n: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  if (isNaN(d.getTime())) return ymd
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+// eventDayRange lists every calendar date from start to end inclusive, ordered.
+// Returns [] for missing/invalid inputs or an end that precedes the start.
+export function eventDayRange(start: string, end: string): string[] {
+  if (!start || !end) return []
+  const s = new Date(`${start}T00:00:00Z`)
+  const e = new Date(`${end}T00:00:00Z`)
+  if (isNaN(s.getTime()) || isNaN(e.getTime()) || e < s) return []
+  const out: string[] = []
+  for (const d = new Date(s); d <= e; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10))
+  }
+  return out
+}
+
+// defaultDayType seeds a day's type from its position in the range: the first
+// and last days default to travel, everything between to event. A single-day
+// event (count 1) is therefore travel.
+export function defaultDayType(index: number, count: number): DayType {
+  return index === 0 || index === count - 1 ? 'travel' : 'event'
+}
+
+// tripLength is the whole-day span of an event, inclusive of both ends (a
+// start === end event is 1 day). Returns 0 on invalid input.
+export function tripLength(start: string, end: string): number {
+  const s = new Date(`${start}T00:00:00Z`).getTime()
+  const e = new Date(`${end}T00:00:00Z`).getTime()
+  if (isNaN(s) || isNaN(e)) return 0
+  return Math.round((e - s) / 86_400_000) + 1
+}
+
+// formatDateRange renders a compact, editorial date range: "27–31 Jul 2026" when
+// both ends share a month, a single date when start === end, otherwise two full
+// dates ("28 Jul 2026 – 02 Aug 2026"). Calendar dates parsed as UTC.
+export function formatDateRange(start: string, end: string): string {
+  const s = new Date(`${start}T00:00:00Z`)
+  const e = new Date(`${end}T00:00:00Z`)
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) return ''
+  const dmy = (d: Date) =>
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric' }).format(d)
+  if (start === end) return dmy(s)
+  const sameMonth = s.getUTCFullYear() === e.getUTCFullYear() && s.getUTCMonth() === e.getUTCMonth()
+  if (!sameMonth) return `${dmy(s)} – ${dmy(e)}`
+  const day = (d: Date) => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: '2-digit' }).format(d)
+  const monthYear = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'short', year: 'numeric' }).format(s)
+  return `${day(s)}–${day(e)} ${monthYear}`
 }
 
 // A curated short list of timezones for the event picker, plus any value already
