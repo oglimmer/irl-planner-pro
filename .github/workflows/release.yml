@@ -69,6 +69,8 @@ jobs:
             ghcr.io/oglimmer/irl-planner-pro-frontend:latest
           build-args: |
             VITE_APP_VERSION=${{ steps.version.outputs.version }}
+            VITE_GIT_COMMIT=${{ github.sha }}
+            VITE_BUILD_TIME=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

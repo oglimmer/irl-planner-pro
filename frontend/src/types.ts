@@ -246,9 +246,13 @@ export interface Dashboard {
   entries: DashboardEntry[]
 }
 
-export interface BackendBuildInfo {
+export interface BuildInfo {
   name: string
   version: string
   gitCommit: string
   buildTime: string
 }
+
+// The /api/version response and the frontend's own baked-in build info share
+// the same shape.
+export type BackendBuildInfo = BuildInfo

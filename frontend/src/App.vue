@@ -6,6 +6,7 @@ import ConfirmDialog from './components/ConfirmDialog.vue'
 import UserMenu from './components/UserMenu.vue'
 import ThemeSwitcher from './components/ThemeSwitcher.vue'
 import Id5Logo from './components/Id5Logo.vue'
+import SiteFooter from './components/SiteFooter.vue'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -33,11 +34,20 @@ const showChrome = computed(() => !route.meta.hideChrome)
     <main>
       <RouterView />
     </main>
+    <SiteFooter v-if="showChrome" />
     <ConfirmDialog />
   </div>
 </template>
 
 <style scoped>
+/* Column layout so the footer is pushed to the bottom on short pages
+   (SiteFooter uses margin-top:auto). */
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
 /* Editorial sticky header — blurred backdrop, mono uppercase links. */
 nav.top {
   position: sticky;

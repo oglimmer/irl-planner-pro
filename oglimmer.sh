@@ -742,7 +742,7 @@ execute_build() {
 
     # Build frontend
     if [[ "$BUILD_FRONTEND" == true ]]; then
-        build_image "frontend" "--build-arg VITE_APP_VERSION=${app_version} frontend/" "${FRONTEND_IMAGES[@]}"
+        build_image "frontend" "--build-arg VITE_APP_VERSION=${app_version} --build-arg VITE_GIT_COMMIT=${git_commit} --build-arg VITE_BUILD_TIME=${build_time} frontend/" "${FRONTEND_IMAGES[@]}"
     fi
 
     # Build backend
