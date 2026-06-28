@@ -1,0 +1,26 @@
+name: Cleanup container images
+
+# ArgoCD image-updater pins deployments by digest, so every :latest build leaves
+# the previous digest behind as an untagged image version. Left alone these pile
+# up in ghcr.io forever. This daily sweep deletes the untagged versions; the
+# tagged ones (:latest, :v<version>) are kept.
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    name: Delete untagged image versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          owner: oglimmer
+          packages: irl-planner-pro-backend,irl-planner-pro-frontend
+          delete-untagged: true
