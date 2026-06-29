@@ -135,8 +135,9 @@ func TestSubmissionNonFlightModeAllowsEmptyTimeAndDetails(t *testing.T) {
 	}
 }
 
-// A flight requires both a time and a flight number, for employees and admins
-// alike (it is a data-completeness rule, not a relaxable window).
+// A flight requires both a time and a flight number for the employee form. Admins
+// edit on the attendee's behalf with no validation (any option), so the same
+// inputs are accepted on the admin path.
 func TestSubmissionFlightRequiresTimeAndNumber(t *testing.T) {
 	missingTime := &submissionReq{
 		Attending:  "yes",
@@ -155,9 +156,32 @@ func TestSubmissionFlightRequiresTimeAndNumber(t *testing.T) {
 	if err := missingNumber.normalizeAndValidate(sampleEvent(), false); err == nil {
 		t.Error("flight without a flight number should be rejected")
 	}
-	// Same rule for admins — no relaxation.
-	if err := missingNumber.normalizeAndValidate(sampleEvent(), true); err == nil {
-		t.Error("flight without a flight number should be rejected for admins too")
+	// Admins bypass field validation entirely.
+	if err := missingNumber.normalizeAndValidate(sampleEvent(), true); err != nil {
+		t.Errorf("admin flight without a flight number should be allowed: %v", err)
+	}
+}
+
+// An admin edit drops every field-level requirement: no attendance reason, no
+// required travel day/mode, any out-of-window dates — none of it is rejected.
+func TestSubmissionAdminBypassesAllValidation(t *testing.T) {
+	// "Not sure" with no reason, normally rejected for employees.
+	noReason := &submissionReq{Attending: "not_sure"}
+	if err := noReason.normalizeAndValidate(sampleEvent(), true); err != nil {
+		t.Errorf("admin not_sure without a reason should be allowed: %v", err)
+	}
+
+	// "Yes" with no travel details at all, and a wildly out-of-window day.
+	bare := &submissionReq{
+		Attending:  "yes",
+		ArrivalDay: strp("2025-01-01"), // years before the event
+	}
+	if err := bare.normalizeAndValidate(sampleEvent(), true); err != nil {
+		t.Errorf("admin yes with missing/out-of-window travel should be allowed: %v", err)
+	}
+	// The out-of-window day is kept (canonicalized), not blanked or rejected.
+	if bare.ArrivalDay == nil || *bare.ArrivalDay != "2025-01-01" {
+		t.Errorf("admin arrival day should be preserved, got %v", bare.ArrivalDay)
 	}
 }
 

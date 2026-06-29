@@ -134,7 +134,12 @@ const departureDetailsLabel = computed(() =>
   form.departureMode === 'flight' ? 'Flight number' : 'Travel details (optional)',
 )
 
-const readOnly = computed(() => event.value?.isPast ?? false)
+// An admin who edits a response on the attendee's behalf locks it: the attendee
+// can no longer change it here. Set from the loaded submission.
+const lockedByAdmin = ref(false)
+
+const eventEnded = computed(() => event.value?.isPast ?? false)
+const readOnly = computed(() => eventEnded.value || lockedByAdmin.value)
 
 // The RSVP deadline has passed but the event itself is still open, so edits are
 // allowed yet land *after deadline*. The server already stamps these, but we warn
@@ -180,7 +185,7 @@ const rsvpDate = computed(() => {
 const deadlineBlock = computed<{ value: string; caption: string }>(() => {
   const e = event.value
   if (!e) return { value: '', caption: '' }
-  if (readOnly.value) return { value: 'Ended', caption: 'event closed' }
+  if (eventEnded.value) return { value: 'Ended', caption: 'event closed' }
   const ms = new Date(e.submissionDeadline).getTime() - Date.now()
   if (isNaN(ms)) return { value: '', caption: '' }
   const days = Math.ceil(ms / 86_400_000)
@@ -234,6 +239,18 @@ const travelDates = computed<string[]>(() => {
   return out
 })
 
+// Admins can set any day, bypassing the ±1-day window (DESIGN.md §8). For a
+// read-only locked response the stored day may fall outside `travelDates`, which
+// would leave the <select> blank — so fold the current value into the option list
+// (kept in chronological order; ISO date strings sort that way). A no-op for a
+// normal attendee, whose day is always within the window.
+function withCurrentDay(base: string[], current: string | null): string[] {
+  if (!current || base.includes(current)) return base
+  return [...base, current].sort()
+}
+const arrivalDayOptions = computed(() => withCurrentDay(travelDates.value, form.arrivalDay))
+const departureDayOptions = computed(() => withCurrentDay(travelDates.value, form.departureDay))
+
 const beforeDate = computed(() => (event.value ? addDays(event.value.startDate, -1) : ''))
 const afterDate = computed(() => (event.value ? addDays(event.value.endDate, 1) : ''))
 
@@ -277,6 +294,7 @@ async function load() {
     const existing = await api.getMySubmission(props.slug)
     if (existing) {
       hasSubmitted.value = true
+      lockedByAdmin.value = existing.locked
       Object.assign(form, {
         attending: existing.attending,
         notSureReason: existing.notSureReason,
@@ -374,10 +392,10 @@ onMounted(load)
   <section v-else class="attendee">
     <!-- Cover header: mirrors HomeView's feature card, with the RSVP deadline
          countdown as the focal point. -->
-    <header class="feature" :class="{ ended: readOnly }">
+    <header class="feature" :class="{ ended: eventEnded }">
       <img v-if="event.imageUrl" :src="event.imageUrl" alt="" class="feature-cover">
       <div class="feature-body">
-        <p class="eyebrow">{{ readOnly ? 'Event closed' : 'Your RSVP' }}</p>
+        <p class="eyebrow">{{ eventEnded ? 'Event closed' : lockedByAdmin ? 'Response finalized' : 'Your RSVP' }}</p>
         <h1 class="dest">{{ event.name }}</h1>
         <p v-if="placeLine" class="place">{{ placeLine }}</p>
         <p v-if="event.hotelName" class="lodging">
@@ -433,9 +451,13 @@ onMounted(load)
       </aside>
     </header>
 
-    <p v-if="readOnly" class="locked">
+    <p v-if="eventEnded" class="locked">
       This event has ended — your response can no longer be edited. Contact the
       People team if something needs changing.
+    </p>
+    <p v-else-if="lockedByAdmin" class="locked">
+      The People team has finalized your response, so it can no longer be edited
+      here. Contact them if something needs changing.
     </p>
 
     <form class="form" novalidate @submit.prevent="submit">
@@ -483,7 +505,7 @@ onMounted(load)
                   <option :value="INDEPENDENT_TRAVEL">
                     I arrange my own travel here, no support needed
                   </option>
-                  <option v-for="d in travelDates" :key="d" :value="d">{{ formatDate(d) }}</option>
+                  <option v-for="d in arrivalDayOptions" :key="d" :value="d">{{ formatDate(d) }}</option>
                 </select>
               </label>
               <label v-if="!form.arrivalIndependent" :class="fieldClass('arrivalTime')">{{ arrivalTimeLabel }}
@@ -523,7 +545,7 @@ onMounted(load)
                   <option :value="INDEPENDENT_TRAVEL">
                     I arrange my own travel here, no support needed
                   </option>
-                  <option v-for="d in travelDates" :key="d" :value="d">{{ formatDate(d) }}</option>
+                  <option v-for="d in departureDayOptions" :key="d" :value="d">{{ formatDate(d) }}</option>
                 </select>
               </label>
               <label v-if="!form.departureIndependent" :class="fieldClass('departureTime')">{{ departureTimeLabel }}
@@ -575,11 +597,11 @@ onMounted(load)
               <span class="q">Would you require an extra night?</span>
               <label class="check">
                 <input v-model="extraNightBefore" type="checkbox">
-                Extra night before — {{ formatDate(beforeDate) }}
+                Extra night before — {{ formatDate(form.extraStayStart || beforeDate) }}
               </label>
               <label class="check">
                 <input v-model="extraNightAfter" type="checkbox">
-                Extra night after — {{ formatDate(afterDate) }}
+                Extra night after — {{ formatDate(form.extraStayEnd || afterDate) }}
               </label>
             </div>
           </template>

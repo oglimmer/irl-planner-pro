@@ -1051,7 +1051,9 @@ func (a *App) addToolSubmitResponse(s *mcp.Server) {
 			actor = admin
 		}
 
-		sub, err := a.applySubmission(ctx, e, &req, owner.ID, actor, in.AsAdmin)
+		// lock=false: the MCP tool may run unattended (bulk RSVP sync, automation),
+		// so it never locks the attendee out — only the interactive admin edit does.
+		sub, err := a.applySubmission(ctx, e, &req, owner.ID, actor, in.AsAdmin, false)
 		if err != nil {
 			var inv errSubmissionInvalid
 			if errors.As(err, &inv) {

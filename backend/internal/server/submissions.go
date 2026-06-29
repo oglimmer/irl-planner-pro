@@ -50,6 +50,11 @@ type Submission struct {
 	Allergies string `json:"allergies"`
 	Comments  string `json:"comments"`
 
+	// Locked is set when an admin edits this response on the attendee's behalf
+	// (migration 0015). Once locked the employee form is read-only and only an
+	// admin can change it; the lock is permanent (no in-app unlock).
+	Locked bool `json:"locked"`
+
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -79,8 +84,11 @@ type submissionReq struct {
 var validTravelModes = map[string]bool{"flight": true, "car": true, "train": true, "other": true}
 
 // normalizeAndValidate enforces the conditional form rules (DESIGN.md §8) and
-// blanks fields outside the chosen branch. isAdmin relaxes the one-day extra-
-// night cap and the arrival/departure date window. It mutates req in place.
+// blanks fields outside the chosen branch. For an admin editing on an attendee's
+// behalf (isAdmin) every field-level rule is dropped — any day, any option, no
+// required fields, no date windows or extra-night caps — leaving only the
+// branch-blanking and the parse/enum normalization the DB columns demand. It
+// mutates req in place.
 func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 	switch req.Attending {
 	case "yes", "no", "not_sure":
@@ -90,7 +98,9 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 
 	if req.Attending != "not_sure" {
 		req.NotSureReason = ""
-	} else if strings.TrimSpace(req.NotSureReason) == "" {
+	} else if !isAdmin && strings.TrimSpace(req.NotSureReason) == "" {
+		// Admins edit on the attendee's behalf with no validation (any option),
+		// so the reason is only mandatory for the employee form.
 		return errors.New("a reason is required when you're not sure")
 	}
 
@@ -174,39 +184,50 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 	return nil
 }
 
-// validateTravelLeg checks one arrival/departure leg: a day and mode are
-// required. The day must fall in the allowed window (event range ±1 day for
-// employees, unrestricted for admins). For a flight, the time and details
-// (flight number) are also required so the People team can track the flight; for
-// every other mode both stay optional.
+// validateTravelLeg checks one arrival/departure leg. For the employee form a
+// day and mode are required, the day must fall in the allowed window (event
+// range ±1 day), and a flight also requires its time + flight number. For an
+// admin editing on the attendee's behalf, every one of those requirements is
+// dropped (any day, any option, no validation): a blank day/mode is normalized
+// to NULL and any present value is only canonicalized / range-free. The day and
+// mode are still parsed/enum-checked even for admins so the DATE column and the
+// mode CHECK constraint can't reject the write.
 func validateTravelLeg(label string, day **string, mode **string, travelTime *string, details *string, start, end time.Time, isAdmin bool) error {
 	if *day == nil || strings.TrimSpace(**day) == "" {
-		return errors.New(label + " day is required")
-	}
-	d, err := parseDate(strings.TrimSpace(**day))
-	if err != nil {
-		return errors.New(label + " day is invalid")
-	}
-	if !isAdmin {
-		lo := start.AddDate(0, 0, -1)
-		hi := end.AddDate(0, 0, 1)
-		if d.Before(lo) || d.After(hi) {
-			return errors.New(label + " day must be within the event dates")
+		if !isAdmin {
+			return errors.New(label + " day is required")
 		}
+		*day = nil
+	} else {
+		d, err := parseDate(strings.TrimSpace(**day))
+		if err != nil {
+			return errors.New(label + " day is invalid")
+		}
+		if !isAdmin {
+			lo := start.AddDate(0, 0, -1)
+			hi := end.AddDate(0, 0, 1)
+			if d.Before(lo) || d.After(hi) {
+				return errors.New(label + " day must be within the event dates")
+			}
+		}
+		canon := d.Format(dateLayout)
+		*day = &canon
 	}
-	canon := d.Format(dateLayout)
-	*day = &canon
 
 	if *mode == nil || strings.TrimSpace(**mode) == "" {
-		return errors.New(label + " travel mode is required")
+		if !isAdmin {
+			return errors.New(label + " travel mode is required")
+		}
+		*mode = nil
+	} else {
+		m := strings.TrimSpace(**mode)
+		if !validTravelModes[m] {
+			return errors.New(label + " travel mode is invalid")
+		}
+		*mode = &m
 	}
-	m := strings.TrimSpace(**mode)
-	if !validTravelModes[m] {
-		return errors.New(label + " travel mode is invalid")
-	}
-	*mode = &m
 
-	if m == "flight" {
+	if !isAdmin && *mode != nil && **mode == "flight" {
 		if strings.TrimSpace(*travelTime) == "" {
 			return errors.New(label + " flight time is required")
 		}
@@ -217,20 +238,24 @@ func validateTravelLeg(label string, day **string, mode **string, travelTime *st
 	return nil
 }
 
-// validateExtraStay enforces the stay-window bounds. Employees may add at most
-// one night before the first day and/or one after the last; admins may set any
-// earlier start / later end for special cases.
+// validateExtraStay enforces the stay-window bounds for the employee form: the
+// before-night must sit exactly one day before the first day and the after-night
+// exactly one day after the last. For an admin editing on the attendee's behalf
+// every bound is dropped (any day, no validation) — any present date is only
+// parsed/canonicalized so the DATE column accepts it.
 func validateExtraStay(startPtr, endPtr **string, start, end time.Time, isAdmin bool) error {
 	if *startPtr != nil && strings.TrimSpace(**startPtr) != "" {
 		d, err := parseDate(strings.TrimSpace(**startPtr))
 		if err != nil {
 			return errors.New("extra-night (before) date is invalid")
 		}
-		if !d.Before(start) {
-			return errors.New("the extra night before must be earlier than the first day")
-		}
-		if !isAdmin && !d.Equal(start.AddDate(0, 0, -1)) {
-			return errors.New("you can add at most one extra night before the event")
+		if !isAdmin {
+			if !d.Before(start) {
+				return errors.New("the extra night before must be earlier than the first day")
+			}
+			if !d.Equal(start.AddDate(0, 0, -1)) {
+				return errors.New("you can add at most one extra night before the event")
+			}
 		}
 		canon := d.Format(dateLayout)
 		*startPtr = &canon
@@ -242,11 +267,13 @@ func validateExtraStay(startPtr, endPtr **string, start, end time.Time, isAdmin 
 		if err != nil {
 			return errors.New("extra-night (after) date is invalid")
 		}
-		if !d.After(end) {
-			return errors.New("the extra night after must be later than the last day")
-		}
-		if !isAdmin && !d.Equal(end.AddDate(0, 0, 1)) {
-			return errors.New("you can add at most one extra night after the event")
+		if !isAdmin {
+			if !d.After(end) {
+				return errors.New("the extra night after must be later than the last day")
+			}
+			if !d.Equal(end.AddDate(0, 0, 1)) {
+				return errors.New("you can add at most one extra night after the event")
+			}
 		}
 		canon := d.Format(dateLayout)
 		*endPtr = &canon
@@ -302,6 +329,17 @@ func (a *App) handlePutMySubmission(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "this event has ended and can no longer be edited")
 		return
 	}
+	// Once an admin has edited this response it is locked: the attendee can no
+	// longer change it from the form (admins keep editing via the admin path).
+	sub, err := a.Store.loadSubmission(r.Context(), e.ID, user.ID)
+	if err != nil && err != sql.ErrNoRows {
+		serverErr(w, r, err, "db error")
+		return
+	}
+	if err == nil && sub.Locked {
+		writeErr(w, http.StatusForbidden, "your response has been finalized by an organizer and can no longer be edited — contact the People team if something needs changing")
+		return
+	}
 	a.writeSubmission(w, r, e, user.ID, user, false)
 }
 
@@ -345,7 +383,9 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	sub, err := a.applySubmission(r.Context(), e, &req, ownerID, actor, isAdmin)
+	// An admin edit through the HTTP path locks the response (isAdmin is true
+	// only on the admin-edit route); the employee path never locks.
+	sub, err := a.applySubmission(r.Context(), e, &req, ownerID, actor, isAdmin, isAdmin)
 	if err != nil {
 		var inv errSubmissionInvalid
 		switch {
@@ -367,9 +407,12 @@ func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, 
 // link + activity log in one transaction, fires the best-effort admin
 // notification, and returns the persisted submission. actor is whoever is making
 // the change; isAdmin relaxes validation and selects the admin-edit activity
-// action. Validation failures come back as errSubmissionInvalid and a missing
-// owner as errSubmissionOwnerNotFound; any other error is a db/server error.
-func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq, ownerID string, actor *User, isAdmin bool) (*Submission, error) {
+// action. lock, when true, marks the response locked so the attendee can no
+// longer edit it from the form; the column is sticky (once locked stays locked),
+// so passing false never unlocks an already-locked row. Validation failures come
+// back as errSubmissionInvalid and a missing owner as errSubmissionOwnerNotFound;
+// any other error is a db/server error.
+func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq, ownerID string, actor *User, isAdmin, lock bool) (*Submission, error) {
 	if err := req.normalizeAndValidate(e, isAdmin); err != nil {
 		return nil, errSubmissionInvalid{err}
 	}
@@ -427,8 +470,8 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 		`INSERT INTO submissions (event_id, user_id, attending, not_sure_reason,
 		   arrival_day, arrival_time, arrival_mode, arrival_details,
 		   departure_day, departure_time, departure_mode, departure_details,
-		   arrival_independent, departure_independent, long_haul, extra_stay_start, extra_stay_end, comments)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+		   arrival_independent, departure_independent, long_haul, extra_stay_start, extra_stay_end, comments, locked)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		 ON CONFLICT (event_id, user_id) DO UPDATE SET
 		   attending=EXCLUDED.attending,
 		   not_sure_reason=EXCLUDED.not_sure_reason, arrival_day=EXCLUDED.arrival_day,
@@ -439,12 +482,15 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 		   arrival_independent=EXCLUDED.arrival_independent,
 		   departure_independent=EXCLUDED.departure_independent, long_haul=EXCLUDED.long_haul,
 		   extra_stay_start=EXCLUDED.extra_stay_start, extra_stay_end=EXCLUDED.extra_stay_end,
-		   comments=EXCLUDED.comments, updated_at=now()
+		   comments=EXCLUDED.comments,
+		   -- locked is sticky: an admin edit sets it, and a later write (false)
+		   -- never clears it.
+		   locked=submissions.locked OR EXCLUDED.locked, updated_at=now()
 		 RETURNING id`,
 		e.ID, ownerID, req.Attending, req.NotSureReason,
 		datePtr(req.ArrivalDay), req.ArrivalTime, strPtr(req.ArrivalMode), req.ArrivalDetails,
 		datePtr(req.DepartureDay), req.DepartureTime, strPtr(req.DepartureMode), req.DepartureDetails,
-		req.ArrivalIndependent, req.DepartureIndependent, req.LongHaul, datePtr(req.ExtraStayStart), datePtr(req.ExtraStayEnd), req.Comments).
+		req.ArrivalIndependent, req.DepartureIndependent, req.LongHaul, datePtr(req.ExtraStayStart), datePtr(req.ExtraStayEnd), req.Comments, lock).
 		Scan(&subID)
 	if err != nil {
 		metrics.SubmissionMutationsTotal.WithLabelValues("write", "error").Inc()

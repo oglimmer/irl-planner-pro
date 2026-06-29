@@ -77,7 +77,7 @@ func TestApplySubmissionAsAttendeeRSVP(t *testing.T) {
 	}
 
 	// Recorded as the attendee themselves (isAdmin=false, actor=owner).
-	sub, err := a.applySubmission(ctx, e, &req, owner.ID, owner, false)
+	sub, err := a.applySubmission(ctx, e, &req, owner.ID, owner, false, false)
 	if err != nil {
 		t.Fatalf("applySubmission: %v", err)
 	}
@@ -111,6 +111,51 @@ func TestApplySubmissionAsAttendeeRSVP(t *testing.T) {
 	}
 }
 
+// TestAdminEditLocksResponse confirms an admin edit (lock=true) sets the sticky
+// locked flag, that a later non-locking write keeps it locked, and that the
+// employee HTTP path then refuses to edit a locked response with a 403.
+func TestAdminEditLocksResponse(t *testing.T) {
+	a := testDBApp(t)
+	ctx := context.Background()
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	e := seedEventForRSVP(t, a, ctx, admin.ID)
+	owner, _ := a.Store.findOrCreateUser(ctx, "carla@id5.io", "Carla", "", "")
+
+	// Admin edits on the attendee's behalf with no validation (any option) and
+	// locks the response.
+	adminReq := submissionReq{Attending: "no"}
+	sub, err := a.applySubmission(ctx, e, &adminReq, owner.ID, admin, true, true)
+	if err != nil {
+		t.Fatalf("admin applySubmission: %v", err)
+	}
+	if !sub.Locked {
+		t.Fatal("admin edit should lock the response")
+	}
+
+	// A subsequent non-locking write (lock=false) must NOT clear the lock.
+	again := submissionReq{Attending: "not_sure", NotSureReason: "tbd"}
+	sub, err = a.applySubmission(ctx, e, &again, owner.ID, admin, true, false)
+	if err != nil {
+		t.Fatalf("second applySubmission: %v", err)
+	}
+	if !sub.Locked {
+		t.Fatal("lock should be sticky across a later non-locking write")
+	}
+
+	// The employee HTTP path refuses to edit a locked response.
+	body, _ := json.Marshal(submissionReq{
+		Attending: "yes", ArrivalDay: strp("2026-10-14"), ArrivalMode: strp("car"),
+		DepartureIndependent: true,
+	})
+	r := httptest.NewRequest(http.MethodPut, "/api/events/"+e.Slug+"/submission", bytes.NewReader(body)).
+		WithContext(withParams(withUser(ctx, owner.ID, owner.Email), "slug", e.Slug))
+	w := httptest.NewRecorder()
+	a.handlePutMySubmission(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("locked employee edit: status %d body %s, want 403", w.Code, w.Body.String())
+	}
+}
+
 // TestApplySubmissionValidationError confirms a conditional-form violation comes
 // back as errSubmissionInvalid (the sentinel callers map to a 400 / bad input),
 // not a generic db error.
@@ -123,7 +168,7 @@ func TestApplySubmissionValidationError(t *testing.T) {
 
 	// attending=yes but no travel legs and not independent → invalid.
 	req := submissionReq{Attending: "yes"}
-	_, err := a.applySubmission(ctx, e, &req, owner.ID, owner, false)
+	_, err := a.applySubmission(ctx, e, &req, owner.ID, owner, false, false)
 	if err == nil {
 		t.Fatal("expected validation error, got nil")
 	}

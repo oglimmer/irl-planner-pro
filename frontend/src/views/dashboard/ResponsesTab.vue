@@ -8,6 +8,7 @@ import { useColumnConfig } from '../../composables/useColumnConfig'
 import type { AutoReloadOption } from '../../composables/useAutoReload'
 import AttendingFilter from '../../components/AttendingFilter.vue'
 import ColumnPicker from '../../components/ColumnPicker.vue'
+import AdminSubmissionEditor from './AdminSubmissionEditor.vue'
 import type { AttendingState, Dashboard, DashboardEntry, Submission } from '../../types'
 
 const props = defineProps<{
@@ -23,6 +24,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:intervalMs': [number]
   error: [string]
+  // An admin edit was saved; the parent refetches the dashboard + submissions.
+  saved: []
 }>()
 
 // The refresh <select> drives the parent-owned auto-reload via v-model.
@@ -169,6 +172,14 @@ const filteredEntries = computed(() => {
   return sort.sortRows(rows, responseSortValue)
 })
 
+// The attendee whose response is open in the admin editor (null = closed).
+const editing = ref<ResponseRow | null>(null)
+
+function onEditorSaved() {
+  editing.value = null
+  emit('saved')
+}
+
 async function exportCsv() {
   try {
     const blob = await api.fetchExport(props.eventId, filter.value)
@@ -245,6 +256,7 @@ async function exportCsv() {
               >
                 {{ col.label }}<span class="arrow">{{ sort.sortArrow(col.key) }}</span>
               </th>
+              <th class="actions-col">Edit</th>
             </tr>
           </thead>
           <tbody>
@@ -264,15 +276,30 @@ async function exportCsv() {
                 </template>
                 <template v-else>{{ col.text(e) }}</template>
               </td>
+              <td class="actions-col">
+                <button type="button" class="btn-link" @click="editing = e">Edit</button>
+                <span v-if="e.sub?.locked" class="lock" title="Finalized by an organizer — locked for the attendee">🔒</span>
+              </td>
             </tr>
             <tr v-if="filteredEntries.length === 0">
-              <td :colspan="visibleColumns.length" class="muted">No matching attendees.</td>
+              <td :colspan="visibleColumns.length + 1" class="muted">No matching attendees.</td>
             </tr>
           </tbody>
         </table>
       </div>
     </div>
     <p v-else class="muted">Loading…</p>
+
+    <AdminSubmissionEditor
+      v-if="editing"
+      :event-id="eventId"
+      :user-id="editing.userId"
+      :name="editing.name"
+      :email="editing.email"
+      :submission="editing.sub"
+      @close="editing = null"
+      @saved="onEditorSaved"
+    />
   </div>
 </template>
 
@@ -440,5 +467,21 @@ async function exportCsv() {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--danger);
+}
+.actions-col {
+  white-space: nowrap;
+  text-align: right;
+}
+.btn-link {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+.lock {
+  margin-left: 0.4rem;
+  font-size: 0.8rem;
 }
 </style>

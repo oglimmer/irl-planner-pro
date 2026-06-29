@@ -379,6 +379,12 @@ CREATE TABLE submissions (
     -- allergies live on users (the profile), not here — see §5.1.
     comments           TEXT NOT NULL DEFAULT '',
 
+    -- Set when an admin edits this response on the attendee's behalf (§8). Once
+    -- locked the employee form is read-only; only admins can change it. The lock
+    -- is permanent (no in-app unlock) and sticky (a later non-locking write — e.g.
+    -- an MCP RSVP sync — never clears it). Migration 0015.
+    locked             BOOLEAN NOT NULL DEFAULT false,
+
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (event_id, user_id)
@@ -697,7 +703,10 @@ once past (§5.2, §6).
 existing submission — enqueues an **admin notification** email (§9.2). Admin edits
 via `PUT …/submissions/:userId` follow the same path but log the
 `admin.edited_submission` action with the admin as `actor` and the attendee as
-`subject`.
+`subject`. They additionally **bypass all field validation** (any day, any option,
+no required fields — §8) and **lock** the response: `locked` is set so the
+attendee can no longer edit it from the form. The lock is permanent and sticky
+(§5.5).
 
 ### MCP & OAuth
 ```
@@ -779,13 +788,25 @@ never trusted).
 Fields outside the chosen branch are blanked on write so a user toggling Yes→No
 doesn't leave stale travel data.
 
+**Admin edits bypass this entire matrix.** When an admin edits a response on an
+attendee's behalf (`PUT …/submissions/:userId`, the admin editor in the Responses
+tab), every field-level rule above is dropped: any arrival/departure day (a free
+date picker, not a constrained dropdown), any/empty mode, no required fields, no
+date windows, no extra-night caps or consistency checks. Only the branch-blanking
+and the parse/enum normalization the DB columns demand still run (a day must be a
+real date or NULL; a mode must be a valid enum value or NULL; `attending` must be
+one of the three). Saving an admin edit **locks** the response (§5.5): the
+attendee form goes read-only and only admins can change it thereafter.
+
 ### Editing
 The same `PUT` endpoint handles create and edit (upsert on `(event_id,user_id)`).
 The form pre-loads the existing submission via `GET …/submission`. For employees,
 editing is allowed **before and after the deadline** (the deadline gates
 *reminders* and the meaning of *"not sure"*, not the ability to edit) **as long as
-the event is not yet past** — once `end_date < today` the employee form locks.
-Admins can always edit, including past events. Every save appends a
+the event is not yet past and the response has not been admin-locked** — once
+`end_date < today` *or* an admin has edited the response (§5.5), the employee form
+goes read-only (the server returns 403 on an employee write to a locked or past
+submission). Admins can always edit, including past and locked events. Every save appends a
 `submission_revisions` snapshot **and** an `activity_log` entry; edits that land
 after the submission deadline are stamped `after_deadline=true` so they stand out
 in the admin timeline (§11). The admin notification email fires on edits (§9.2).

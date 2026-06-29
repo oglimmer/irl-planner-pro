@@ -206,6 +206,9 @@ export interface Submission {
   extraStayEnd: string | null
   allergies: string
   comments: string
+  // Set once an admin has edited this response on the attendee's behalf; the
+  // attendee form then becomes read-only (only admins can change it).
+  locked: boolean
   createdAt: string
   updatedAt: string
 }

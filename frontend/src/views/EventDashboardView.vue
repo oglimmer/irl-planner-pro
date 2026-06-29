@@ -78,6 +78,12 @@ async function loadDirectory() {
   }
 }
 
+// An admin saved an edit to someone's response — refresh the responses (now
+// showing the change + lock) and the activity timeline (which logged the edit).
+function onResponseSaved() {
+  void Promise.all([loadResponses(), loadActivity()])
+}
+
 // An attendee was added/removed/imported — refresh the shared dashboard (both
 // tabs) and the directory (the add picker's options).
 function onAttendeesChanged() {
@@ -135,6 +141,7 @@ onMounted(async () => {
         :timezone="event.timezone"
         :reload-options="options"
         @error="error = $event"
+        @saved="onResponseSaved"
       />
 
       <ActivityTab
