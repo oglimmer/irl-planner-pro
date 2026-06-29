@@ -24,6 +24,21 @@ func kinds(ws []reminderWindow) map[string]string {
 	return m
 }
 
+// Email keeps the bare period key (backward compatible); other channels get a
+// distinct key so each channel is claimed independently.
+func TestReminderClaimKeyPerChannel(t *testing.T) {
+	if got := reminderClaimKey("2026-W40", channelEmail); got != "2026-W40" {
+		t.Errorf("email key = %q, want bare %q", got, "2026-W40")
+	}
+	slackKey := reminderClaimKey("2026-W40", channelSlack)
+	if slackKey == "2026-W40" {
+		t.Error("slack key must differ from the email key for independent claims")
+	}
+	if slackKey != "2026-W40|slack" {
+		t.Errorf("slack key = %q, want %q", slackKey, "2026-W40|slack")
+	}
+}
+
 func TestWeeklyFiresMondayAtReminderHour(t *testing.T) {
 	e, loc := reminderEvent()
 	now := time.Date(2026, 10, 5, 9, 0, 0, 0, loc) // Monday 09:00 Paris

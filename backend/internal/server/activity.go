@@ -28,6 +28,7 @@ const (
 	actionMessageTemplateSaved  = "message.template_saved"
 	actionInvitationSent        = "message.invitation_sent"
 	actionFollowupSent          = "message.followup_sent"
+	actionNotificationsSaved    = "notifications.saved"
 )
 
 // Activity categories classify *what was done*, not who did it. A participant

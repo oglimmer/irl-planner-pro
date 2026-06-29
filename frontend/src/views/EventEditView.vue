@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { api, errMsg } from '../api'
 import { COMMON_TIMEZONES, defaultDayType, eventDayRange, formatDate } from '../lib/datetime'
 import { useAuthStore } from '../stores/auth'
-import type { DayType, EventInput } from '../types'
+import type { AdminNotifPref, DayType, EventInput, NotificationsInput } from '../types'
 
 const props = defineProps<{ id?: string }>()
 const router = useRouter()
@@ -148,6 +148,72 @@ async function loadForEdit() {
   }
 }
 
+// --- Notifications (per-event admin matrix) --------------------------------
+// Edit-mode only: needs the event id and the admin roster. The People-team
+// daily-summary toggle is `form.dailyActivityEmail` (the events column), kept
+// in sync here so the main form's save and this section never disagree.
+const notifLoading = ref(false)
+const notifSaving = ref(false)
+const notifError = ref('')
+const notifNotice = ref('')
+const peopleTeamEmail = ref('')
+const emailConfigured = ref(false)
+const slackConfigured = ref(false)
+const notifPrefs = ref<AdminNotifPref[]>([])
+
+async function loadNotifications() {
+  if (!props.id) return
+  notifLoading.value = true
+  notifError.value = ''
+  try {
+    const n = await api.getNotifications(props.id)
+    form.dailyActivityEmail = n.peopleTeamDailySummary
+    peopleTeamEmail.value = n.peopleTeamEmail
+    emailConfigured.value = n.channels.find((c) => c.name === 'email')?.configured ?? false
+    slackConfigured.value = n.channels.find((c) => c.name === 'slack')?.configured ?? false
+    notifPrefs.value = n.admins
+  } catch (e) {
+    notifError.value = errMsg(e)
+  } finally {
+    notifLoading.value = false
+  }
+}
+
+// When an admin switches from "off" to a stream, default to a configured
+// channel so the row is valid (the backend rejects a stream with no channel).
+function ensureChannel(a: AdminNotifPref) {
+  if (a.notifType !== '' && !a.viaEmail && !a.viaSlack) {
+    if (emailConfigured.value) a.viaEmail = true
+    else if (slackConfigured.value) a.viaSlack = true
+  }
+}
+
+async function saveNotifications() {
+  if (!props.id) return
+  notifSaving.value = true
+  notifError.value = ''
+  notifNotice.value = ''
+  const payload: NotificationsInput = {
+    peopleTeamDailySummary: form.dailyActivityEmail,
+    admins: notifPrefs.value.map((a) => ({
+      userId: a.userId,
+      notifType: a.notifType,
+      viaEmail: a.notifType === '' ? false : a.viaEmail,
+      viaSlack: a.notifType === '' ? false : a.viaSlack,
+    })),
+  }
+  try {
+    const n = await api.saveNotifications(props.id, payload)
+    notifPrefs.value = n.admins
+    form.dailyActivityEmail = n.peopleTeamDailySummary
+    notifNotice.value = 'Notification settings saved.'
+  } catch (e) {
+    notifError.value = errMsg(e)
+  } finally {
+    notifSaving.value = false
+  }
+}
+
 async function save() {
   saving.value = true
   error.value = ''
@@ -173,7 +239,10 @@ async function save() {
   }
 }
 
-onMounted(loadForEdit)
+onMounted(async () => {
+  await loadForEdit()
+  await loadNotifications()
+})
 </script>
 
 <template>
@@ -320,10 +389,83 @@ onMounted(loadForEdit)
             <input v-model.number="form.reminderHour" type="number" min="0" max="23">
           </label>
         </div>
+        <p class="section-note muted">
+          Reminders are delivered to each non-responder by email and Slack DM,
+          whichever channels are configured on the server.
+        </p>
+      </fieldset>
+
+      <!-- Notifications (edit-mode only) ─────────────────────── -->
+      <fieldset v-if="isEdit" class="section">
+        <legend class="section-title">Notifications</legend>
+        <p class="muted">Who gets told about activity on this event.</p>
+
         <label class="check">
           <input v-model="form.dailyActivityEmail" type="checkbox">
-          <span>Email me a daily activity digest (only on days with activity)</span>
+          <span>
+            Send a daily summary to the People team
+            <code v-if="peopleTeamEmail">{{ peopleTeamEmail }}</code>
+            <em v-else class="muted">(PEOPLE_TEAM_EMAIL not configured)</em>
+          </span>
         </label>
+
+        <p v-if="notifLoading" class="muted">Loading admins…</p>
+        <table v-else-if="notifPrefs.length" class="notif-matrix">
+          <thead>
+            <tr>
+              <th>Admin</th>
+              <th>Off</th>
+              <th>Daily summary</th>
+              <th>Any activity</th>
+              <th>Email</th>
+              <th>Slack</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="a in notifPrefs" :key="a.userId">
+              <td class="who">
+                <span class="who-name">{{ a.name || a.email }}</span>
+                <small class="who-email">{{ a.email }}</small>
+              </td>
+              <td><input v-model="a.notifType" type="radio" :name="`nt-${a.userId}`" value=""></td>
+              <td>
+                <input
+                  v-model="a.notifType" type="radio" :name="`nt-${a.userId}`" value="daily"
+                  @change="ensureChannel(a)"
+                >
+              </td>
+              <td>
+                <input
+                  v-model="a.notifType" type="radio" :name="`nt-${a.userId}`" value="activity"
+                  @change="ensureChannel(a)"
+                >
+              </td>
+              <td>
+                <input
+                  v-model="a.viaEmail" type="checkbox"
+                  :disabled="a.notifType === '' || !emailConfigured"
+                  :title="emailConfigured ? '' : 'email not configured (SMTP_HOST)'"
+                >
+              </td>
+              <td>
+                <input
+                  v-model="a.viaSlack" type="checkbox"
+                  :disabled="a.notifType === '' || !slackConfigured"
+                  :title="slackConfigured ? '' : 'Slack not configured (SLACK_BOT_TOKEN)'"
+                >
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="muted">No admins yet.</p>
+
+        <p v-if="notifError" class="error">{{ notifError }}</p>
+        <p v-if="notifNotice" class="muted">{{ notifNotice }}</p>
+        <div class="actions">
+          <button type="button" class="btn secondary" :disabled="notifSaving" @click="saveNotifications">
+            {{ notifSaving ? 'Saving…' : 'Save notification settings' }}
+          </button>
+        </div>
       </fieldset>
 
       <p v-if="error" class="error">{{ error }}</p>
@@ -556,10 +698,53 @@ small code {
 .muted {
   color: var(--muted);
 }
+.section-note {
+  margin: 16px 0 0;
+  max-width: 60ch;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
 
 @media (max-width: 560px) {
   .grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Notification matrix ─────────────────────────────────────────── */
+.notif-matrix {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+  font-size: 0.92rem;
+}
+.notif-matrix th,
+.notif-matrix td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  text-align: center;
+}
+.notif-matrix thead th {
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.notif-matrix th:first-child,
+.notif-matrix td.who {
+  text-align: left;
+}
+.notif-matrix .who-name {
+  display: block;
+}
+.notif-matrix .who-email {
+  color: var(--muted);
+}
+.notif-matrix input[type='radio'],
+.notif-matrix input[type='checkbox'] {
+  cursor: pointer;
+}
+.notif-matrix input:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 </style>

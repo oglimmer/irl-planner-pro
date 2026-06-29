@@ -499,8 +499,9 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 	}
 	metrics.SubmissionMutationsTotal.WithLabelValues(label, "success").Inc()
 
-	// Notify admins on an edit of an existing submission (best-effort, async).
-	a.notifySubmissionChanged(e, ownerEmail, actor, existed, summary)
+	// Notify "any activity" admins on every submission write — create or edit
+	// (best-effort, async; channels per their per-event preference).
+	a.notifySubmissionActivity(e, ownerEmail, actor, existed, summary)
 
 	return a.Store.loadSubmission(ctx, e.ID, ownerID)
 }

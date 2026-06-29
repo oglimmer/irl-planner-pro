@@ -148,6 +148,40 @@ export interface SendMessageResult {
   queued: number // recipients handed to the background sender; delivery continues async
 }
 
+// One admin's per-event notification preference. notifType '' = off; 'daily' =
+// the daily activity summary; 'activity' = an immediate alert on every
+// submission create/edit. email/slack are the chosen delivery channel(s).
+export interface AdminNotifPref {
+  userId: string
+  name: string
+  email: string // the admin's address
+  notifType: '' | 'daily' | 'activity'
+  viaEmail: boolean // deliver over email
+  viaSlack: boolean // deliver over Slack DM
+}
+
+// The per-event notification matrix: the People-team daily-summary toggle plus
+// every admin's preference. channels reports which transports are wired up so
+// the UI can disable an unavailable channel.
+export interface EventNotifications {
+  peopleTeamEmail: string // configured PEOPLE_TEAM_EMAIL ('' if unset)
+  peopleTeamDailySummary: boolean
+  channels: MessagingChannel[]
+  admins: AdminNotifPref[]
+}
+
+// NotificationsInput is the PUT payload: the People-team toggle plus every
+// admin's chosen stream + channels (a full replace).
+export interface NotificationsInput {
+  peopleTeamDailySummary: boolean
+  admins: Array<{
+    userId: string
+    notifType: '' | 'daily' | 'activity'
+    viaEmail: boolean
+    viaSlack: boolean
+  }>
+}
+
 export interface Submission {
   id: string
   eventId: string

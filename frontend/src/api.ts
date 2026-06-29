@@ -7,7 +7,9 @@ import type {
   Dashboard,
   Event,
   EventInput,
+  EventNotifications,
   MessageTemplates,
+  NotificationsInput,
   MessagingStatus,
   ProfileInput,
   SendMessageResult,
@@ -210,6 +212,16 @@ export const api = {
     request<SendMessageResult>(`/api/admin/events/${id}/messaging/followup`, {
       method: 'POST',
       body: JSON.stringify({ channel }),
+    }),
+
+  // Per-event notification matrix: People-team daily-summary toggle + each
+  // admin's stream and channel preferences.
+  getNotifications: (id: string) =>
+    request<EventNotifications>(`/api/admin/events/${id}/notifications`),
+  saveNotifications: (id: string, data: NotificationsInput) =>
+    request<EventNotifications>(`/api/admin/events/${id}/notifications`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
     }),
 
   dashboard: (id: string) => request<Dashboard>(`/api/admin/events/${id}/dashboard`),

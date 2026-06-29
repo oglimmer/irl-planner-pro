@@ -25,8 +25,8 @@ func (a *App) StartReminders(ctx context.Context, wg *sync.WaitGroup) {
 		log.Printf("reminders disabled (REMINDERS_ENABLED=false)")
 		return
 	}
-	if !a.Email.Configured() {
-		log.Printf("WARN: reminders enabled but SMTP not configured — reminders/digests will be skipped until SMTP_HOST is set")
+	if !a.Email.Configured() && !a.Slack.Configured() {
+		log.Printf("WARN: reminders enabled but neither SMTP nor Slack configured — reminders/digests will be skipped until SMTP_HOST or SLACK_BOT_TOKEN is set")
 	}
 	log.Printf("reminders enabled: tick=%s", a.Cfg.ReminderTickInterval)
 
@@ -47,10 +47,10 @@ func (a *App) StartReminders(ctx context.Context, wg *sync.WaitGroup) {
 	}()
 }
 
-// runReminderTick processes every open event once. Email sends are skipped
-// (nothing is claimed) when SMTP is unconfigured, so they fire once it is.
+// runReminderTick processes every open event once. Sends are skipped (nothing
+// is claimed) when no delivery channel is configured, so they fire once one is.
 func (a *App) runReminderTick(ctx context.Context, now time.Time) {
-	if !a.Email.Configured() {
+	if len(a.reminderChannels()) == 0 {
 		return
 	}
 	ids, err := a.openEventIDs(ctx, now)
@@ -94,6 +94,10 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 	if len(windows) == 0 {
 		return
 	}
+	channels := a.reminderChannels()
+	if len(channels) == 0 {
+		return
+	}
 	nonResponders, err := a.Store.nonResponderContacts(ctx, e.ID)
 	if err != nil {
 		log.Printf("WARN: reminder: non-responders for %s: %v", e.ID, err)
@@ -104,38 +108,84 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 	bodyTmpl := firstNonEmpty(e.ReminderBody, defaultReminderBody)
 	for _, win := range windows {
 		for _, rc := range nonResponders {
-			claimed, err := a.claimReminder(ctx, e.ID, rc.Email, win.Kind, win.PeriodKey)
-			if err != nil {
-				log.Printf("WARN: reminder claim: %v", err)
-				continue
-			}
-			if !claimed {
-				continue // already sent for this window
-			}
 			vars := a.messageVars(e, rc)
 			subject := renderTemplate(subjectTmpl, vars)
 			body := renderTemplate(bodyTmpl, vars)
-			if err := a.Email.Send([]string{rc.Email}, subject, body); err != nil {
-				log.Printf("WARN: reminder send to %s: %v", rc.Email, err)
-				// Release the claim so the next due tick retries instead of the
-				// failure sticking until the whole window passes (matches the
-				// manual follow-up path).
-				a.unclaimReminder(ctx, e.ID, rc.Email, win.Kind, win.PeriodKey)
-				a.logSend(ctx, e.ID, rc.Email, win.Kind, channelEmail, "failed", err.Error())
-				metrics.MessageSendsTotal.WithLabelValues(win.Kind, channelEmail, "failed").Inc()
-				continue
+			// Deliver on each configured channel as a direct message to the
+			// non-responder (email + Slack DM). Each channel is claimed
+			// independently so a failure on one retries without re-sending the
+			// other.
+			for _, ch := range channels {
+				a.sendReminder(ctx, e, rc, win, ch, subject, body)
 			}
-			a.logSend(ctx, e.ID, rc.Email, win.Kind, channelEmail, "sent", "")
-			metrics.RemindersSentTotal.WithLabelValues(win.Kind).Inc()
-			metrics.MessageSendsTotal.WithLabelValues(win.Kind, channelEmail, "sent").Inc()
 		}
 	}
 }
 
-func (a *App) processEventDigest(ctx context.Context, e *Event, now time.Time) {
-	if !e.DailyActivityEmail || !dueAtReminderHour(e, now) {
+// sendReminder delivers one scheduled reminder to one non-responder over one
+// channel, exactly-once via a per-channel claim. A send failure releases the
+// claim so the next due tick retries (matching the manual follow-up path).
+func (a *App) sendReminder(ctx context.Context, e *Event, rc contact, win reminderWindow, channel, subject, body string) {
+	key := reminderClaimKey(win.PeriodKey, channel)
+	claimed, err := a.claimReminder(ctx, e.ID, rc.Email, win.Kind, key)
+	if err != nil {
+		log.Printf("WARN: reminder claim: %v", err)
 		return
 	}
+	if !claimed {
+		return // already sent for this window+channel
+	}
+	if err := a.sendVia(channel, []string{rc.Email}, subject, body); err != nil {
+		log.Printf("WARN: reminder %s to %s: %v", channel, rc.Email, err)
+		a.unclaimReminder(ctx, e.ID, rc.Email, win.Kind, key)
+		a.logSend(ctx, e.ID, rc.Email, win.Kind, channel, "failed", err.Error())
+		metrics.MessageSendsTotal.WithLabelValues(win.Kind, channel, "failed").Inc()
+		return
+	}
+	a.logSend(ctx, e.ID, rc.Email, win.Kind, channel, "sent", "")
+	metrics.RemindersSentTotal.WithLabelValues(win.Kind).Inc()
+	metrics.MessageSendsTotal.WithLabelValues(win.Kind, channel, "sent").Inc()
+}
+
+// reminderChannels lists the delivery channels currently wired up, in send
+// order (email first). A scheduled reminder goes out on each.
+func (a *App) reminderChannels() []string {
+	var chs []string
+	if a.Email.Configured() {
+		chs = append(chs, channelEmail)
+	}
+	if a.Slack.Configured() {
+		chs = append(chs, channelSlack)
+	}
+	return chs
+}
+
+// reminderClaimKey qualifies a window's idempotency key by channel so each
+// channel is claimed and retried independently. Email keeps the bare key for
+// backward compatibility with reminders already sent before multi-channel
+// delivery (so a deploy doesn't re-send them); other channels get a suffix.
+func reminderClaimKey(periodKey, channel string) string {
+	if channel == channelEmail {
+		return periodKey
+	}
+	return periodKey + "|" + channel
+}
+
+func (a *App) processEventDigest(ctx context.Context, e *Event, now time.Time) {
+	if !dueAtReminderHour(e, now) {
+		return
+	}
+	// Recipients: admins who opted into the daily stream (split by channel),
+	// plus the People team (email only) when the event's daily-summary flag is
+	// on. No opted-in recipient ⇒ nothing to do.
+	emailTo, slackTo := a.notifyTargets(ctx, e.ID, notifTypeDaily)
+	if e.DailyActivityEmail && strings.TrimSpace(a.Cfg.PeopleTeamEmail) != "" {
+		emailTo = append([]string{a.Cfg.PeopleTeamEmail}, emailTo...)
+	}
+	if len(emailTo) == 0 && len(slackTo) == 0 {
+		return
+	}
+
 	loc, err := loadLocation(e.Timezone)
 	if err != nil {
 		loc = time.UTC
@@ -153,10 +203,6 @@ func (a *App) processEventDigest(ctx context.Context, e *Event, now time.Time) {
 	// Claim once per event/day with a fixed sentinel recipient.
 	claimed, err := a.claimReminder(ctx, e.ID, "__digest__", "daily_digest", periodKey)
 	if err != nil || !claimed {
-		return
-	}
-	recipients := a.recipients(ctx)
-	if len(recipients) == 0 {
 		return
 	}
 	var b strings.Builder
@@ -178,11 +224,9 @@ func (a *App) processEventDigest(ctx context.Context, e *Event, now time.Time) {
 		fmt.Fprintf(&b, "- %s%s\n", en.Summary, flag)
 	}
 	subject := fmt.Sprintf("[IRL %s] daily activity digest", e.Name)
-	if err := a.Email.Send(recipients, subject, b.String()); err != nil {
-		log.Printf("WARN: digest send for %s: %v", e.ID, err)
-		return
+	if a.dispatch(emailTo, slackTo, subject, b.String()) > 0 {
+		metrics.RemindersSentTotal.WithLabelValues("daily_digest").Inc()
 	}
-	metrics.RemindersSentTotal.WithLabelValues("daily_digest").Inc()
 }
 
 // computeDueReminders returns the reminder windows open at `now` for an event,

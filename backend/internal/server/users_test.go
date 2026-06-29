@@ -31,7 +31,7 @@ func testDB(t *testing.T) *sql.DB {
 		t.Fatalf("migrate: %v", err)
 	}
 	if _, err := d.Exec(`TRUNCATE users, events, event_days, event_roster, event_attendees, event_images,
-		submissions, submission_revisions, reminder_log, activity_log,
+		submissions, submission_revisions, reminder_log, activity_log, event_admin_notifications,
 		oauth_auth_codes, oauth_refresh_tokens, oauth_pending RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}

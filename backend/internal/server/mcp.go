@@ -148,7 +148,7 @@ type mcpCreateEventIn struct {
 	ReminderDaysBefore      *int   `json:"reminderDaysBefore,omitempty" jsonschema:"daily reminders this many days before the deadline (default 3)"`
 	WeeklyReminders         *bool  `json:"weeklyReminders,omitempty" jsonschema:"send a weekly reminder to non-responders (default true)"`
 	ReminderHour            *int   `json:"reminderHour,omitempty" jsonschema:"hour-of-day 0-23 in the event timezone for reminders (default 9)"`
-	DailyActivityEmail      *bool  `json:"dailyActivityEmail,omitempty" jsonschema:"email admins a daily activity digest (default false)"`
+	DailyActivityEmail      *bool  `json:"dailyActivityEmail,omitempty" jsonschema:"send a daily activity summary to the People team email (default false); admins set their own per-event notifications in the app"`
 }
 
 // mcpUpdateEventIn is a partial update: only the fields present are changed; the
