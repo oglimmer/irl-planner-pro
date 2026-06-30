@@ -1213,9 +1213,16 @@ deployment that doesn't opt in. The core app is fully functional without it.
   resolves it to a `*User` stashed in the request context. The access token carries
   a `typ=mcp_access` claim so it is accepted only at the `/mcp` gate and can't be
   replayed against the regular `/api` routes.
-- **Authorization**: tool handlers enforce the **same role rules as the REST API**.
-  Read tools require an authenticated admin; write tools require admin. Nothing is
-  exposed via MCP that the same user couldn't reach through the SPA.
+- **Authorization** — two tiers, enforced per tool, mirroring the REST API:
+  - **User tools** (`requireMCPUser`) need only a signed-in employee and act on
+    that caller themselves — enough to drive a **pure-MCP attendee workflow**
+    (see the active events, manage your own profile, RSVP). Admins are users too,
+    so they can call these as well.
+  - **Admin tools** (`requireMCPAdmin`) require an admin and expose nothing a
+    non-admin couldn't already reach through the SPA admin UI.
+  The full tool list is advertised to everyone; a non-admin who reaches for an
+  admin tool gets an error **naming the user tools** so the client can self-correct
+  (`userToolNames`).
 - **Rate limiting**: `/oauth/authorize` and `/oauth/token` are per-IP throttled;
   discovery is left open.
 
@@ -1224,6 +1231,20 @@ Each tool has typed in/out structs with `jsonschema` tags and is wrapped by an
 `instrumentMCP` helper for Prometheus metrics. Mutating tools write to the
 **activity log** exactly like the REST handlers (actor = the MCP user), so MCP
 changes are as visible as any other.
+
+**User (any signed-in employee — act on the caller):**
+- `get_profile` — read your own profile (name, allergies/dietary preferences, and
+  whether you've confirmed it).
+- `update_profile` — set your own name + allergies/dietary preferences and mark the
+  profile **confirmed**. This is the confirm step `submit_response` requires.
+- `list_events` — for a non-admin, the **active (non-past) events** annotated with
+  your own RSVP (no response/roster counts); admins get the full list below.
+- `get_event` — read an event's config; omit `event` to use the sole active event.
+- `submit_response` — record **your own** RSVP (attendance + travel) for an event
+  (omit `event` for the sole active one), the same conditional-form write the SPA
+  makes, with the §8 server-side rules enforced. Refuses until the profile is
+  confirmed, refuses a past event, and respects an admin lock. Upsert (appends a
+  revision + activity-log entry).
 
 **Read (admin):**
 - `list_events` — current + past events with response counts.
@@ -1251,9 +1272,12 @@ changes are as visible as any other.
 - `trigger_reminders` — force the reminder/digest evaluation for an event now
   (idempotent via `reminder_log`), for ad-hoc nudges.
 
-Write tools deliberately stop short of editing individual attendees' personal
-travel/dietary data over MCP (that stays in the admin UI), keeping the MCP write
-surface to event administration rather than PII mutation.
+The **admin** write tools deliberately stop short of editing *other* attendees'
+personal travel/dietary data over MCP (that stays in the admin UI), keeping the
+admin MCP surface to event administration rather than PII mutation. A user editing
+**their own** profile/RSVP via the user tools is exactly the self-service the SPA
+already offers — no privilege escalation, since the caller only ever touches their
+own record.
 
 ### 16.3 Scope boundary
 The MCP server reuses the existing query/command functions in `events.go`,
@@ -1319,6 +1343,10 @@ The reasoning behind the choices baked into the sections above.
     them in rather than storing copies. A first-login confirm step lets the user fix
     the IdP-seeded values. → §5.1, §8.
 
-11. **MCP is optional and admin-scoped.** An OAuth-gated `/mcp` server reuses the
-    REST business logic and enforces the same authorization; it is off unless
-    configured, so it can't weaken a deployment that doesn't use it. → §14, §16.
+11. **MCP is optional and two-tier.** An OAuth-gated `/mcp` server reuses the REST
+    business logic and enforces the same authorization: admin tools for event
+    administration, plus a small set of user tools (`get_profile`,
+    `update_profile`, `list_events`, `get_event`, `submit_response`) so a regular
+    employee can confirm their profile and RSVP entirely over MCP. Each tool only
+    exposes what the same user could already do in the SPA, and the whole surface
+    is off unless configured. → §14, §16.

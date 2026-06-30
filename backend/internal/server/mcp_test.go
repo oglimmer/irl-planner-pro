@@ -72,10 +72,17 @@ func TestRequireMCPAdmin(t *testing.T) {
 		t.Error("requireMCPAdmin allowed an unauthenticated caller")
 	}
 
-	// Non-admin user → admin only.
+	// Non-admin user → admin only, and the error names the user tools so an MCP
+	// client can self-correct.
 	nonAdmin := context.WithValue(context.Background(), ctxUserKey, &User{ID: "u1", Email: "e@id5.io", IsAdmin: false})
-	if _, err := requireMCPAdmin(nonAdmin); err == nil {
-		t.Error("requireMCPAdmin allowed a non-admin caller")
+	err := func() error { _, e := requireMCPAdmin(nonAdmin); return e }()
+	if err == nil {
+		t.Fatal("requireMCPAdmin allowed a non-admin caller")
+	}
+	for _, want := range userToolNames {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("admin-only error doesn't mention user tool %q; got: %v", want, err)
+		}
 	}
 
 	// Admin user → allowed.
@@ -86,6 +93,32 @@ func TestRequireMCPAdmin(t *testing.T) {
 	}
 	if u == nil || u.ID != "u2" {
 		t.Errorf("requireMCPAdmin returned wrong user: %+v", u)
+	}
+}
+
+// TestRequireMCPUser checks the user-tool gate: only an unauthenticated caller is
+// rejected; both regular users and admins are admitted (admins are users too).
+func TestRequireMCPUser(t *testing.T) {
+	if _, err := requireMCPUser(context.Background()); err == nil {
+		t.Error("requireMCPUser allowed an unauthenticated caller")
+	}
+	for _, isAdmin := range []bool{false, true} {
+		ctx := context.WithValue(context.Background(), ctxUserKey, &User{ID: "u", Email: "e@id5.io", IsAdmin: isAdmin})
+		if _, err := requireMCPUser(ctx); err != nil {
+			t.Errorf("requireMCPUser rejected a signed-in user (isAdmin=%v): %v", isAdmin, err)
+		}
+	}
+}
+
+// TestProfileOut derives the display name from the two name parts and carries the
+// confirm flag through.
+func TestProfileOut(t *testing.T) {
+	out := profileOut(&User{Email: "a@id5.io", FirstName: "Ada", LastName: "Lovelace", Allergies: "none", ProfileConfirmed: true})
+	if out.Name != "Ada Lovelace" {
+		t.Errorf("Name = %q, want %q", out.Name, "Ada Lovelace")
+	}
+	if !out.ProfileConfirmed || out.Allergies != "none" {
+		t.Errorf("profileOut dropped fields: %+v", out)
 	}
 }
 

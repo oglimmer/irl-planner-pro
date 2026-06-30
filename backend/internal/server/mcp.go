@@ -16,11 +16,19 @@ import (
 	"irlplanner/internal/metrics"
 )
 
-// Phase 7 MCP server (DESIGN.md §18). An additive, OAuth-gated, admin-scoped
-// surface that lets an MCP client (e.g. Claude) query and manage events. It is a
-// thin protocol adapter over the existing query/command functions in events.go,
-// dashboard.go, roster.go, activity.go, and reminders.go — not a second copy of
-// the business logic. Off unless MCP_OAUTH_CLIENT_* are configured.
+// Phase 7 MCP server (DESIGN.md §18). An additive, OAuth-gated surface that lets
+// an MCP client (e.g. Claude) query and manage events. It is a thin protocol
+// adapter over the existing query/command functions in events.go, dashboard.go,
+// roster.go, activity.go, and reminders.go — not a second copy of the business
+// logic. Off unless MCP_OAUTH_CLIENT_* are configured.
+//
+// Two tiers (DESIGN.md §18.1): the admin tools (all the dashboards, exports, and
+// event/roster mutations) require an admin, exposing nothing a non-admin couldn't
+// already reach through the SPA admin UI. The user tools (userToolNames) require
+// only a signed-in employee and act on that caller themselves — enough for a
+// regular user to see the active events, manage their own profile, and RSVP
+// entirely over MCP. The full tool list is advertised to everyone; a non-admin
+// who reaches for an admin tool gets an error naming the tools they *can* call.
 
 // uuidRe matches a canonical UUID, used to decide whether an event reference
 // should be looked up by id (vs. slug) without provoking a Postgres
@@ -34,17 +42,35 @@ func userFromCtx(ctx context.Context) *User {
 	return v
 }
 
+// userToolNames are the tools any signed-in employee may call. Kept as data so
+// requireMCPAdmin can name them when guiding a non-admin away from an admin tool.
+var userToolNames = []string{
+	"list_events", "get_event", "submit_response", "get_profile", "update_profile",
+}
+
+// requireMCPUser enforces only that the caller is authenticated. The user tools
+// all act on the caller themselves (their own profile / RSVP / the active
+// events), so any signed-in employee — admins included — may call them.
+func requireMCPUser(ctx context.Context) (*User, error) {
+	u := userFromCtx(ctx)
+	if u == nil {
+		return nil, errors.New("unauthenticated")
+	}
+	return u, nil
+}
+
 // requireMCPAdmin enforces the same authorization as the REST admin group: the
-// caller must be authenticated and an admin. Every tool — read and write —
-// requires admin, so nothing is exposed via MCP that a non-admin couldn't reach
-// through the SPA (DESIGN.md §18.1).
+// caller must be authenticated and an admin. The admin tools expose nothing a
+// non-admin couldn't reach through the SPA admin UI (DESIGN.md §18.1). On refusal
+// it names the user tools so an MCP client can self-correct.
 func requireMCPAdmin(ctx context.Context) (*User, error) {
 	u := userFromCtx(ctx)
 	if u == nil {
 		return nil, errors.New("unauthenticated")
 	}
 	if !u.IsAdmin {
-		return nil, errors.New("admin only")
+		return nil, fmt.Errorf("this tool is admin-only; as a regular user you can call: %s",
+			strings.Join(userToolNames, ", "))
 	}
 	return u, nil
 }
@@ -90,6 +116,27 @@ type mcpListEventsOut struct {
 	Events []mcpEventSummary `json:"events"`
 }
 
+// mcpMyEventSummary is the regular-user view of an active event: its public
+// details plus the caller's own RSVP. It deliberately omits the response/roster
+// counts (other people's data) that the admin mcpEventSummary carries.
+type mcpMyEventSummary struct {
+	ID                 string    `json:"id"`
+	Slug               string    `json:"slug"`
+	Name               string    `json:"name"`
+	Country            string    `json:"country"`
+	City               string    `json:"city"`
+	Timezone           string    `json:"timezone"`
+	StartDate          string    `json:"startDate"`
+	EndDate            string    `json:"endDate"`
+	SubmissionDeadline time.Time `json:"submissionDeadline"`
+	HasSubmitted       bool      `json:"hasSubmitted"`
+	MyAttending        string    `json:"myAttending"` // yes|no|not_sure, or "" if not submitted
+}
+
+type mcpMyEventsOut struct {
+	Events []mcpMyEventSummary `json:"events"`
+}
+
 type mcpNonResponder struct {
 	FullName string `json:"fullName"`
 	Email    string `json:"email"`
@@ -121,6 +168,12 @@ type mcpEmptyIn struct{}
 
 type mcpEventRefIn struct {
 	Event string `json:"event" jsonschema:"the event slug (e.g. dubrovnik-oct-2026) or its id"`
+}
+
+// mcpEventRefOptIn is the user-tool event reference: optional, defaulting to the
+// sole active event when omitted.
+type mcpEventRefOptIn struct {
+	Event string `json:"event,omitempty" jsonschema:"the event slug or id; omit to use the sole active event (errors if there are several)"`
 }
 
 type mcpGetActivityIn struct {
@@ -195,12 +248,12 @@ type mcpRemoveAttendeeIn struct {
 	Email string `json:"email" jsonschema:"the work email of the attendee to remove"`
 }
 
-// mcpSubmitResponseIn is the RSVP payload: the writable subset of a submission
-// plus the attendee email it is recorded for. It mirrors the conditional form —
-// fields outside the chosen branch are ignored/blanked server-side.
+// mcpSubmitResponseIn is the RSVP payload: the writable subset of a submission.
+// It is always recorded for the calling user themselves. It mirrors the
+// conditional form — fields outside the chosen branch are ignored/blanked
+// server-side.
 type mcpSubmitResponseIn struct {
-	Event                string `json:"event" jsonschema:"the event slug or id"`
-	Email                string `json:"email" jsonschema:"the attendee's work email; must be an existing directory user (use add_attendee first otherwise)"`
+	Event                string `json:"event,omitempty" jsonschema:"the event slug or id; omit to use the sole active event"`
 	Attending            string `json:"attending" jsonschema:"yes, no, or not_sure"`
 	NotSureReason        string `json:"notSureReason,omitempty" jsonschema:"required when attending=not_sure; ignored otherwise"`
 	ArrivalDay           string `json:"arrivalDay,omitempty" jsonschema:"arrival date YYYY-MM-DD (event-local); required when attending=yes unless arrivalIndependent"`
@@ -217,7 +270,6 @@ type mcpSubmitResponseIn struct {
 	ExtraStayStart       string `json:"extraStayStart,omitempty" jsonschema:"company-paid extra night before the event (long-haul only), YYYY-MM-DD"`
 	ExtraStaySelfFunded  bool   `json:"extraStaySelfFunded,omitempty" jsonschema:"attendee arrives the day before and arranges their own accommodation, but still wants company transport; mutually exclusive with extraStayStart"`
 	Comments             string `json:"comments,omitempty" jsonschema:"free-text comments, optional"`
-	AsAdmin              bool   `json:"asAdmin,omitempty" jsonschema:"record as an admin edit (relaxes the date-window and extra-night limits, and allows editing a past event) instead of a normal attendee RSVP; default false"`
 }
 
 type mcpAttendee struct {
@@ -302,11 +354,70 @@ func (a *App) resolveEventRef(ctx context.Context, ref string) (*Event, error) {
 	return nil, fmt.Errorf("event %q not found", ref)
 }
 
+// activeEventRefs returns the slugs of the active (non-past) events, soonest
+// first — used to resolve the implicit event for the user tools and to list the
+// choices when there's more than one.
+func (a *App) activeEventRefs(ctx context.Context, now time.Time) ([]string, error) {
+	rows, err := a.DB.QueryContext(ctx,
+		`SELECT slug, timezone, end_date FROM events ORDER BY start_date ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("db error: %w", err)
+	}
+	defer rows.Close()
+	var slugs []string
+	for rows.Next() {
+		var slug, tz string
+		var end time.Time
+		if err := rows.Scan(&slug, &tz, &end); err != nil {
+			return nil, fmt.Errorf("db error: %w", err)
+		}
+		loc, lerr := loadLocation(tz)
+		if lerr != nil {
+			loc = time.UTC
+		}
+		if isEventPast(end, loc, now) {
+			continue
+		}
+		slugs = append(slugs, slug)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("db error: %w", err)
+	}
+	return slugs, nil
+}
+
+// resolveUserEventRef picks the event a user tool acts on: the explicit ref when
+// given, otherwise the sole active event. With no ref and zero-or-many active
+// events it returns a guiding error rather than guessing.
+func (a *App) resolveUserEventRef(ctx context.Context, ref string) (*Event, error) {
+	if strings.TrimSpace(ref) != "" {
+		return a.resolveEventRef(ctx, ref)
+	}
+	slugs, err := a.activeEventRefs(ctx, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	switch len(slugs) {
+	case 0:
+		return nil, errors.New("there is no active event right now")
+	case 1:
+		return a.resolveEventRef(ctx, slugs[0])
+	default:
+		return nil, fmt.Errorf("there are multiple active events — pass one as 'event': %s",
+			strings.Join(slugs, ", "))
+	}
+}
+
 // --- tool registration -----------------------------------------------------
 
 func (a *App) registerMCPTools(s *mcp.Server) {
+	// User tools — any signed-in employee.
+	a.addToolGetProfile(s)
+	a.addToolUpdateProfile(s)
 	a.addToolListEvents(s)
 	a.addToolGetEvent(s)
+	a.addToolSubmitResponse(s)
+	// Admin tools.
 	a.addToolGetDashboard(s)
 	a.addToolListNonResponders(s)
 	a.addToolListSubmissions(s)
@@ -317,7 +428,6 @@ func (a *App) registerMCPTools(s *mcp.Server) {
 	a.addToolUploadRoster(s)
 	a.addToolAddAttendee(s)
 	a.addToolRemoveAttendee(s)
-	a.addToolSubmitResponse(s)
 	a.addToolTriggerReminders(s)
 }
 
@@ -327,11 +437,14 @@ func (a *App) addToolListEvents(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_events",
 		Title:       "List events",
-		Description: "List all events (current and past) with response and roster counts.",
-	}, instrumentMCP("list_events", func(ctx context.Context, _ *mcp.CallToolRequest, _ mcpEmptyIn) (*mcp.CallToolResult, mcpListEventsOut, error) {
-		var zero mcpListEventsOut
-		if _, err := requireMCPAdmin(ctx); err != nil {
-			return nil, zero, err
+		Description: "List events. Admins see every event (current and past) with response and roster counts; regular users see the active (non-past) events annotated with their own RSVP state.",
+	}, instrumentMCP("list_events", func(ctx context.Context, _ *mcp.CallToolRequest, _ mcpEmptyIn) (*mcp.CallToolResult, any, error) {
+		user, err := requireMCPUser(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !user.IsAdmin {
+			return a.listEventsForUser(ctx, user)
 		}
 		rows, err := a.DB.QueryContext(ctx,
 			`SELECT e.id, e.slug, e.name, e.country, e.city, e.timezone,
@@ -342,7 +455,7 @@ func (a *App) addToolListEvents(s *mcp.Server) {
 			          WHERE ea.event_id = e.id AND NOT u.archived)
 			   FROM events e ORDER BY e.start_date DESC`)
 		if err != nil {
-			return nil, zero, fmt.Errorf("db error: %w", err)
+			return nil, nil, fmt.Errorf("db error: %w", err)
 		}
 		defer rows.Close()
 		now := time.Now()
@@ -352,7 +465,7 @@ func (a *App) addToolListEvents(s *mcp.Server) {
 			var start, end, deadline time.Time
 			if err := rows.Scan(&e.ID, &e.Slug, &e.Name, &e.Country, &e.City, &e.Timezone,
 				&start, &end, &deadline, &e.Responses, &e.RosterTotal); err != nil {
-				return nil, zero, fmt.Errorf("db error: %w", err)
+				return nil, nil, fmt.Errorf("db error: %w", err)
 			}
 			e.StartDate = start.Format(dateLayout)
 			e.EndDate = end.Format(dateLayout)
@@ -365,26 +478,152 @@ func (a *App) addToolListEvents(s *mcp.Server) {
 			out.Events = append(out.Events, e)
 		}
 		if err := rows.Err(); err != nil {
-			return nil, zero, fmt.Errorf("db error: %w", err)
+			return nil, nil, fmt.Errorf("db error: %w", err)
 		}
-		return okResult(fmt.Sprintf("%d event(s)", len(out.Events)), out)
+		res, val, err := okResult(fmt.Sprintf("%d event(s)", len(out.Events)), out)
+		return res, val, err
 	}))
+}
+
+// listEventsForUser is the non-admin branch of list_events: the active (non-past)
+// events soonest-first, each annotated with the caller's own RSVP, and without
+// the response/roster counts that are admin-only. Mirrors handleListCurrentEvents.
+func (a *App) listEventsForUser(ctx context.Context, user *User) (*mcp.CallToolResult, any, error) {
+	rows, err := a.DB.QueryContext(ctx,
+		`SELECT e.id, e.slug, e.name, e.country, e.city, e.timezone,
+		        e.start_date, e.end_date, e.submission_deadline, s.attending
+		   FROM events e
+		   LEFT JOIN submissions s ON s.event_id = e.id AND s.user_id = $1
+		  ORDER BY e.start_date ASC`, user.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("db error: %w", err)
+	}
+	defer rows.Close()
+	now := time.Now()
+	out := mcpMyEventsOut{Events: []mcpMyEventSummary{}}
+	for rows.Next() {
+		var e mcpMyEventSummary
+		var start, end, deadline time.Time
+		var attending sql.NullString
+		if err := rows.Scan(&e.ID, &e.Slug, &e.Name, &e.Country, &e.City, &e.Timezone,
+			&start, &end, &deadline, &attending); err != nil {
+			return nil, nil, fmt.Errorf("db error: %w", err)
+		}
+		loc, lerr := loadLocation(e.Timezone)
+		if lerr != nil {
+			loc = time.UTC
+		}
+		if isEventPast(end, loc, now) {
+			continue
+		}
+		e.StartDate = start.Format(dateLayout)
+		e.EndDate = end.Format(dateLayout)
+		e.SubmissionDeadline = deadline.UTC()
+		if attending.Valid {
+			e.HasSubmitted = true
+			e.MyAttending = attending.String
+		}
+		out.Events = append(out.Events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("db error: %w", err)
+	}
+	res, val, err := okResult(fmt.Sprintf("%d active event(s)", len(out.Events)), out)
+	return res, val, err
 }
 
 func (a *App) addToolGetEvent(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_event",
 		Title:       "Get event",
-		Description: "Read an event's full config: dates, typed days, hotel, timezone, deadline, and reminder settings.",
-	}, instrumentMCP("get_event", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpEventRefIn) (*mcp.CallToolResult, *Event, error) {
-		if _, err := requireMCPAdmin(ctx); err != nil {
+		Description: "Read an event's full config: dates, typed days, hotel, timezone, deadline, and reminder settings. Any signed-in user may call it; omit 'event' to read the sole active event.",
+	}, instrumentMCP("get_event", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpEventRefOptIn) (*mcp.CallToolResult, *Event, error) {
+		if _, err := requireMCPUser(ctx); err != nil {
 			return nil, nil, err
 		}
-		e, err := a.resolveEventRef(ctx, in.Event)
+		e, err := a.resolveUserEventRef(ctx, in.Event)
 		if err != nil {
 			return nil, nil, err
 		}
 		return okResult(fmt.Sprintf("event %q (%s → %s)", e.Name, e.StartDate, e.EndDate), e)
+	}))
+}
+
+// mcpProfileOut is the caller's own profile (the writable bits of users plus the
+// derived display name and the confirm flag).
+type mcpProfileOut struct {
+	Email            string `json:"email"`
+	FirstName        string `json:"firstName"`
+	LastName         string `json:"lastName"`
+	Name             string `json:"name"`
+	Allergies        string `json:"allergies"`
+	ProfileConfirmed bool   `json:"profileConfirmed"`
+	IsAdmin          bool   `json:"isAdmin"`
+}
+
+type mcpUpdateProfileIn struct {
+	FirstName string `json:"firstName" jsonschema:"your given name (required)"`
+	LastName  string `json:"lastName" jsonschema:"your family name (required)"`
+	Allergies string `json:"allergies,omitempty" jsonschema:"allergies / dietary preferences, free-form; pass empty to clear"`
+}
+
+func profileOut(u *User) mcpProfileOut {
+	return mcpProfileOut{
+		Email:            u.Email,
+		FirstName:        u.FirstName,
+		LastName:         u.LastName,
+		Name:             strings.TrimSpace(u.FirstName + " " + u.LastName),
+		Allergies:        u.Allergies,
+		ProfileConfirmed: u.ProfileConfirmed,
+		IsAdmin:          u.IsAdmin,
+	}
+}
+
+func (a *App) addToolGetProfile(s *mcp.Server) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_profile",
+		Title:       "Get my profile",
+		Description: "Read your own profile: name, allergies/dietary preferences, and whether you've confirmed it yet. Available to any signed-in user.",
+	}, instrumentMCP("get_profile", func(ctx context.Context, _ *mcp.CallToolRequest, _ mcpEmptyIn) (*mcp.CallToolResult, mcpProfileOut, error) {
+		var zero mcpProfileOut
+		u, err := requireMCPUser(ctx)
+		if err != nil {
+			return nil, zero, err
+		}
+		out := profileOut(u)
+		summary := fmt.Sprintf("profile for %s", u.Email)
+		if !out.ProfileConfirmed {
+			summary += " (not yet confirmed — use update_profile)"
+		}
+		return okResult(summary, out)
+	}))
+}
+
+func (a *App) addToolUpdateProfile(s *mcp.Server) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "update_profile",
+		Title:       "Update my profile",
+		Description: "Update your own profile (name + allergies/dietary preferences) and mark it confirmed. This is the confirm step that submit_response requires. Available to any signed-in user.",
+	}, instrumentMCP("update_profile", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpUpdateProfileIn) (*mcp.CallToolResult, mcpProfileOut, error) {
+		var zero mcpProfileOut
+		u, err := requireMCPUser(ctx)
+		if err != nil {
+			return nil, zero, err
+		}
+		first := strings.TrimSpace(in.FirstName)
+		last := strings.TrimSpace(in.LastName)
+		allergies := strings.TrimSpace(in.Allergies)
+		if first == "" || last == "" {
+			return nil, zero, errors.New("first name and last name are required")
+		}
+		// Saving also marks the profile confirmed — mirrors handleUpdateMe.
+		if _, err := a.DB.ExecContext(ctx,
+			`UPDATE users SET first_name = $1, last_name = $2, allergies = $3, profile_confirmed = true WHERE id = $4`,
+			first, last, allergies, u.ID); err != nil {
+			return nil, zero, fmt.Errorf("db error: %w", err)
+		}
+		u.FirstName, u.LastName, u.Allergies, u.ProfileConfirmed = first, last, allergies, true
+		return okResult(fmt.Sprintf("profile confirmed for %s", u.Email), profileOut(u))
 	}))
 }
 
@@ -993,36 +1232,33 @@ func (a *App) addToolRemoveAttendee(s *mcp.Server) {
 func (a *App) addToolSubmitResponse(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "submit_response",
-		Title:       "Submit RSVP / response",
-		Description: "Record an attendee's RSVP (attendance + travel) for an event on their behalf — the same conditional-form write a participant makes in the app, with the server-side rules from DESIGN.md §8 enforced (fields outside the chosen branch are blanked). The email must be an existing directory user; use add_attendee first otherwise. Recorded as the attendee's own response by default; set asAdmin=true to record an admin edit that relaxes the date-window / extra-night limits and allows a past event. Upsert: re-running replaces the prior response and appends a revision + activity-log entry.",
+		Title:       "Submit my RSVP / response",
+		Description: "Record your own RSVP (attendance + travel) for an event — the same conditional-form write a participant makes in the app, with the server-side rules from DESIGN.md §8 enforced (fields outside the chosen branch are blanked). Always recorded for the calling user; omit 'event' to use the sole active event. You must confirm your profile first (use update_profile to set your name and allergies/dietary preferences). Upsert: re-running replaces your prior response and appends a revision + activity-log entry.",
 	}, instrumentMCP("submit_response", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpSubmitResponseIn) (*mcp.CallToolResult, *Submission, error) {
-		admin, err := requireMCPAdmin(ctx)
+		user, err := requireMCPUser(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
-		e, err := a.resolveEventRef(ctx, in.Event)
+		// Gate on profile confirmation: allergies/dietary preferences are joined
+		// into the dashboard/export from the profile, so an RSVP is only useful once
+		// the user has reviewed and confirmed it (mirrors the SPA's confirm step).
+		if !user.ProfileConfirmed {
+			return nil, nil, errors.New("confirm your profile first — set your name and allergies/dietary preferences with update_profile, then submit your RSVP")
+		}
+		e, err := a.resolveUserEventRef(ctx, in.Event)
 		if err != nil {
 			return nil, nil, err
 		}
-		// A normal attendee RSVP can't touch a past event (mirrors the employee
-		// HTTP path); an admin edit can (mirrors the admin HTTP path).
-		if e.IsPast && !in.AsAdmin {
-			return nil, nil, fmt.Errorf("event %q has ended and can no longer be edited (use asAdmin to override)", e.Name)
+		// Users can't edit a past event (mirrors the employee HTTP path).
+		if e.IsPast {
+			return nil, nil, fmt.Errorf("event %q has ended and can no longer be edited", e.Name)
 		}
-		email := strings.ToLower(strings.TrimSpace(in.Email))
-		if email == "" || !strings.Contains(email, "@") {
-			return nil, nil, errors.New("a valid email is required")
-		}
-
-		var owner User
-		err = a.DB.QueryRowContext(ctx,
-			`SELECT id, email, is_admin FROM users WHERE email = $1`, email).
-			Scan(&owner.ID, &owner.Email, &owner.IsAdmin)
-		if err == sql.ErrNoRows {
-			return nil, nil, fmt.Errorf("no user with email %q — add them with add_attendee first", email)
-		}
-		if err != nil {
-			return nil, nil, fmt.Errorf("db error: %w", err)
+		// Once an admin has edited this response it is locked: the attendee can no
+		// longer change it (mirrors handlePutMySubmission).
+		if existing, lerr := a.Store.loadSubmission(ctx, e.ID, user.ID); lerr == nil && existing.Locked {
+			return nil, nil, errors.New("your response has been finalized by an organizer and can no longer be edited — contact the People team if something needs changing")
+		} else if lerr != nil && lerr != sql.ErrNoRows {
+			return nil, nil, fmt.Errorf("db error: %w", lerr)
 		}
 
 		req := submissionReq{
@@ -1044,18 +1280,10 @@ func (a *App) addToolSubmitResponse(s *mcp.Server) {
 			Comments:             in.Comments,
 		}
 
-		// Default: record as the attendee's own response (actor = owner, not an
-		// admin edit) — exactly what would land if they submitted the form
-		// themselves. asAdmin attributes the change to the calling admin and
-		// relaxes validation for special cases.
-		actor := &owner
-		if in.AsAdmin {
-			actor = admin
-		}
-
-		// lock=false: the MCP tool may run unattended (bulk RSVP sync, automation),
-		// so it never locks the attendee out — only the interactive admin edit does.
-		sub, err := a.applySubmission(ctx, e, &req, owner.ID, actor, in.AsAdmin, false)
+		// Always the caller's own response: owner = actor = user, isAdmin=false
+		// (full conditional-form validation applies, same as the SPA form), and
+		// lock=false (only the interactive admin edit locks a response).
+		sub, err := a.applySubmission(ctx, e, &req, user.ID, user, false, false)
 		if err != nil {
 			var inv errSubmissionInvalid
 			if errors.As(err, &inv) {
@@ -1064,7 +1292,7 @@ func (a *App) addToolSubmitResponse(s *mcp.Server) {
 			return nil, nil, fmt.Errorf("db error: %w", err)
 		}
 		return okResult(
-			fmt.Sprintf("recorded %s's response to %q: %s", email, e.Name, attendingLabel(sub.Attending)),
+			fmt.Sprintf("recorded your response to %q: %s", e.Name, attendingLabel(sub.Attending)),
 			sub)
 	}))
 }
