@@ -128,6 +128,10 @@ func NewRouter(app *App) http.Handler {
 				r.Post("/users/{id}/archive", app.handleArchiveUser)
 				r.Post("/users/{id}/unarchive", app.handleUnarchiveUser)
 
+				// Send a one-off test notification over a single channel
+				// ("email"/"slack") to the calling admin — a config smoke test.
+				r.Post("/notifications/test/{channel}", app.handleSendTestNotification)
+
 				// Event management is namespaced under /admin so the id-keyed
 				// admin routes don't collide with the slug-keyed attendee read.
 				r.Get("/admin/events", app.handleListEvents)

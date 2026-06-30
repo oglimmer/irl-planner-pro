@@ -80,6 +80,42 @@ func (a *App) dispatch(emailTo, slackTo []string, subject, body string) int {
 	return sent
 }
 
+// handleSendTestNotification sends a one-off test message over a single channel
+// ("email" or "slack") to the currently logged-in admin. It's a quick way to
+// confirm a transport is wired up end-to-end (SMTP creds, Slack bot token +
+// email→user resolution) without waiting for a real submission or digest.
+func (a *App) handleSendTestNotification(w http.ResponseWriter, r *http.Request) {
+	channel := chi.URLParam(r, "channel")
+	user := currentUser(r)
+	subject := "[IRL] Test notification"
+	body := "This is a test notification from the IRL Planner.\n\n" +
+		"If you received this, the channel is configured correctly.\n"
+
+	var err error
+	switch channel {
+	case channelEmail:
+		if !a.Email.Configured() {
+			writeErr(w, http.StatusBadRequest, "email is not configured on this server")
+			return
+		}
+		err = a.Email.Send([]string{user.Email}, subject, body)
+	case channelSlack:
+		if !a.Slack.Configured() {
+			writeErr(w, http.StatusBadRequest, "slack is not configured on this server")
+			return
+		}
+		err = a.Slack.Send([]string{user.Email}, subject, body)
+	default:
+		writeErr(w, http.StatusBadRequest, "channel must be 'email' or 'slack'")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "failed to send test "+channel+": "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "sent", "to": user.Email})
+}
+
 // --- handlers --------------------------------------------------------------
 
 // adminNotifRow is one row of the per-event admin matrix: an admin and their

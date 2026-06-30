@@ -64,6 +64,25 @@ async function setArchived(u: UserSummary, archive: boolean) {
     busyId.value = null
   }
 }
+
+const testChannel = ref<'email' | 'slack' | null>(null)
+const testMsg = ref('')
+const testErr = ref(false)
+
+async function sendTest(channel: 'email' | 'slack') {
+  testChannel.value = channel
+  testMsg.value = ''
+  testErr.value = false
+  try {
+    const res = await api.sendTestNotification(channel)
+    testMsg.value = `Test ${channel} sent to ${res.to}.`
+  } catch (e) {
+    testErr.value = true
+    testMsg.value = errMsg(e)
+  } finally {
+    testChannel.value = null
+  }
+}
 </script>
 
 <template>
@@ -156,6 +175,31 @@ async function setArchived(u: UserSummary, archive: boolean) {
         </tbody>
       </table>
     </template>
+
+    <section class="notif-tests">
+      <h2>Notification Tests</h2>
+      <p class="muted">
+        Send a test notification to yourself ({{ auth.user?.email }}) to confirm
+        the channel is configured correctly.
+      </p>
+      <div class="actions-row">
+        <button
+          class="btn secondary sm"
+          :disabled="testChannel !== null"
+          @click="sendTest('email')"
+        >
+          {{ testChannel === 'email' ? 'Sending…' : 'Email' }}
+        </button>
+        <button
+          class="btn secondary sm"
+          :disabled="testChannel !== null"
+          @click="sendTest('slack')"
+        >
+          {{ testChannel === 'slack' ? 'Sending…' : 'Slack' }}
+        </button>
+      </div>
+      <p v-if="testMsg" :class="testErr ? 'error' : 'success'">{{ testMsg }}</p>
+    </section>
   </section>
 </template>
 
@@ -208,5 +252,16 @@ h2 {
 .btn.sm {
   padding: 0.3rem 0.6rem;
   font-size: 0.85rem;
+}
+.notif-tests {
+  margin-top: 2.5rem;
+}
+.notif-tests .actions-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.success {
+  color: var(--accent);
 }
 </style>
