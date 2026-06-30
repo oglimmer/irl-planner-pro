@@ -45,7 +45,7 @@ func userFromCtx(ctx context.Context) *User {
 // userToolNames are the tools any signed-in employee may call. Kept as data so
 // requireMCPAdmin can name them when guiding a non-admin away from an admin tool.
 var userToolNames = []string{
-	"list_events", "get_event", "submit_response", "get_profile", "update_profile",
+	"list_events", "get_event", "get_response", "submit_response", "get_profile", "update_profile",
 }
 
 // requireMCPUser enforces only that the caller is authenticated. The user tools
@@ -416,6 +416,7 @@ func (a *App) registerMCPTools(s *mcp.Server) {
 	a.addToolUpdateProfile(s)
 	a.addToolListEvents(s)
 	a.addToolGetEvent(s)
+	a.addToolGetResponse(s)
 	a.addToolSubmitResponse(s)
 	// Admin tools.
 	a.addToolGetDashboard(s)
@@ -1226,6 +1227,33 @@ func (a *App) addToolRemoveAttendee(s *mcp.Server) {
 			msg = fmt.Sprintf("%s was not an attendee of %q", email, e.Name)
 		}
 		return okResult(msg, mcpStatusOut{OK: true, Message: msg})
+	}))
+}
+
+func (a *App) addToolGetResponse(s *mcp.Server) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_response",
+		Title:       "Get my RSVP / response",
+		Description: "Read back your own previously submitted RSVP (attendance + travel details + comments) for an event. Omit 'event' to use the sole active event. Errors if you haven't responded yet.",
+	}, instrumentMCP("get_response", func(ctx context.Context, _ *mcp.CallToolRequest, in mcpEventRefOptIn) (*mcp.CallToolResult, *Submission, error) {
+		user, err := requireMCPUser(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		e, err := a.resolveUserEventRef(ctx, in.Event)
+		if err != nil {
+			return nil, nil, err
+		}
+		sub, err := a.Store.loadSubmission(ctx, e.ID, user.ID)
+		if err == sql.ErrNoRows {
+			return nil, nil, fmt.Errorf("you have not submitted a response to %q yet", e.Name)
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("db error: %w", err)
+		}
+		return okResult(
+			fmt.Sprintf("your response to %q: %s", e.Name, attendingLabel(sub.Attending)),
+			sub)
 	}))
 }
 

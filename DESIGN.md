@@ -1240,6 +1240,9 @@ changes are as visible as any other.
 - `list_events` — for a non-admin, the **active (non-past) events** annotated with
   your own RSVP (no response/roster counts); admins get the full list below.
 - `get_event` — read an event's config; omit `event` to use the sole active event.
+- `get_response` — read back **your own** submitted RSVP (attendance + travel +
+  comments) for an event; omit `event` for the sole active one. The read-side
+  mirror of `submit_response` (mirrors the SPA's `GET /events/{slug}/me`).
 - `submit_response` — record **your own** RSVP (attendance + travel) for an event
   (omit `event` for the sole active one), the same conditional-form write the SPA
   makes, with the §8 server-side rules enforced. Refuses until the profile is
@@ -1346,7 +1349,8 @@ The reasoning behind the choices baked into the sections above.
 11. **MCP is optional and two-tier.** An OAuth-gated `/mcp` server reuses the REST
     business logic and enforces the same authorization: admin tools for event
     administration, plus a small set of user tools (`get_profile`,
-    `update_profile`, `list_events`, `get_event`, `submit_response`) so a regular
-    employee can confirm their profile and RSVP entirely over MCP. Each tool only
+    `update_profile`, `list_events`, `get_event`, `get_response`,
+    `submit_response`) so a regular employee can confirm their profile, RSVP, and
+    review what they submitted entirely over MCP. Each tool only
     exposes what the same user could already do in the SPA, and the whole surface
     is off unless configured. → §14, §16.
