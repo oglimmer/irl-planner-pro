@@ -125,6 +125,8 @@ func NewRouter(app *App) http.Handler {
 				r.Get("/users", app.handleListUsers)
 				r.Post("/users/{id}/promote", app.handlePromoteUser)
 				r.Post("/users/{id}/demote", app.handleDemoteUser)
+				r.Post("/users/{id}/archive", app.handleArchiveUser)
+				r.Post("/users/{id}/unarchive", app.handleUnarchiveUser)
 
 				// Event management is namespaced under /admin so the id-keyed
 				// admin routes don't collide with the slug-keyed attendee read.

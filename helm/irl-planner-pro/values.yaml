@@ -31,7 +31,7 @@ corsAllowedOrigins: []
 # People team. Receives "submission changed" notifications and the daily
 # activity digest (PEOPLE_TEAM_EMAIL). The FIRST user to sign in becomes admin
 # automatically; admins then promote/demote others in-app.
-peopleTeamEmail: "people@id5.io"
+peopleTeamEmail: "irl@id5.io"
 
 # IANA timezone pre-filled when an admin creates a new event
 # (DEFAULT_EVENT_TIMEZONE).

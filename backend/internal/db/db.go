@@ -57,6 +57,12 @@ var migration0014 string
 //go:embed migrations/0015_submission_locked.sql
 var migration0015 string
 
+//go:embed migrations/0016_user_archived.sql
+var migration0016 string
+
+//go:embed migrations/0017_submission_self_funded_early.sql
+var migration0017 string
+
 // migrations lists all embedded migrations in apply order.
 // Each entry must have a corresponding //go:embed var above.
 // Adding a new migration requires (1) the file, (2) the embed var, (3) an
@@ -80,6 +86,8 @@ var migrations = []struct {
 	{"0013_message_send_log", migration0013},
 	{"0014_event_admin_notifications", migration0014},
 	{"0015_submission_locked", migration0015},
+	{"0016_user_archived", migration0016},
+	{"0017_submission_self_funded_early", migration0017},
 }
 
 // Open opens the application's *sql.DB through pgx's database/sql adapter and

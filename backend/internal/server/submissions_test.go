@@ -220,16 +220,14 @@ func baseYes() *submissionReq {
 	}
 }
 
-func TestExtraNightOneDayAllowedForEmployee(t *testing.T) {
+func TestExtraNightBeforeOneDayAllowedForEmployee(t *testing.T) {
 	req := baseYes()
-	// The travel days must reflect the booked nights: arrive the day before the
-	// first day and leave the day after the last.
+	// The travel day must reflect the booked night: arrive the day before the
+	// first day.
 	req.ArrivalDay = strp("2026-10-11")
-	req.DepartureDay = strp("2026-10-17")
 	req.ExtraStayStart = strp("2026-10-11") // one night before start (10-12)
-	req.ExtraStayEnd = strp("2026-10-17")   // one night after end (10-16)
 	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
-		t.Fatalf("one extra night each side should be allowed: %v", err)
+		t.Fatalf("one extra night before should be allowed: %v", err)
 	}
 }
 
@@ -246,15 +244,6 @@ func TestExtraNightBeforeWithoutEarlyArrivalRejected(t *testing.T) {
 	req.ExtraStayStart = strp("2026-10-11")
 	if err := req.normalizeAndValidate(sampleEvent(), true); err != nil {
 		t.Fatalf("admin should be allowed an unmatched extra night before: %v", err)
-	}
-}
-
-// Reverse of the late-departure rule, on the departure side.
-func TestExtraNightAfterWithoutLateDepartureRejected(t *testing.T) {
-	req := baseYes() // departure 10-16 (the last day), long-haul
-	req.ExtraStayEnd = strp("2026-10-17")
-	if err := req.normalizeAndValidate(sampleEvent(), false); err == nil {
-		t.Fatal("an extra night after with an in-window departure should be rejected")
 	}
 }
 
@@ -312,19 +301,36 @@ func TestEarlyArrivalRequiresExtraNightBefore(t *testing.T) {
 	}
 }
 
-// Leaving the day after the event (10-17, end is 10-16) mirrors the arrival rule.
-func TestLateDepartureRequiresExtraNightAfter(t *testing.T) {
+// Late return is no longer offered: leaving the day after the event (10-17, end is
+// 10-16) is out of the employee window and rejected even with an after-night set.
+func TestLateDepartureRejected(t *testing.T) {
 	req := baseYes()
 	req.DepartureDay = strp("2026-10-17") // day after the last day
 	if err := req.normalizeAndValidate(sampleEvent(), false); err == nil {
-		t.Fatal("late departure without the extra night after should be rejected")
+		t.Fatal("a departure the day after the event should be rejected")
 	}
 
+	// Even with an after-night supplied, the day-after departure stays out of window.
 	req = baseYes()
 	req.DepartureDay = strp("2026-10-17")
 	req.ExtraStayEnd = strp("2026-10-17")
-	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
-		t.Fatalf("late departure with the extra night after should be allowed: %v", err)
+	if err := req.normalizeAndValidate(sampleEvent(), false); err == nil {
+		t.Fatal("a day-after departure is out of window regardless of any after-night")
+	}
+}
+
+// The after-night is always blanked — for employees and admins alike — since the
+// company no longer provides a late return.
+func TestExtraStayEndAlwaysBlanked(t *testing.T) {
+	for _, isAdmin := range []bool{false, true} {
+		req := baseYes()
+		req.ExtraStayEnd = strp("2026-10-17")
+		if err := req.normalizeAndValidate(sampleEvent(), isAdmin); err != nil {
+			t.Fatalf("isAdmin=%v: unexpected error: %v", isAdmin, err)
+		}
+		if req.ExtraStayEnd != nil {
+			t.Errorf("isAdmin=%v: extra_stay_end should always be blanked, got %v", isAdmin, *req.ExtraStayEnd)
+		}
 	}
 }
 
@@ -335,6 +341,70 @@ func TestEarlyArrivalRuleRelaxedForAdmins(t *testing.T) {
 	req.ArrivalDay = strp("2026-10-11")
 	if err := req.normalizeAndValidate(sampleEvent(), true); err != nil {
 		t.Fatalf("admin early arrival without the extra night should be allowed: %v", err)
+	}
+}
+
+// An attendee may arrive the day before and self-fund that night (no company hotel,
+// not long-haul) while still wanting company transport — the self-funded flag
+// legitimises the early arrival.
+func TestEarlyArrivalSelfFundedAllowed(t *testing.T) {
+	req := baseYes()
+	req.LongHaul = false
+	req.ArrivalDay = strp("2026-10-11") // day before the first day
+	req.ExtraStaySelfFunded = true
+	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
+		t.Fatalf("self-funded early arrival should be allowed: %v", err)
+	}
+	if !req.ExtraStaySelfFunded {
+		t.Error("self-funded flag should be preserved for a day-before arrival")
+	}
+	if req.ExtraStayStart != nil {
+		t.Error("self-funded early arrival should not book a company night")
+	}
+}
+
+// The company-paid night wins when both are somehow set; the self-funded flag is
+// cleared so the two never coexist.
+func TestSelfFundedClearedWhenCompanyNightBooked(t *testing.T) {
+	req := baseYes() // longHaul true
+	req.ArrivalDay = strp("2026-10-11")
+	req.ExtraStayStart = strp("2026-10-11")
+	req.ExtraStaySelfFunded = true
+	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.ExtraStaySelfFunded {
+		t.Error("self-funded flag should be cleared when the company night is booked")
+	}
+	if req.ExtraStayStart == nil {
+		t.Error("the company night should be kept")
+	}
+}
+
+// A self-funded flag with an in-window arrival is just a stray note: cleared, not
+// an error (unlike an orphan company night).
+func TestSelfFundedClearedWhenNotEarly(t *testing.T) {
+	req := baseYes() // arrival 10-12 (in window)
+	req.ExtraStaySelfFunded = true
+	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
+		t.Fatalf("a stray self-funded flag should not error: %v", err)
+	}
+	if req.ExtraStaySelfFunded {
+		t.Error("self-funded flag should be cleared when not arriving the day before")
+	}
+}
+
+// A self-arranged arrival leg has no company transport, so the self-funded flag is
+// cleared even if supplied.
+func TestSelfFundedClearedWhenArrivalIndependent(t *testing.T) {
+	req := baseYes()
+	req.ArrivalIndependent = true
+	req.ExtraStaySelfFunded = true
+	if err := req.normalizeAndValidate(sampleEvent(), false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.ExtraStaySelfFunded {
+		t.Error("self-funded flag should be cleared for a self-arranged arrival")
 	}
 }
 

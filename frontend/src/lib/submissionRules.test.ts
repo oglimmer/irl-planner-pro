@@ -24,7 +24,7 @@ function form(overrides: Partial<StayFormState> = {}): StayFormState {
     departureDetails: '',
     longHaul: false,
     extraStayStart: null,
-    extraStayEnd: null,
+    extraStaySelfFunded: false,
     ...overrides,
   }
 }
@@ -142,52 +142,41 @@ describe('fieldChecks — independent travel', () => {
 })
 
 describe('extraNightErrors — extra-night consistency', () => {
-  // Event 27–31 Jul 2026 → the only out-of-window days the form offers.
+  // Event 27–31 Jul 2026 → the day before is the only out-of-window day the form
+  // offers (late return removed, so there is no day-after).
   const BEFORE = '2026-07-26'
-  const AFTER = '2026-08-01'
   const id = (s: string) => s
   const check = (overrides: Partial<StayFormState>) =>
-    extraNightErrors(form(overrides), BEFORE, AFTER, id)
+    extraNightErrors(form(overrides), BEFORE, id)
 
   it('returns nothing for non-yes answers', () => {
     expect(check({ attending: 'no', arrivalDay: BEFORE })).toEqual([])
-    expect(check({ attending: 'not_sure', departureDay: AFTER })).toEqual([])
+    expect(check({ attending: 'not_sure', arrivalDay: BEFORE })).toEqual([])
   })
 
   it('returns nothing for in-window travel days', () => {
     expect(check({ attending: 'yes', arrivalDay: '2026-07-27', departureDay: '2026-07-31' })).toEqual([])
   })
 
-  it('flags an early arrival with no long-haul / extra night, naming both boxes', () => {
+  it('flags an early arrival with no choice, naming both options', () => {
     const errs = check({ attending: 'yes', arrivalDay: BEFORE })
     expect(errs).toHaveLength(1)
-    expect(errs[0]).toContain('long-haul traveller')
-    expect(errs[0]).toContain('Extra night before')
+    expect(errs[0]).toContain('company-paid hotel')
+    expect(errs[0]).toContain('your own accommodation')
   })
 
-  it('flags an early arrival when long-haul is set but the night is not, naming only the night', () => {
-    const errs = check({ attending: 'yes', arrivalDay: BEFORE, longHaul: true })
-    expect(errs).toHaveLength(1)
-    expect(errs[0]).not.toContain('long-haul traveller')
-    expect(errs[0]).toContain('Extra night before')
-  })
-
-  it('accepts an early arrival once long-haul + extra night before are both set', () => {
+  it('accepts an early arrival once the company night is booked', () => {
     expect(check({ attending: 'yes', arrivalDay: BEFORE, longHaul: true, extraStayStart: BEFORE })).toEqual([])
   })
 
-  it('flags a late departure symmetrically', () => {
-    const errs = check({ attending: 'yes', departureDay: AFTER })
-    expect(errs).toHaveLength(1)
-    expect(errs[0]).toContain('Extra night after')
+  it('accepts an early arrival when the attendee self-funds that night', () => {
+    // No long-haul, no company night — just the self-funded flag (still wants transport).
+    expect(check({ attending: 'yes', arrivalDay: BEFORE, extraStaySelfFunded: true })).toEqual([])
   })
 
-  it('accepts a late departure once long-haul + extra night after are both set', () => {
-    expect(check({ attending: 'yes', departureDay: AFTER, longHaul: true, extraStayEnd: AFTER })).toEqual([])
-  })
-
-  it('reports both sides when both legs are out of window and unbooked', () => {
-    expect(check({ attending: 'yes', arrivalDay: BEFORE, departureDay: AFTER })).toHaveLength(2)
+  it('ignores the departure day entirely (late return removed)', () => {
+    // The departure side has no consistency rule any more, even on the last day.
+    expect(check({ attending: 'yes', departureDay: '2026-07-31' })).toEqual([])
   })
 
   it('ignores an independent leg even when its day reads out of window', () => {
@@ -196,18 +185,11 @@ describe('extraNightErrors — extra-night consistency', () => {
   })
 
   // Reverse direction: a booked night with an in-window travel day is an orphan.
-  it('flags an extra night before that no early arrival backs', () => {
+  it('flags a company night that no early arrival backs', () => {
     const errs = check({ attending: 'yes', arrivalDay: '2026-07-27', longHaul: true, extraStayStart: BEFORE })
     expect(errs).toHaveLength(1)
     expect(errs[0]).toContain("isn't needed")
-    expect(errs[0]).toContain('Extra night before')
-  })
-
-  it('flags an extra night after that no late departure backs', () => {
-    const errs = check({ attending: 'yes', departureDay: '2026-07-31', longHaul: true, extraStayEnd: AFTER })
-    expect(errs).toHaveLength(1)
-    expect(errs[0]).toContain("isn't needed")
-    expect(errs[0]).toContain('Extra night after')
+    expect(errs[0]).toContain('company hotel night')
   })
 
   it('does not flag a booked night on a self-arranged leg', () => {

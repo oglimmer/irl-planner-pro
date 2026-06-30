@@ -26,6 +26,7 @@ export interface UserSummary {
   lastName: string
   name: string // derived display name (first + last); read-only
   isAdmin: boolean
+  archived: boolean // excluded from all event activities until reactivated
   createdAt: string
 }
 
@@ -204,6 +205,10 @@ export interface Submission {
   longHaul: boolean
   extraStayStart: string | null
   extraStayEnd: string | null
+  // The attendee arrives the day before and arranges their own accommodation, but
+  // still wants company transport / shared-transfer consideration. Mutually
+  // exclusive with extraStayStart (the company-paid night).
+  extraStaySelfFunded: boolean
   allergies: string
   comments: string
   // Set once an admin has edited this response on the attendee's behalf; the
@@ -231,6 +236,7 @@ export interface SubmissionInput {
   longHaul: boolean
   extraStayStart: string | null
   extraStayEnd: string | null
+  extraStaySelfFunded: boolean
   comments: string
 }
 

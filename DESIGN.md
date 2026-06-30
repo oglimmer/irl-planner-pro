@@ -21,7 +21,7 @@ automated reminders, notifies admins on edits, and exports responses as CSV.
   (country + city), hotel (name + address), submission deadline, **timezone**
   (default `Europe/Paris`), and reminder lead days (default 3).
 - **Attendee form** — attendance (Yes / No / Not sure, the last requiring a
-  reason); conditional travel + long-haul (extra night before/after the offsite)
+  reason); conditional travel + long-haul (extra night before the offsite)
   on Yes; an instructions message on No. Name and dietary preferences live on the
   user's profile, not the form.
 - **Edit, activity log & notify** — attendees may edit after submitting; every
@@ -366,15 +366,19 @@ CREATE TABLE submissions (
     -- Extra hotel nights modelled as an extended stay window (event-local dates).
     -- extra_stay_start: first night needing accommodation when EARLIER than the
     --   event's first travel day (start_date). NULL = no extra night before.
-    -- extra_stay_end:   last night needing accommodation when LATER than the
-    --   event's last travel day (end_date). NULL = no extra night after.
-    -- Self-service cap: a non-admin may shift each bound by at most ONE day
-    -- (extra_stay_start >= start_date - 1, extra_stay_end <= end_date + 1).
-    -- Admins may set any earlier start / later end (2+ extra nights) for special
-    -- cases. Mainly surfaced for long-haul travellers, but an admin may set these
-    -- on any submission.
+    -- extra_stay_end:   RETIRED. Late return is no longer offered, so the server
+    --   always blanks this column. Kept (not dropped) so historical rows survive.
+    -- Self-service cap: a non-admin may shift extra_stay_start by at most ONE day
+    -- (extra_stay_start >= start_date - 1). Admins may set any earlier start (2+
+    -- extra nights) for special cases. Mainly surfaced for long-haul travellers,
+    -- but an admin may set it on any submission.
     extra_stay_start   DATE,
     extra_stay_end     DATE,
+    -- extra_stay_self_funded: attendee arrives the day before and arranges their
+    --   own accommodation (no company hotel) but still wants company transport.
+    --   An alternative to extra_stay_start that legitimises an early arrival;
+    --   mutually exclusive with it. See migration 0017.
+    extra_stay_self_funded BOOLEAN NOT NULL DEFAULT false,
 
     -- allergies live on users (the profile), not here — see §5.1.
     comments           TEXT NOT NULL DEFAULT '',
@@ -739,7 +743,7 @@ never trusted).
 - No further fields. The UI shows the fixed instructions message:
   > If for any reason you cannot attend this offsite, please follow the steps below:
   > 1. Let your manager know
-  > 2. Inform the People team by emailing people@id5.io
+  > 2. Inform the People team by emailing irl@id5.io
 
   (Stored as a constant; no DB field needed.)
 
@@ -751,24 +755,41 @@ never trusted).
   `departure_independent`). Selecting it hides and blanks only that leg's
   time/mode/details and skips its validation. The long-haul/accommodation section
   is hidden and blanked only when **both** legs are independent.
-- **Arrival** — day (constrained to the event date range), time, mode
+- **Arrival** — day (constrained to the day before the event through its last day —
+  there is no day-after option), time, mode
   (`flight`/`car`/`train`/`other`), details (flight number / free text). When the
   mode is `flight` the **Time** field is labelled "Flight arrival time" ("Flight
   departure time" on the departure leg) and the details field "Flight number", and
   **both time and flight number are required**; for every other mode time and
   details stay **optional** (the details label reads "Travel details (optional)").
 - **Departure** — same shape.
-- **Long-haul traveller?** (international flight 7h+) → `long_haul` yes/no.
-  - If `long_haul = yes` → **"Would you require an extra night?"** with two
-    independent toggles: **an extra night before the offsite** and/or **an extra
-    night after the offsite**, each labelled with the concrete date (e.g. "Sun 11
-    Oct — night before" / "Sat 17 Oct — night after"). For an employee these are
-    single-night toggles that set `extra_stay_start = start_date − 1` and/or
-    `extra_stay_end = end_date + 1`. Only shown when `long_haul = true`.
-  - **Admin override** — in the admin submission editor the same field is a *date
-    picker* with no one-day cap, so the People team can grant 2+ extra nights at
-    either end for special cases (visa stopovers, connecting flights, etc.). The
-    server enforces the one-day cap only for non-admin writers.
+- **The night before** (employee form). The accommodation question appears **only
+  when the attendee arrives the day before the event** (`arrival_day = start_date −
+  1` on a non-independent arrival leg) — that's the only night needing cover.
+  Arriving on the event day shows nothing. It is a **single mutually-exclusive
+  choice** of how that night is handled:
+  - **"The company books and pays for it"** — for long-haul travellers (intl flight
+    7h+). Sets `long_haul = true` **and** `extra_stay_start = start_date − 1`
+    together.
+  - **"I'll book and pay for it myself"** — self-funded; the attendee still wants
+    company transport / shared-transfer consideration. Sets `extra_stay_self_funded
+    = true`. See [Self-funded early arrival](#self-funded) below.
+  The two are mutually exclusive (`long_haul`/`extra_stay_start` is one outcome,
+  `extra_stay_self_funded` the other), and the three flags are written atomically so
+  they never disagree. **Late return is not offered** — there is no "night after"
+  option and `extra_stay_end` is never written (column retained only for historical
+  data).
+  - **Admin override** — in the admin submission editor `long_haul`,
+    `extra_stay_start` (a *date picker* with no one-day cap, so the People team can
+    grant 2+ extra nights for visa stopovers etc.) and `extra_stay_self_funded` are
+    each independent controls with no validation. The after-night is blanked for
+    every writer, admin included.
+- <a name="self-funded"></a>**Self-funded early arrival** (`extra_stay_self_funded`).
+  The self-pay branch of the choice above: the attendee arrives the day before and
+  arranges their own accommodation, but still wants the People team's transport and
+  to be considered for any shared transfer that day. Mutually exclusive with
+  `extra_stay_start` (the company-paid night wins). Only meaningful for a day-before
+  arrival on a non-independent arrival leg; blanked otherwise.
 - **Comments** (free text). (Allergies / dietary preferences are **not** asked here
   — they live on the profile; see Step 1.)
 
@@ -782,7 +803,8 @@ never trusted).
 | `arrival_independent` / `departure_independent` | optional; only when `attending = 'yes'`. When a leg's flag is true that leg is blanked and not validated. When **both** are true, `long_haul` + extra-night dates are blanked too |
 | `arrival_*` | `attending = 'yes'` **and** `arrival_independent = false` (day + mode required; when mode = `flight`, time + flight-number details also required, else optional) |
 | `departure_*` | `attending = 'yes'` **and** `departure_independent = false` (day + mode required; when mode = `flight`, time + flight-number details also required, else optional) |
-| `extra_stay_start` / `extra_stay_end` | optional; one-day cap from event bounds for employees, unrestricted for admins |
+| `extra_stay_start` | optional; the extra night before, one-day cap from the event start for employees, unrestricted for admins. `extra_stay_end` (late return) is always blanked — no longer offered |
+| `extra_stay_self_funded` | optional; a day-before arrival must be covered by **either** `extra_stay_start` (company night) **or** this flag, else rejected. Mutually exclusive with `extra_stay_start`; blanked unless arriving the day before on a non-independent arrival leg |
 | comments | optional |
 
 Fields outside the chosen branch are blanked on write so a user toggling Yes→No
@@ -1043,7 +1065,7 @@ OIDC_GOOGLE_WORKSPACE_DOMAINS=id5.io
 
 # People team. The FIRST user to sign in becomes admin automatically; admins
 # then promote/demote others in-app — no admin allowlist env needed.
-PEOPLE_TEAM_EMAIL=people@id5.io          # recipient for "submission changed" + digest notices
+PEOPLE_TEAM_EMAIL=irl@id5.io          # recipient for "submission changed" + digest notices
 
 # SMTP (reminders + admin notifications). Empty SMTP_HOST disables email.
 # The sender (internal/email) is a provider-agnostic stdlib net/smtp client
@@ -1160,7 +1182,7 @@ adding a backend path, update **both** the ingress `paths` in `values.yaml` **an
   round-trips (`timeutil`), OIDC domain rejection, and admin authorization.
 - **Frontend** — Vitest + `@testing-library/vue` + **MSW** mocking `/api`. Coverage
   includes: form conditional rendering (Yes/No/Not-sure branches, per-leg
-  independent travel, long-haul → extra night before/after), client validation
+  independent travel, long-haul → extra night before), client validation
   messages, dashboard attending-state filter + auto-reload composable, activity-log
   rendering (own vs all, after-deadline badge), event-tz date formatting,
   current/Past split, and auth-guard redirects. `npm run check` (typecheck + lint +
@@ -1257,10 +1279,11 @@ The reasoning behind the choices baked into the sections above.
    **daily activity email**, sent only on days with ≥1 activity. → §5.8, §6, §9.3,
    §11.1.
 
-3. **Extra nights are a stay date range, not "Sunday".** Stored as
-   `extra_stay_start` / `extra_stay_end` dates. Employees can add at most one extra
-   night before the first travel day and/or after the last (single-night toggles);
-   admins can set wider ranges (2+ nights) for special cases. → §5.5, §8.
+3. **Extra nights are a stay date, not "Sunday".** Stored as `extra_stay_start`
+   (event-local date). Employees can add at most one extra night before the first
+   travel day (single-night toggle); admins can set wider ranges (2+ nights) for
+   special cases. Late return is no longer offered, so `extra_stay_end` is always
+   blanked (the column is retained only for historical rows). → §5.5, §8.
 
 4. **Travel independence is per leg.** Travel to and from the offsite are separate
    decisions, so `arrival_independent` and `departure_independent` are tracked

@@ -45,7 +45,7 @@ func (s *Store) allAttendeeContacts(ctx context.Context, eventID string) ([]cont
 		`SELECT u.email, u.first_name
 		   FROM event_attendees ea
 		   JOIN users u ON u.id = ea.user_id
-		  WHERE ea.event_id = $1
+		  WHERE ea.event_id = $1 AND NOT u.archived
 		  ORDER BY u.email`, eventID)
 }
 
@@ -57,7 +57,7 @@ func (s *Store) nonResponderContacts(ctx context.Context, eventID string) ([]con
 		   FROM event_attendees ea
 		   JOIN users u ON u.id = ea.user_id
 		   LEFT JOIN submissions s ON s.event_id = ea.event_id AND s.user_id = ea.user_id
-		  WHERE ea.event_id = $1 AND s.id IS NULL
+		  WHERE ea.event_id = $1 AND s.id IS NULL AND NOT u.archived
 		  ORDER BY u.email`, eventID)
 }
 

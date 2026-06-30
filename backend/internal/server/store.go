@@ -168,14 +168,16 @@ func (s *Store) loadSubmission(ctx context.Context, eventID, userID string) (*Su
 		`SELECT s.id, s.event_id, s.user_id, u.email, u.first_name, u.last_name, s.attending, s.not_sure_reason,
 		        s.arrival_day, s.arrival_time, s.arrival_mode, s.arrival_details,
 		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
-		        s.arrival_independent, s.departure_independent, s.long_haul, s.extra_stay_start, s.extra_stay_end, u.allergies, s.comments,
+		        s.arrival_independent, s.departure_independent, s.long_haul, s.extra_stay_start, s.extra_stay_end,
+		        s.extra_stay_self_funded, u.allergies, s.comments,
 		        s.locked, s.created_at, s.updated_at
 		   FROM submissions s JOIN users u ON u.id = s.user_id
 		  WHERE s.event_id = $1 AND s.user_id = $2`, eventID, userID).
 		Scan(&sub.ID, &sub.EventID, &sub.UserID, &sub.Email, &sub.FirstName, &sub.LastName, &sub.Attending, &sub.NotSureReason,
 			&arrivalDay, &sub.ArrivalTime, &arrivalMode, &sub.ArrivalDetails,
 			&departureDay, &sub.DepartureTime, &departureMode, &sub.DepartureDetails,
-			&sub.ArrivalIndependent, &sub.DepartureIndependent, &sub.LongHaul, &extraStart, &extraEnd, &sub.Allergies, &sub.Comments,
+			&sub.ArrivalIndependent, &sub.DepartureIndependent, &sub.LongHaul, &extraStart, &extraEnd,
+			&sub.ExtraStaySelfFunded, &sub.Allergies, &sub.Comments,
 			&sub.Locked, &sub.CreatedAt, &sub.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -195,7 +197,7 @@ func (s *Store) nonResponders(ctx context.Context, eventID string) ([]string, er
 		`SELECT u.email FROM event_attendees ea
 		   JOIN users u ON u.id = ea.user_id
 		   LEFT JOIN submissions s ON s.event_id = ea.event_id AND s.user_id = ea.user_id
-		  WHERE ea.event_id = $1 AND s.id IS NULL`, eventID)
+		  WHERE ea.event_id = $1 AND s.id IS NULL AND NOT u.archived`, eventID)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +224,7 @@ func (s *Store) dashboardEntries(ctx context.Context, eventID string) ([]Dashboa
 		   JOIN events e ON e.id = ea.event_id
 		   JOIN users u ON u.id = ea.user_id
 		   LEFT JOIN submissions s ON s.event_id = ea.event_id AND s.user_id = ea.user_id
-		  WHERE ea.event_id = $1
+		  WHERE ea.event_id = $1 AND NOT u.archived
 		  ORDER BY u.first_name, u.last_name, u.email`, eventID)
 	if err != nil {
 		return nil, nil, err

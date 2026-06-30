@@ -46,6 +46,7 @@ const form = reactive<EditorState>({
   longHaul: s?.longHaul ?? false,
   extraStayStart: s?.extraStayStart ?? null,
   extraStayEnd: s?.extraStayEnd ?? null,
+  extraStaySelfFunded: s?.extraStaySelfFunded ?? false,
   comments: s?.comments ?? '',
 })
 
@@ -54,7 +55,7 @@ const error = ref('')
 
 // Native <input type="date"> / <select> yield '' when cleared; map that to null
 // so the backend stores NULL rather than an empty DATE / mode.
-function setDay(key: 'arrivalDay' | 'departureDay' | 'extraStayStart' | 'extraStayEnd', ev: globalThis.Event) {
+function setDay(key: 'arrivalDay' | 'departureDay' | 'extraStayStart', ev: globalThis.Event) {
   form[key] = (ev.target as HTMLInputElement).value || null
 }
 function setMode(key: 'arrivalMode' | 'departureMode', ev: globalThis.Event) {
@@ -167,9 +168,11 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               <label class="check">
                 <input v-model="form.longHaul" type="checkbox"> Long-haul traveller
               </label>
+              <label class="check">
+                <input v-model="form.extraStaySelfFunded" type="checkbox"> Self-funded early arrival (own accommodation, wants company transport)
+              </label>
               <div class="grid2">
                 <label>Extra night before<input :value="form.extraStayStart ?? ''" type="date" @input="setDay('extraStayStart', $event)"></label>
-                <label>Extra night after<input :value="form.extraStayEnd ?? ''" type="date" @input="setDay('extraStayEnd', $event)"></label>
               </div>
             </fieldset>
           </template>

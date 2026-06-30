@@ -37,12 +37,13 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		`SELECT u.first_name, u.last_name, u.email, s.attending,
 		        s.arrival_day, s.arrival_time, s.arrival_mode, s.arrival_details,
 		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
-		        s.arrival_independent, s.departure_independent, s.long_haul, s.extra_stay_start, s.extra_stay_end, u.allergies, s.comments,
+		        s.arrival_independent, s.departure_independent, s.long_haul, s.extra_stay_start, s.extra_stay_end,
+		        s.extra_stay_self_funded, u.allergies, s.comments,
 		        s.updated_at
 		   FROM event_attendees ea
 		   JOIN users u ON u.id = ea.user_id
 		   LEFT JOIN submissions s ON s.event_id = ea.event_id AND s.user_id = ea.user_id
-		  WHERE ea.event_id = $1
+		  WHERE ea.event_id = $1 AND NOT u.archived
 		  ORDER BY u.first_name, u.last_name, u.email`, id)
 	if err != nil {
 		serverErr(w, r, err, "db error")
@@ -59,7 +60,7 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		"name", "email", "attending", "arrival_day", "arrival_time", "arrival_mode",
 		"arrival_details", "departure_day", "departure_time", "departure_mode",
 		"departure_details", "arrival_independent", "departure_independent", "long_haul", "extra_night_before", "extra_night_after",
-		"allergies", "comments", "last_updated",
+		"self_funded_early_arrival", "allergies", "comments", "last_updated",
 	})
 
 	for rows.Next() {
@@ -67,11 +68,12 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		var attending, arrTime, arrMode, arrDetails sql.NullString
 		var depTime, depMode, depDetails, allergies, comments sql.NullString
 		var arrDay, depDay, extraStart, extraEnd, updatedAt sql.NullTime
-		var arrivalIndependent, departureIndependent, longHaul sql.NullBool
+		var arrivalIndependent, departureIndependent, longHaul, selfFundedEarly sql.NullBool
 		if err := rows.Scan(&firstName, &lastName, &email, &attending,
 			&arrDay, &arrTime, &arrMode, &arrDetails,
 			&depDay, &depTime, &depMode, &depDetails,
-			&arrivalIndependent, &departureIndependent, &longHaul, &extraStart, &extraEnd, &allergies, &comments, &updatedAt); err != nil {
+			&arrivalIndependent, &departureIndependent, &longHaul, &extraStart, &extraEnd,
+			&selfFundedEarly, &allergies, &comments, &updatedAt); err != nil {
 			serverErr(w, r, err, "db error")
 			return
 		}
@@ -91,7 +93,7 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 			dateOrEmpty(arrDay), arrTime.String, arrMode.String, arrDetails.String,
 			dateOrEmpty(depDay), depTime.String, depMode.String, depDetails.String,
 			boolOrEmpty(arrivalIndependent), boolOrEmpty(departureIndependent), boolOrEmpty(longHaul), dateOrEmpty(extraStart), dateOrEmpty(extraEnd),
-			allergies.String, comments.String, timeInZoneOrEmpty(updatedAt, loc),
+			boolOrEmpty(selfFundedEarly), allergies.String, comments.String, timeInZoneOrEmpty(updatedAt, loc),
 		})
 	}
 	if err := rows.Err(); err != nil {

@@ -120,6 +120,10 @@ export const api = {
     request<void>(`/api/users/${id}/promote`, { method: 'POST' }),
   demoteUser: (id: string) =>
     request<void>(`/api/users/${id}/demote`, { method: 'POST' }),
+  archiveUser: (id: string) =>
+    request<void>(`/api/users/${id}/archive`, { method: 'POST' }),
+  unarchiveUser: (id: string) =>
+    request<void>(`/api/users/${id}/unarchive`, { method: 'POST' }),
 
   // Current (non-past) events for the post-login landing, annotated with the
   // caller's RSVP state. Every signed-in user is invited (company offsite tool).

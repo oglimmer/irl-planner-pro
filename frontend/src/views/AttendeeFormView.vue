@@ -53,8 +53,24 @@ const form = reactive<AttendeeFormState>({
   longHaul: false,
   extraStayStart: null,
   extraStayEnd: null,
+  extraStaySelfFunded: false,
   comments: '',
 })
+
+// Preserve in-progress edits across a round-trip to /profile (e.g. the "Edit
+// your profile" link to set allergies): the view re-mounts and reloads from the
+// server, which would otherwise discard anything the attendee typed but hasn't
+// saved. Stash a draft in sessionStorage (per slug, tab-scoped) and restore it
+// after load(); clear it once the response is saved.
+const draftKey = `attendee-draft:${props.slug}`
+const draftReady = ref(false)
+watch(
+  form,
+  () => {
+    if (draftReady.value) sessionStorage.setItem(draftKey, JSON.stringify(form))
+  },
+  { deep: true },
+)
 
 // Sentinel value for the "no travel support needed" option at the top of each
 // leg's Day dropdown. Travel to and from the offsite are independent: selecting
@@ -106,15 +122,6 @@ const departureDaySelection = computed<string | null>({
 watch(() => form.attending, () => {
   error.value = ''
   saved.value = false
-})
-
-const needsTravelSupport = computed(() => !(form.arrivalIndependent && form.departureIndependent))
-watch(needsTravelSupport, (needs) => {
-  if (!needs) {
-    form.longHaul = false
-    form.extraStayStart = null
-    form.extraStayEnd = null
-  }
 })
 
 const arrivalTimeLabel = computed(() =>
@@ -226,12 +233,14 @@ const successMessage = computed(() =>
     : 'You can come back and change your answer any time before the deadline.',
 )
 
-// Travel dates the attendee may pick: event window ±1 day (the extra-night span).
+// Travel dates the attendee may pick: from the day before the event (the
+// extra-night-before span) through its last day. There is no day-after option —
+// the company no longer provides a late return.
 const travelDates = computed<string[]>(() => {
   if (!event.value) return []
   const out: string[] = []
   let d = addDays(event.value.startDate, -1)
-  const last = addDays(event.value.endDate, 1)
+  const last = event.value.endDate
   while (d <= last) {
     out.push(d)
     d = addDays(d, 1)
@@ -251,16 +260,55 @@ function withCurrentDay(base: string[], current: string | null): string[] {
 const arrivalDayOptions = computed(() => withCurrentDay(travelDates.value, form.arrivalDay))
 const departureDayOptions = computed(() => withCurrentDay(travelDates.value, form.departureDay))
 
-const beforeDate = computed(() => (event.value ? addDays(event.value.startDate, -1) : ''))
-const afterDate = computed(() => (event.value ? addDays(event.value.endDate, 1) : ''))
-
-const extraNightBefore = computed({
-  get: () => form.extraStayStart != null,
-  set: (v: boolean) => (form.extraStayStart = v ? beforeDate.value : null),
+// Days the People team flagged as travel days (the first/last of the range,
+// typically) — surfaced in the Day dropdowns so attendees can see at a glance
+// which dates are meant for travelling.
+const travelDaySet = computed(() => {
+  const s = new Set<string>()
+  for (const d of event.value?.days ?? []) {
+    if (d.type === 'travel') s.add(d.date)
+  }
+  return s
 })
-const extraNightAfter = computed({
-  get: () => form.extraStayEnd != null,
-  set: (v: boolean) => (form.extraStayEnd = v ? afterDate.value : null),
+
+// Dropdown label for a travel date: the formatted date, tagged "(Travel Day)"
+// when the event marks that date as a travel day.
+function dayLabel(d: string): string {
+  return travelDaySet.value.has(d) ? `${formatDate(d)} (Travel Day)` : formatDate(d)
+}
+
+const beforeDate = computed(() => (event.value ? addDays(event.value.startDate, -1) : ''))
+
+// The attendee has picked the day-before as their (company-arranged) arrival, so
+// the night before the event needs covering. The accommodation question is shown
+// only in this case; arriving on the event day needs no extra night at all.
+const arrivesEarly = computed(
+  () => !form.arrivalIndependent && form.arrivalDay != null && form.arrivalDay <= beforeDate.value,
+)
+// Leaving the early-arrival window clears the whole accommodation block so nothing
+// lingers hidden (the server clears it too, but keep the form state honest).
+watch(arrivesEarly, (early) => {
+  if (!early) {
+    form.longHaul = false
+    form.extraStayStart = null
+    form.extraStaySelfFunded = false
+  }
+})
+
+// The night before is a single, mutually-exclusive choice between a company-paid
+// hotel (long-haul travellers) and self-funding it. The three underlying flags are
+// set atomically so they never disagree:
+//   • 'company' → long-haul + the company extra night before
+//   • 'self'    → self-funded early arrival (own accommodation, wants transport)
+//   • ''        → no choice yet (blocked on submit while arriving early)
+type NightBeforeChoice = '' | 'company' | 'self'
+const nightBeforeChoice = computed<NightBeforeChoice>({
+  get: () => (form.extraStayStart != null ? 'company' : form.extraStaySelfFunded ? 'self' : ''),
+  set: (v) => {
+    form.longHaul = v === 'company'
+    form.extraStayStart = v === 'company' ? beforeDate.value : null
+    form.extraStaySelfFunded = v === 'self'
+  },
 })
 
 // Becomes true the first time the attendee tries to save. Until then we show the
@@ -311,9 +359,21 @@ async function load() {
         longHaul: existing.longHaul,
         extraStayStart: existing.extraStayStart,
         extraStayEnd: existing.extraStayEnd,
+        extraStaySelfFunded: existing.extraStaySelfFunded,
         comments: existing.comments,
       })
     }
+    // Restore any unsaved draft over the server state (it always reflects the
+    // attendee's most recent edits), then start persisting subsequent changes.
+    const draft = sessionStorage.getItem(draftKey)
+    if (draft) {
+      try {
+        Object.assign(form, JSON.parse(draft))
+      } catch {
+        sessionStorage.removeItem(draftKey)
+      }
+    }
+    draftReady.value = true
     activity.value = await api.myActivity(props.slug)
   } catch (e) {
     error.value = errMsg(e)
@@ -339,10 +399,10 @@ async function submit() {
         : `${missingCount.value} required fields are still missing — see the highlighted fields below.`
     return
   }
-  // Cross-field check: arriving the day before / leaving the day after the event
-  // only holds up if the matching long-haul "Extra night" box is ticked, so the
-  // night has accommodation. Spell out what's still unchecked (mirrors the server).
-  const stayErrors = extraNightErrors(form, beforeDate.value, afterDate.value, formatDate)
+  // Cross-field check: arriving the day before the event only holds up if the
+  // long-haul "Extra night before" box is ticked, so the night has accommodation.
+  // Spell out what's still unchecked (mirrors the server).
+  const stayErrors = extraNightErrors(form, beforeDate.value, formatDate)
   if (stayErrors.length > 0) {
     saved.value = false
     error.value = stayErrors.join(' ')
@@ -368,6 +428,7 @@ async function submit() {
   saved.value = false
   try {
     await api.putMySubmission(props.slug, { ...form, attending })
+    sessionStorage.removeItem(draftKey)
     savedWasUpdate.value = hasSubmitted.value
     saved.value = true
     hasSubmitted.value = true
@@ -489,7 +550,7 @@ onMounted(load)
           <p>If for any reason you cannot attend this offsite, please follow the steps below:</p>
           <ol>
             <li>Let your manager know</li>
-            <li>Inform the People team by emailing <a href="mailto:people@id5.io">people@id5.io</a></li>
+            <li>Inform the People team by emailing <a href="mailto:irl@id5.io">irl@id5.io</a></li>
           </ol>
         </div>
 
@@ -505,7 +566,7 @@ onMounted(load)
                   <option :value="INDEPENDENT_TRAVEL">
                     I arrange my own travel here, no support needed
                   </option>
-                  <option v-for="d in arrivalDayOptions" :key="d" :value="d">{{ formatDate(d) }}</option>
+                  <option v-for="d in arrivalDayOptions" :key="d" :value="d">{{ dayLabel(d) }}</option>
                 </select>
               </label>
               <label v-if="!form.arrivalIndependent" :class="fieldClass('arrivalTime')">{{ arrivalTimeLabel }}
@@ -545,7 +606,7 @@ onMounted(load)
                   <option :value="INDEPENDENT_TRAVEL">
                     I arrange my own travel here, no support needed
                   </option>
-                  <option v-for="d in departureDayOptions" :key="d" :value="d">{{ formatDate(d) }}</option>
+                  <option v-for="d in departureDayOptions" :key="d" :value="d">{{ dayLabel(d) }}</option>
                 </select>
               </label>
               <label v-if="!form.departureIndependent" :class="fieldClass('departureTime')">{{ departureTimeLabel }}
@@ -576,35 +637,37 @@ onMounted(load)
             </div>
           </div>
 
-          <template v-if="needsTravelSupport">
-            <div class="field">
-              <h3 class="sub">Company-Paid Accommodation for Long-Haul Travellers</h3>
-              <p class="field-note">
-                See the
-                <a
-                  href="https://app.notion.com/p/id5technology/Traveling-to-the-IRL-388334ab4b6a8027a829f184455c1eeb"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >Traveling to the IRL policy</a>.
-              </p>
-              <label class="check">
-                <input v-model="form.longHaul" type="checkbox">
-                I'm a long-haul traveller (international flight of 7+ hours)
-              </label>
-            </div>
-
-            <div v-if="form.longHaul" class="field extra">
-              <span class="q">Would you require an extra night?</span>
-              <label class="check">
-                <input v-model="extraNightBefore" type="checkbox">
-                Extra night before — {{ formatDate(form.extraStayStart || beforeDate) }}
-              </label>
-              <label class="check">
-                <input v-model="extraNightAfter" type="checkbox">
-                Extra night after — {{ formatDate(form.extraStayEnd || afterDate) }}
-              </label>
-            </div>
-          </template>
+          <!-- The night before only needs covering when arriving the day before. A
+               single choice: company-paid (long-haul) vs self-funded. -->
+          <div v-if="arrivesEarly" class="field accommodation" :class="{ missing: triedSave && !nightBeforeChoice }">
+            <h3 class="sub">The night before — {{ formatDate(beforeDate) }}</h3>
+            <p class="field-note">
+              You're arriving the day before the event, so that night needs covering.
+              How would you like to handle it?
+            </p>
+            <label class="choice">
+              <input v-model="nightBeforeChoice" type="radio" value="company">
+              <span class="choice-text">
+                <strong>The company books and pays for it</strong>
+                <small class="confirm">I confirm I'm a long-haul traveller (international flight of 7+ hours)</small>
+              </span>
+            </label>
+            <label class="choice">
+              <input v-model="nightBeforeChoice" type="radio" value="self">
+              <span class="choice-text">
+                <strong>I'll book and pay for it myself</strong>
+                <small>Please still include me in any company transport</small>
+              </span>
+            </label>
+            <p class="field-note">
+              See the
+              <a
+                href="https://app.notion.com/p/id5technology/Traveling-to-the-IRL-388334ab4b6a8027a829f184455c1eeb"
+                target="_blank"
+                rel="noopener noreferrer"
+              >Traveling to the IRL policy</a>.
+            </p>
+          </div>
 
           <h3 class="section-head">Other</h3>
           <label>Comments
@@ -1043,6 +1106,58 @@ input.time.empty::-webkit-datetime-edit {
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-soft);
+}
+
+/* Accommodation — the single "night before" choice. The two options are stacked
+   selectable cards so the mutually-exclusive decision reads at a glance. */
+.accommodation {
+  gap: 0.55rem;
+}
+.accommodation .field-note:last-child {
+  margin-top: 0.15rem;
+}
+.accommodation .choice {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.accommodation .choice:hover {
+  border-color: var(--accent);
+}
+.accommodation .choice:has(input:checked) {
+  border-color: var(--accent);
+  background: rgb(var(--accent-rgb) / 0.08);
+}
+.accommodation .choice input {
+  margin-top: 2px;
+}
+.choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.choice-text strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.choice-text small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.choice-text small.confirm {
+  font-weight: 600;
+}
+/* After a save attempt with no option picked, flag the unanswered choice. */
+.accommodation.missing .choice {
+  border-color: var(--danger);
 }
 .notice p {
   margin: 0;

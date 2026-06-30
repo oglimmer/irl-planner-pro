@@ -108,6 +108,7 @@ const responseColumns: ResponseColumn[] = [
   { key: 'longHaul', label: 'Long haul', text: (r) => yesNo(r.sub?.longHaul) },
   { key: 'extraStayStart', label: 'Extra night before', text: (r) => fmtDay(r.sub?.extraStayStart) },
   { key: 'extraStayEnd', label: 'Extra night after', text: (r) => fmtDay(r.sub?.extraStayEnd) },
+  { key: 'extraStaySelfFunded', label: 'Self-funded early arrival', text: (r) => yesNo(r.sub?.extraStaySelfFunded) },
   { key: 'allergies', label: 'Allergies', text: (r) => r.sub?.allergies ?? '' },
   { key: 'comments', label: 'Comments', text: (r) => r.sub?.comments ?? '' },
   {

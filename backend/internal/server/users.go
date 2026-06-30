@@ -66,12 +66,13 @@ type UserSummary struct {
 	LastName  string `json:"lastName"`
 	Name      string `json:"name"`
 	IsAdmin   bool   `json:"isAdmin"`
+	Archived  bool   `json:"archived"`
 	CreatedAt string `json:"createdAt"`
 }
 
 func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.DB.QueryContext(r.Context(),
-		`SELECT id, email, first_name, last_name, is_admin, created_at FROM users ORDER BY created_at`)
+		`SELECT id, email, first_name, last_name, is_admin, archived, created_at FROM users ORDER BY created_at`)
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return
@@ -81,7 +82,7 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var u UserSummary
 		var created sql.NullTime
-		if err := rows.Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.IsAdmin, &created); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.FirstName, &u.LastName, &u.IsAdmin, &u.Archived, &created); err != nil {
 			serverErr(w, r, err, "db error")
 			return
 		}
@@ -146,6 +147,47 @@ func (a *App) handleDemoteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		writeErr(w, http.StatusConflict, "cannot demote the last admin")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleArchiveUser archives a user: they keep their account and event
+// memberships but are excluded from every event activity (attendee seeding,
+// reminders, dashboards, exports, admin notifications) until reactivated. An
+// admin cannot archive themselves, which would silently strip their own access.
+func (a *App) handleArchiveUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == currentUser(r).ID {
+		writeErr(w, http.StatusConflict, "you cannot archive yourself")
+		return
+	}
+	res, err := a.DB.ExecContext(r.Context(),
+		`UPDATE users SET archived = true WHERE id = $1`, id)
+	if err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeErr(w, http.StatusNotFound, "user not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleUnarchiveUser reactivates an archived user. Because archiving never
+// unlinks membership rows, reactivating restores the user across every event at
+// once.
+func (a *App) handleUnarchiveUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	res, err := a.DB.ExecContext(r.Context(),
+		`UPDATE users SET archived = false WHERE id = $1`, id)
+	if err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeErr(w, http.StatusNotFound, "user not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

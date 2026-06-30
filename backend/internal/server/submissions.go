@@ -45,6 +45,12 @@ type Submission struct {
 	ExtraStayStart *string `json:"extraStayStart"`
 	ExtraStayEnd   *string `json:"extraStayEnd"`
 
+	// ExtraStaySelfFunded: the attendee arrives the day before and arranges their
+	// own accommodation (no company hotel), but still wants company transport and
+	// to be considered for any shared transfer on that day. Mutually exclusive with
+	// ExtraStayStart (the company-paid night). See migration 0017.
+	ExtraStaySelfFunded bool `json:"extraStaySelfFunded"`
+
 	// Allergies is read-only here: it lives on the submitter's profile (see
 	// migration 0003_profile_allergies) and is joined in for display.
 	Allergies string `json:"allergies"`
@@ -78,6 +84,7 @@ type submissionReq struct {
 	LongHaul             bool    `json:"longHaul"`
 	ExtraStayStart       *string `json:"extraStayStart"`
 	ExtraStayEnd         *string `json:"extraStayEnd"`
+	ExtraStaySelfFunded  bool    `json:"extraStaySelfFunded"`
 	Comments             string  `json:"comments"`
 }
 
@@ -111,6 +118,7 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 		req.ArrivalIndependent, req.DepartureIndependent = false, false
 		req.LongHaul = false
 		req.ExtraStayStart, req.ExtraStayEnd = nil, nil
+		req.ExtraStaySelfFunded = false
 		req.Comments = ""
 		return nil
 	}
@@ -121,7 +129,10 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 	// Each leg is independent: a self-arranged leg is blanked and not validated;
 	// otherwise the leg's day/mode/details are required.
 	if req.ArrivalIndependent {
+		// A self-arranged arrival has no company-handled early arrival, so the
+		// self-funded-early flag (which asks for company transport) doesn't apply.
 		req.ArrivalDay, req.ArrivalMode, req.ArrivalTime, req.ArrivalDetails = nil, nil, "", ""
+		req.ExtraStaySelfFunded = false
 	} else if err := validateTravelLeg("arrival", &req.ArrivalDay, &req.ArrivalMode, &req.ArrivalTime, &req.ArrivalDetails, start, end, isAdmin); err != nil {
 		return err
 	}
@@ -131,62 +142,66 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 		return err
 	}
 
+	// Late return is no longer offered: the company doesn't provide an extra night
+	// after the offsite, so never persist one — for any writer, admin included.
+	req.ExtraStayEnd = nil
+
 	// Long-haul accommodation only applies when the People team handles at least
 	// one leg; a fully self-arranging attendee gets no accommodation block (this
 	// is the old single-flag behavior, now keyed on both legs being independent).
 	if req.ArrivalIndependent && req.DepartureIndependent {
 		req.LongHaul = false
-		req.ExtraStayStart, req.ExtraStayEnd = nil, nil
+		req.ExtraStayStart = nil
+		req.ExtraStaySelfFunded = false
 	} else if !req.LongHaul {
-		req.ExtraStayStart, req.ExtraStayEnd = nil, nil
-	} else if err := validateExtraStay(&req.ExtraStayStart, &req.ExtraStayEnd, start, end, isAdmin); err != nil {
+		req.ExtraStayStart = nil
+	} else if err := validateExtraStay(&req.ExtraStayStart, start, isAdmin); err != nil {
 		return err
 	}
 
-	// A leg's travel day and its long-haul extra-night booking must agree, both
-	// ways: arriving before the first day (or leaving after the last) needs the
-	// matching night booked, and a booked night with an in-window day is an orphan
-	// to remove. Runs after the long-haul block above has settled ExtraStay* (so a
-	// non-long-haul night is already nil here). Self-arranged legs are skipped — a
-	// company night can sit alongside one. Mirrors submissionRules.ts /
-	// extraNightErrors; like the date-window check it relaxes for admins, who record
-	// out-of-window days for special cases.
-	if !isAdmin {
-		if !req.ArrivalIndependent {
-			arrivesEarly := false
-			if req.ArrivalDay != nil {
-				if d, err := parseDate(*req.ArrivalDay); err == nil && d.Before(start) {
-					arrivesEarly = true
-				}
-			}
-			switch {
-			case arrivesEarly && req.ExtraStayStart == nil:
-				return errors.New("to arrive before the event you must be a long-haul traveller and book the extra night before")
-			case !arrivesEarly && req.ExtraStayStart != nil:
-				return errors.New("the extra night before isn't needed unless you arrive the day before — remove it or change your arrival day")
+	// The company-paid night and the self-funded early arrival are mutually
+	// exclusive ways to cover the night before; the company booking wins.
+	if req.ExtraStayStart != nil {
+		req.ExtraStaySelfFunded = false
+	}
+
+	// The arrival leg's travel day must agree with how the night before is covered.
+	// Arriving the day before the event needs that night covered — either the
+	// long-haul company extra night (ExtraStayStart) OR the attendee arranging their
+	// own accommodation (ExtraStaySelfFunded) — otherwise it's rejected. Conversely a
+	// company night booked with an in-window arrival is an orphan to remove, and a
+	// stray self-funded flag with an in-window arrival is just cleared (it's only an
+	// attendee note, not a People-team booking). Runs after the long-haul block has
+	// settled ExtraStayStart. A self-arranged leg is skipped (handled above). Mirrors
+	// submissionRules.ts / extraNightErrors; like the date-window check it relaxes
+	// for admins, who record out-of-window days for special cases. (The departure
+	// side has no mirror: with late return removed, the departure day can never fall
+	// after the event.)
+	if !isAdmin && !req.ArrivalIndependent {
+		arrivesEarly := false
+		if req.ArrivalDay != nil {
+			if d, err := parseDate(*req.ArrivalDay); err == nil && d.Before(start) {
+				arrivesEarly = true
 			}
 		}
-		if !req.DepartureIndependent {
-			leavesLate := false
-			if req.DepartureDay != nil {
-				if d, err := parseDate(*req.DepartureDay); err == nil && d.After(end) {
-					leavesLate = true
-				}
-			}
-			switch {
-			case leavesLate && req.ExtraStayEnd == nil:
-				return errors.New("to leave after the event you must be a long-haul traveller and book the extra night after")
-			case !leavesLate && req.ExtraStayEnd != nil:
-				return errors.New("the extra night after isn't needed unless you leave the day after — remove it or change your departure day")
-			}
+		if !arrivesEarly {
+			req.ExtraStaySelfFunded = false
+		}
+		covered := req.ExtraStayStart != nil || req.ExtraStaySelfFunded
+		switch {
+		case arrivesEarly && !covered:
+			return errors.New("to arrive the day before the event, either book the company extra night before (long-haul travellers) or choose to arrange your own accommodation for that night")
+		case !arrivesEarly && req.ExtraStayStart != nil:
+			return errors.New("the extra night before isn't needed unless you arrive the day before — remove it or change your arrival day")
 		}
 	}
 	return nil
 }
 
 // validateTravelLeg checks one arrival/departure leg. For the employee form a
-// day and mode are required, the day must fall in the allowed window (event
-// range ±1 day), and a flight also requires its time + flight number. For an
+// day and mode are required, the day must fall in the allowed window (the day
+// before the event through its last day — there is no day-after option), and a
+// flight also requires its time + flight number. For an
 // admin editing on the attendee's behalf, every one of those requirements is
 // dropped (any day, any option, no validation): a blank day/mode is normalized
 // to NULL and any present value is only canonicalized / range-free. The day and
@@ -204,9 +219,11 @@ func validateTravelLeg(label string, day **string, mode **string, travelTime *st
 			return errors.New(label + " day is invalid")
 		}
 		if !isAdmin {
+			// The window runs from the day before the event (for the extra night
+			// before) through its last day. There is no day-after option — the
+			// company no longer provides a late return.
 			lo := start.AddDate(0, 0, -1)
-			hi := end.AddDate(0, 0, 1)
-			if d.Before(lo) || d.After(hi) {
+			if d.Before(lo) || d.After(end) {
 				return errors.New(label + " day must be within the event dates")
 			}
 		}
@@ -238,12 +255,13 @@ func validateTravelLeg(label string, day **string, mode **string, travelTime *st
 	return nil
 }
 
-// validateExtraStay enforces the stay-window bounds for the employee form: the
-// before-night must sit exactly one day before the first day and the after-night
-// exactly one day after the last. For an admin editing on the attendee's behalf
-// every bound is dropped (any day, no validation) — any present date is only
-// parsed/canonicalized so the DATE column accepts it.
-func validateExtraStay(startPtr, endPtr **string, start, end time.Time, isAdmin bool) error {
+// validateExtraStay enforces the before-night bound for the employee form: it must
+// sit exactly one day before the first day. (Late return is no longer offered, so
+// there is no after-night to validate — the caller blanks extra_stay_end.) For an
+// admin editing on the attendee's behalf the bound is dropped (any day, no
+// validation) — any present date is only parsed/canonicalized so the DATE column
+// accepts it.
+func validateExtraStay(startPtr **string, start time.Time, isAdmin bool) error {
 	if *startPtr != nil && strings.TrimSpace(**startPtr) != "" {
 		d, err := parseDate(strings.TrimSpace(**startPtr))
 		if err != nil {
@@ -261,24 +279,6 @@ func validateExtraStay(startPtr, endPtr **string, start, end time.Time, isAdmin 
 		*startPtr = &canon
 	} else {
 		*startPtr = nil
-	}
-	if *endPtr != nil && strings.TrimSpace(**endPtr) != "" {
-		d, err := parseDate(strings.TrimSpace(**endPtr))
-		if err != nil {
-			return errors.New("extra-night (after) date is invalid")
-		}
-		if !isAdmin {
-			if !d.After(end) {
-				return errors.New("the extra night after must be later than the last day")
-			}
-			if !d.Equal(end.AddDate(0, 0, 1)) {
-				return errors.New("you can add at most one extra night after the event")
-			}
-		}
-		canon := d.Format(dateLayout)
-		*endPtr = &canon
-	} else {
-		*endPtr = nil
 	}
 	return nil
 }
@@ -448,11 +448,13 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 	err = tx.QueryRowContext(ctx,
 		`SELECT attending, not_sure_reason, arrival_day, arrival_time, arrival_mode, arrival_details,
 		        departure_day, departure_time, departure_mode, departure_details,
-		        arrival_independent, departure_independent, long_haul, extra_stay_start, extra_stay_end, comments
+		        arrival_independent, departure_independent, long_haul, extra_stay_start, extra_stay_end,
+		        extra_stay_self_funded, comments
 		   FROM submissions WHERE event_id = $1 AND user_id = $2`, e.ID, ownerID).
 		Scan(&prev.Attending, &prev.NotSureReason, &pArrDay, &prev.ArrivalTime, &pArrMode, &prev.ArrivalDetails,
 			&pDepDay, &prev.DepartureTime, &pDepMode, &prev.DepartureDetails,
-			&prev.ArrivalIndependent, &prev.DepartureIndependent, &prev.LongHaul, &pExtraStart, &pExtraEnd, &prev.Comments)
+			&prev.ArrivalIndependent, &prev.DepartureIndependent, &prev.LongHaul, &pExtraStart, &pExtraEnd,
+			&prev.ExtraStaySelfFunded, &prev.Comments)
 	if err == sql.ErrNoRows {
 		existed = false
 	} else if err != nil {
@@ -470,8 +472,9 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 		`INSERT INTO submissions (event_id, user_id, attending, not_sure_reason,
 		   arrival_day, arrival_time, arrival_mode, arrival_details,
 		   departure_day, departure_time, departure_mode, departure_details,
-		   arrival_independent, departure_independent, long_haul, extra_stay_start, extra_stay_end, comments, locked)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+		   arrival_independent, departure_independent, long_haul, extra_stay_start, extra_stay_end,
+		   extra_stay_self_funded, comments, locked)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		 ON CONFLICT (event_id, user_id) DO UPDATE SET
 		   attending=EXCLUDED.attending,
 		   not_sure_reason=EXCLUDED.not_sure_reason, arrival_day=EXCLUDED.arrival_day,
@@ -482,6 +485,7 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 		   arrival_independent=EXCLUDED.arrival_independent,
 		   departure_independent=EXCLUDED.departure_independent, long_haul=EXCLUDED.long_haul,
 		   extra_stay_start=EXCLUDED.extra_stay_start, extra_stay_end=EXCLUDED.extra_stay_end,
+		   extra_stay_self_funded=EXCLUDED.extra_stay_self_funded,
 		   comments=EXCLUDED.comments,
 		   -- locked is sticky: an admin edit sets it, and a later write (false)
 		   -- never clears it.
@@ -490,7 +494,8 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 		e.ID, ownerID, req.Attending, req.NotSureReason,
 		datePtr(req.ArrivalDay), req.ArrivalTime, strPtr(req.ArrivalMode), req.ArrivalDetails,
 		datePtr(req.DepartureDay), req.DepartureTime, strPtr(req.DepartureMode), req.DepartureDetails,
-		req.ArrivalIndependent, req.DepartureIndependent, req.LongHaul, datePtr(req.ExtraStayStart), datePtr(req.ExtraStayEnd), req.Comments, lock).
+		req.ArrivalIndependent, req.DepartureIndependent, req.LongHaul, datePtr(req.ExtraStayStart), datePtr(req.ExtraStayEnd),
+		req.ExtraStaySelfFunded, req.Comments, lock).
 		Scan(&subID)
 	if err != nil {
 		metrics.SubmissionMutationsTotal.WithLabelValues("write", "error").Inc()
@@ -604,6 +609,7 @@ func diffSubmissionReq(prev, next submissionReq) []fieldChange {
 	add("Long-haul travel", boolStr(prev.LongHaul), boolStr(next.LongHaul))
 	add("Extra stay start", optStr(prev.ExtraStayStart), optStr(next.ExtraStayStart))
 	add("Extra stay end", optStr(prev.ExtraStayEnd), optStr(next.ExtraStayEnd))
+	add("Self-funded early arrival", boolStr(prev.ExtraStaySelfFunded), boolStr(next.ExtraStaySelfFunded))
 	add("Comments", prev.Comments, next.Comments)
 	return changes
 }

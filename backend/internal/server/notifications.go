@@ -120,7 +120,7 @@ func (a *App) handleGetNotifications(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(n.notif_type, ''), COALESCE(n.channel_email, false), COALESCE(n.channel_slack, false)
 		   FROM users u
 		   LEFT JOIN event_admin_notifications n ON n.user_id = u.id AND n.event_id = $1
-		  WHERE u.is_admin
+		  WHERE u.is_admin AND NOT u.archived
 		  ORDER BY u.created_at`, id)
 	if err != nil {
 		serverErr(w, r, err, "db error")

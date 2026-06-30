@@ -213,9 +213,9 @@ type mcpSubmitResponseIn struct {
 	DepartureDetails     string `json:"departureDetails,omitempty" jsonschema:"flight number when departureMode=flight (required); free-text details otherwise (optional)"`
 	ArrivalIndependent   bool   `json:"arrivalIndependent,omitempty" jsonschema:"attendee self-arranges arrival; blanks the arrival leg"`
 	DepartureIndependent bool   `json:"departureIndependent,omitempty" jsonschema:"attendee self-arranges departure; blanks the departure leg"`
-	LongHaul             bool   `json:"longHaul,omitempty" jsonschema:"long-haul: needs accommodation / extra nights (only when at least one leg is People-team arranged)"`
-	ExtraStayStart       string `json:"extraStayStart,omitempty" jsonschema:"extra night before the event, YYYY-MM-DD"`
-	ExtraStayEnd         string `json:"extraStayEnd,omitempty" jsonschema:"extra night after the event, YYYY-MM-DD"`
+	LongHaul             bool   `json:"longHaul,omitempty" jsonschema:"long-haul: needs accommodation / extra night before (only when at least one leg is People-team arranged)"`
+	ExtraStayStart       string `json:"extraStayStart,omitempty" jsonschema:"company-paid extra night before the event (long-haul only), YYYY-MM-DD"`
+	ExtraStaySelfFunded  bool   `json:"extraStaySelfFunded,omitempty" jsonschema:"attendee arrives the day before and arranges their own accommodation, but still wants company transport; mutually exclusive with extraStayStart"`
 	Comments             string `json:"comments,omitempty" jsonschema:"free-text comments, optional"`
 	AsAdmin              bool   `json:"asAdmin,omitempty" jsonschema:"record as an admin edit (relaxes the date-window and extra-night limits, and allows editing a past event) instead of a normal attendee RSVP; default false"`
 }
@@ -337,7 +337,9 @@ func (a *App) addToolListEvents(s *mcp.Server) {
 			`SELECT e.id, e.slug, e.name, e.country, e.city, e.timezone,
 			        e.start_date, e.end_date, e.submission_deadline,
 			        (SELECT count(*) FROM submissions s WHERE s.event_id = e.id),
-			        (SELECT count(*) FROM event_attendees ea WHERE ea.event_id = e.id)
+			        (SELECT count(*) FROM event_attendees ea
+			           JOIN users u ON u.id = ea.user_id
+			          WHERE ea.event_id = e.id AND NOT u.archived)
 			   FROM events e ORDER BY e.start_date DESC`)
 		if err != nil {
 			return nil, zero, fmt.Errorf("db error: %w", err)
@@ -1038,7 +1040,7 @@ func (a *App) addToolSubmitResponse(s *mcp.Server) {
 			DepartureIndependent: in.DepartureIndependent,
 			LongHaul:             in.LongHaul,
 			ExtraStayStart:       nilIfEmpty(in.ExtraStayStart),
-			ExtraStayEnd:         nilIfEmpty(in.ExtraStayEnd),
+			ExtraStaySelfFunded:  in.ExtraStaySelfFunded,
 			Comments:             in.Comments,
 		}
 

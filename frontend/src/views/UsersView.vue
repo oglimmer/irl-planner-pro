@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { api, errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useAsyncData } from '../composables/useAsyncData'
@@ -13,6 +13,9 @@ const { data: users, loading, error, reload } = useAsyncData<UserSummary[]>(
   [],
 )
 const busyId = ref<string | null>(null)
+
+const activeUsers = computed(() => users.value.filter((u) => !u.archived))
+const archivedUsers = computed(() => users.value.filter((u) => u.archived))
 
 async function setAdmin(u: UserSummary, makeAdmin: boolean) {
   const who = u.name || u.email
@@ -30,6 +33,30 @@ async function setAdmin(u: UserSummary, makeAdmin: boolean) {
   try {
     if (makeAdmin) await api.promoteUser(u.id)
     else await api.demoteUser(u.id)
+    await reload()
+  } catch (e) {
+    error.value = errMsg(e)
+  } finally {
+    busyId.value = null
+  }
+}
+
+async function setArchived(u: UserSummary, archive: boolean) {
+  const who = u.name || u.email
+  const ok = await confirm({
+    title: archive ? 'Archive this user?' : 'Reactivate this user?',
+    message: archive
+      ? `${who} will be excluded from all events, reminders, dashboards, and exports. Their account and history are kept, and you can reactivate them anytime.`
+      : `${who} will be included in events and activities again, restoring them everywhere they were a member.`,
+    confirmLabel: archive ? 'Archive' : 'Reactivate',
+    danger: archive,
+  })
+  if (!ok) return
+  busyId.value = u.id
+  error.value = ''
+  try {
+    if (archive) await api.archiveUser(u.id)
+    else await api.unarchiveUser(u.id)
     await reload()
   } catch (e) {
     error.value = errMsg(e)
@@ -59,7 +86,7 @@ async function setAdmin(u: UserSummary, makeAdmin: boolean) {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="u in users" :key="u.id">
+        <tr v-for="u in activeUsers" :key="u.id">
           <td>{{ u.name || '—' }}</td>
           <td>{{ u.email }}</td>
           <td>
@@ -85,10 +112,50 @@ async function setAdmin(u: UserSummary, makeAdmin: boolean) {
             >
               Remove admin
             </button>
+            <button
+              class="btn secondary sm"
+              :disabled="busyId === u.id || u.id === auth.user?.id"
+              :title="u.id === auth.user?.id ? 'You cannot archive yourself' : ''"
+              @click="setArchived(u, true)"
+            >
+              Archive
+            </button>
           </td>
         </tr>
       </tbody>
     </table>
+
+    <template v-if="!loading && archivedUsers.length">
+      <h2>Archived</h2>
+      <p class="muted">
+        Archived users are excluded from all events, reminders, dashboards, and
+        exports. Reactivate to include them again.
+      </p>
+      <table class="users archived">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="u in archivedUsers" :key="u.id">
+            <td>{{ u.name || '—' }}</td>
+            <td>{{ u.email }}</td>
+            <td class="actions">
+              <button
+                class="btn secondary sm"
+                :disabled="busyId === u.id"
+                @click="setArchived(u, false)"
+              >
+                Reactivate
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </template>
   </section>
 </template>
 
@@ -99,10 +166,16 @@ async function setAdmin(u: UserSummary, makeAdmin: boolean) {
 .error {
   color: var(--danger);
 }
+h2 {
+  margin-top: 2.5rem;
+}
 .users {
   width: 100%;
   border-collapse: collapse;
   margin-top: 1rem;
+}
+.users.archived td {
+  color: var(--muted);
 }
 .users th,
 .users td {

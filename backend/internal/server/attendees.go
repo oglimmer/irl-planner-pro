@@ -203,7 +203,7 @@ func addUserToOpenEvents(ctx context.Context, q db.Exec, userID string, now time
 func seedAllUsersAsAttendees(ctx context.Context, q db.Exec, eventID string) error {
 	_, err := q.ExecContext(ctx,
 		`INSERT INTO event_attendees (event_id, user_id)
-		 SELECT $1, id FROM users ON CONFLICT DO NOTHING`, eventID)
+		 SELECT $1, id FROM users WHERE NOT archived ON CONFLICT DO NOTHING`, eventID)
 	return err
 }
 
