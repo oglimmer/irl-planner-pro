@@ -644,10 +644,10 @@ onMounted(load)
               <label :class="fieldClass('departureDay')">Day
                 <select v-model="departureDaySelection" required>
                   <option :value="null" disabled>Select a day</option>
+                  <option v-for="d in departureDayOptions" :key="d" :value="d">{{ dayLabel(d) }}</option>
                   <option :value="INDEPENDENT_TRAVEL">
                     {{ departureIndependentLabel }}
                   </option>
-                  <option v-for="d in departureDayOptions" :key="d" :value="d">{{ dayLabel(d) }}</option>
                 </select>
               </label>
               <label v-if="!form.departureIndependent" :class="fieldClass('departureTime')">{{ departureTimeLabel }}
