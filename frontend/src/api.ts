@@ -224,7 +224,7 @@ export const api = {
       body: JSON.stringify({ channel }),
     }),
 
-  // Per-event notification matrix: People-team daily-summary toggle + each
+  // Per-event notification matrix: IRL team daily-summary toggle + each
   // admin's stream and channel preferences.
   getNotifications: (id: string) =>
     request<EventNotifications>(`/api/admin/events/${id}/notifications`),

@@ -53,8 +53,8 @@ spec:
         - name: CORS_ALLOWED_ORIGINS
           value: {{ join "," . | quote }}
         {{- end }}
-        - name: PEOPLE_TEAM_EMAIL
-          value: {{ .Values.peopleTeamEmail | quote }}
+        - name: IRL_TEAM_EMAIL
+          value: {{ .Values.irlTeamEmail | quote }}
         - name: DEFAULT_EVENT_TIMEZONE
           value: {{ .Values.defaultEventTimezone | quote }}
         {{- if .Values.postgres.enabled }}

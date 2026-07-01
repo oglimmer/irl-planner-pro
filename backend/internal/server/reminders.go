@@ -176,11 +176,11 @@ func (a *App) processEventDigest(ctx context.Context, e *Event, now time.Time) {
 		return
 	}
 	// Recipients: admins who opted into the daily stream (split by channel),
-	// plus the People team (email only) when the event's daily-summary flag is
+	// plus the IRL team (email only) when the event's daily-summary flag is
 	// on. No opted-in recipient ⇒ nothing to do.
 	emailTo, slackTo := a.notifyTargets(ctx, e.ID, notifTypeDaily)
-	if e.DailyActivityEmail && strings.TrimSpace(a.Cfg.PeopleTeamEmail) != "" {
-		emailTo = append([]string{a.Cfg.PeopleTeamEmail}, emailTo...)
+	if e.DailyActivityEmail && strings.TrimSpace(a.Cfg.IRLTeamEmail) != "" {
+		emailTo = append([]string{a.Cfg.IRLTeamEmail}, emailTo...)
 	}
 	if len(emailTo) == 0 && len(slackTo) == 0 {
 		return

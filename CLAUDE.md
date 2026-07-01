@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 ID5 IRL Attendance App — a web app for collecting attendee info ahead of company
-offsites. Admins (People team) configure an event; employees sign in with Google
+offsites. Admins (IRL team) configure an event; employees sign in with Google
 SSO (restricted to `@id5.io`) and submit attendance + travel via a conditional
 form. The app tracks non-responders, sends tz-aware reminders, logs all activity,
 and exports CSV.

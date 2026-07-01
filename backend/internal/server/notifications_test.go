@@ -75,7 +75,7 @@ func putNotifications(t *testing.T, a *App, ctx context.Context, adminID, eventI
 	return w
 }
 
-// The save handler persists the People-team flag and a full-replace of the
+// The save handler persists the IRL team flag and a full-replace of the
 // admin matrix, and rejects a stream with no channel.
 func TestSaveNotificationsHandler(t *testing.T) {
 	a := testDBApp(t)
@@ -98,14 +98,14 @@ func TestSaveNotificationsHandler(t *testing.T) {
 	}
 
 	// A stream with no channel is rejected.
-	bad := notificationsReq{PeopleTeamDailySummary: true}
+	bad := notificationsReq{IRLTeamDailySummary: true}
 	bad.Admins = append(bad.Admins, row(notifTypeActivity, false, false))
 	if w := putNotifications(t, a, ctx, admin, eventID, bad); w.Code != http.StatusBadRequest {
 		t.Fatalf("no-channel stream: status %d, want 400 (body %s)", w.Code, w.Body.String())
 	}
 
 	// A valid save persists the flag and the row.
-	good := notificationsReq{PeopleTeamDailySummary: true}
+	good := notificationsReq{IRLTeamDailySummary: true}
 	good.Admins = append(good.Admins, row(notifTypeActivity, true, false))
 	if w := putNotifications(t, a, ctx, admin, eventID, good); w.Code != http.StatusOK {
 		t.Fatalf("valid save: status %d (body %s)", w.Code, w.Body.String())
@@ -124,7 +124,7 @@ func TestSaveNotificationsHandler(t *testing.T) {
 	}
 
 	// Setting the admin to "off" (omitted/empty type) clears the row.
-	off := notificationsReq{PeopleTeamDailySummary: false}
+	off := notificationsReq{IRLTeamDailySummary: false}
 	off.Admins = append(off.Admins, row("", false, false))
 	if w := putNotifications(t, a, ctx, admin, eventID, off); w.Code != http.StatusOK {
 		t.Fatalf("off save: status %d (body %s)", w.Code, w.Body.String())

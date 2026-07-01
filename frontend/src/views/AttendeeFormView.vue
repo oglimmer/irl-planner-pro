@@ -125,7 +125,7 @@ const departureDaySelection = computed<string | null>({
   },
 })
 
-// Long-haul accommodation only applies when the People team books at least one
+// Long-haul accommodation only applies when the IRL team books at least one
 // leg. When the attendee self-arranges both, clear and hide that whole block
 // (mirrors the server rule in submissions.go).
 // Changing the attendance answer invalidates any prior save outcome: a success
@@ -264,7 +264,7 @@ const successTitle = computed(() => {
 })
 const successMessage = computed(() =>
   form.attending === 'yes'
-    ? 'Your travel details are with the People team. You can come back and edit any time before the deadline.'
+    ? 'Your travel details are with the IRL team. You can come back and edit any time before the deadline.'
     : 'You can come back and change your answer any time before the deadline.',
 )
 
@@ -295,7 +295,7 @@ function withCurrentDay(base: string[], current: string | null): string[] {
 const arrivalDayOptions = computed(() => withCurrentDay(travelDates.value, form.arrivalDay))
 const departureDayOptions = computed(() => withCurrentDay(travelDates.value, form.departureDay))
 
-// Days the People team flagged as travel days (the first/last of the range,
+// Days the IRL team flagged as travel days (the first/last of the range,
 // typically) — surfaced in the Day dropdowns so attendees can see at a glance
 // which dates are meant for travelling.
 const travelDaySet = computed(() => {
@@ -333,7 +333,7 @@ watch(arrivesEarly, (early) => {
 // The night before the event is reserved for long-haul travellers, so the
 // employee form offers a single confirmation rather than a choice: ticking it
 // books the company extra night (self-funding that night is no longer offered
-// here — the People team can still record it via the admin editor). The two
+// here — the IRL team can still record it via the admin editor). The two
 // flags are set atomically so they never disagree, and the self-funded flag is
 // always cleared on this path.
 const longHaulConfirmed = computed<boolean>({
@@ -450,14 +450,14 @@ async function submit() {
     return
   }
   // After the deadline the event is still editable, but the change is flagged to
-  // the People team — make the attendee confirm so it is never an accidental edit.
+  // the IRL team — make the attendee confirm so it is never an accidental edit.
   if (isAfterDeadline()) {
     const ok = await confirm({
       variant: 'warning',
       title: 'This change is after the deadline',
       message:
         `The RSVP deadline (${formatDeadline(event.value!.submissionDeadline)}) ` +
-        'has passed. Saving now will flag this change to the People team as a late ' +
+        'has passed. Saving now will flag this change to the IRL team as a late ' +
         'edit, and travel may already be booked. Continue?',
       confirmLabel: 'Save late change',
       cancelLabel: 'Go back',
@@ -555,10 +555,10 @@ onMounted(load)
 
     <p v-if="eventEnded" class="locked">
       This event has ended — your response can no longer be edited. Contact the
-      People team if something needs changing.
+      IRL team if something needs changing.
     </p>
     <p v-else-if="lockedByAdmin" class="locked">
-      The People team has finalized your response, so it can no longer be edited
+      The IRL team has finalized your response, so it can no longer be edited
       here. Contact them if something needs changing.
     </p>
 

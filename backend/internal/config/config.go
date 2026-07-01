@@ -45,9 +45,9 @@ type Config struct {
 	// `hd` claim is in this list. Only applied when the issuer is Google.
 	AllowedGoogleWorkspaceDomains []string
 
-	// PeopleTeamEmail receives "submission changed" notifications and the daily
+	// IRLTeamEmail receives "submission changed" notifications and the daily
 	// activity digest.
-	PeopleTeamEmail string
+	IRLTeamEmail string
 
 	// DefaultEventTimezone is the IANA tz pre-filled when creating a new event.
 	DefaultEventTimezone string
@@ -107,7 +107,7 @@ func Load() Config {
 
 		AllowedGoogleWorkspaceDomains: parseList(getenv("OIDC_GOOGLE_WORKSPACE_DOMAINS", ""), true),
 
-		PeopleTeamEmail:      strings.TrimSpace(getenv("PEOPLE_TEAM_EMAIL", "")),
+		IRLTeamEmail:         strings.TrimSpace(getenv("IRL_TEAM_EMAIL", "")),
 		DefaultEventTimezone: getenv("DEFAULT_EVENT_TIMEZONE", "Europe/Paris"),
 		FrankfurterBaseURL:   strings.TrimRight(getenv("FRANKFURTER_BASE_URL", "https://api.frankfurter.dev/v1"), "/"),
 

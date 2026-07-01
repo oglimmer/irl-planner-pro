@@ -14,7 +14,7 @@ import (
 
 // Notification preferences are configured per event, per admin (the event
 // editor's "Notifications" section). Each admin independently opts into one of
-// two streams over one or both channels; the People team gets a daily summary
+// two streams over one or both channels; the IRL team gets a daily summary
 // by email only, gated by the event-level flag. See DESIGN.md §9.
 //
 // The wire/storage values of event_admin_notifications.notif_type.
@@ -130,14 +130,14 @@ type adminNotifRow struct {
 }
 
 type notificationsResp struct {
-	PeopleTeamEmail        string          `json:"peopleTeamEmail"`        // the configured PEOPLE_TEAM_EMAIL ("" if unset)
-	PeopleTeamDailySummary bool            `json:"peopleTeamDailySummary"` // events.daily_activity_email
-	Channels               []channelStatus `json:"channels"`               // which transports are wired up
-	Admins                 []adminNotifRow `json:"admins"`                 // every admin, left-joined to their prefs
+	IRLTeamEmail        string          `json:"irlTeamEmail"`        // the configured IRL_TEAM_EMAIL ("" if unset)
+	IRLTeamDailySummary bool            `json:"irlTeamDailySummary"` // events.daily_activity_email
+	Channels            []channelStatus `json:"channels"`            // which transports are wired up
+	Admins              []adminNotifRow `json:"admins"`              // every admin, left-joined to their prefs
 }
 
 // handleGetNotifications returns the per-event notification matrix: the
-// People-team daily-summary toggle plus every admin left-joined to their stored
+// IRL-team daily-summary toggle plus every admin left-joined to their stored
 // preference (admins with no row show as "off").
 func (a *App) handleGetNotifications(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -180,16 +180,16 @@ func (a *App) handleGetNotifications(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, notificationsResp{
-		PeopleTeamEmail:        a.Cfg.PeopleTeamEmail,
-		PeopleTeamDailySummary: e.DailyActivityEmail,
-		Channels:               a.channelStatuses(),
-		Admins:                 admins,
+		IRLTeamEmail:        a.Cfg.IRLTeamEmail,
+		IRLTeamDailySummary: e.DailyActivityEmail,
+		Channels:            a.channelStatuses(),
+		Admins:              admins,
 	})
 }
 
 type notificationsReq struct {
-	PeopleTeamDailySummary bool `json:"peopleTeamDailySummary"`
-	Admins                 []struct {
+	IRLTeamDailySummary bool `json:"irlTeamDailySummary"`
+	Admins              []struct {
 		UserID       string `json:"userId"`
 		NotifType    string `json:"notifType"`
 		ChannelEmail bool   `json:"viaEmail"`
@@ -198,7 +198,7 @@ type notificationsReq struct {
 }
 
 // handleSaveNotifications replaces the whole matrix for an event in one tx:
-// it sets the People-team daily-summary flag and rewrites every admin's
+// it sets the IRL-team daily-summary flag and rewrites every admin's
 // preference (a full replace — rows for "off" admins are simply omitted, so
 // any prior row is dropped). Validates the stream and that a live row picks at
 // least one channel.
@@ -232,7 +232,7 @@ func (a *App) handleSaveNotifications(w http.ResponseWriter, r *http.Request) {
 
 	res, err := tx.ExecContext(r.Context(),
 		`UPDATE events SET daily_activity_email = $1, updated_at = now() WHERE id = $2`,
-		req.PeopleTeamDailySummary, id)
+		req.IRLTeamDailySummary, id)
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return

@@ -58,7 +58,7 @@ defineProps<{
   padding: 0.3rem 0 0.3rem 0.85rem;
 }
 /* On-time entries get a quiet green rail; after-deadline entries become a loud
-   red-tinted alert card so the People team can spot late changes at a glance. */
+   red-tinted alert card so the IRL team can spot late changes at a glance. */
 .timeline > li.ontime {
   border-left-color: var(--success);
 }

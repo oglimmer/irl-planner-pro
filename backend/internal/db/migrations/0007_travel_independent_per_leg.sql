@@ -1,6 +1,6 @@
 -- 0007_travel_independent_per_leg: travel to and travel from the offsite are
 -- independent decisions — an attendee may arrange their own flight out but want
--- the People team to book the return (or vice versa). The single
+-- the IRL team to book the return (or vice versa). The single
 -- travel_independent flag (migration 0005) could only say "self-arrange
 -- everything", so split it into one flag per leg. Each, when set, blanks only
 -- its own leg; the long-haul/accommodation block is dropped only when BOTH legs

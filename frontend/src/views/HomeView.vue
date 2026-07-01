@@ -197,7 +197,7 @@ function ctaLabel(ev: ActiveEvent): string {
 
     <!-- Admin desk. -->
     <template v-if="auth.user?.isAdmin">
-      <h3 class="section-label">People-team desk</h3>
+      <h3 class="section-label">IRL team desk</h3>
       <div class="desk">
         <RouterLink to="/admin/events" class="desk-card">
           <span class="desk-index">01</span>

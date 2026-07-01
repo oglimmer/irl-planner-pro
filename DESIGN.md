@@ -9,7 +9,7 @@ rules, and operational setup as they exist today.
 
 ## 1. Overview
 
-An **admin** (the People team) configures an event once; **employees** sign in
+An **admin** (the IRL team) configures an event once; **employees** sign in
 with Google SSO and submit their attendance + travel details through a form with
 conditional logic. The app tracks non-responders against each event's list of
 expected attendees (drawn from the company-wide employee directory), sends
@@ -151,7 +151,7 @@ irl-planner-pro/
 │           ├── export.go          CSV export
 │           ├── activity.go        activity_log writes + read endpoints
 │           ├── reminders.go       scheduler + reminders + daily digest + reminder_log
-│           ├── notify.go          admin "submission changed" emails
+│           ├── notify.go          immediate admin activity notifications (§9.2)
 │           ├── timeutil.go        event-tz <-> UTC helpers, "is past" / "today"
 │           ├── mcp.go             MCP server + tool registrations
 │           ├── oauth.go           OAuth 2.1 authorize/token + discovery
@@ -268,7 +268,7 @@ CREATE TABLE events (
     reminder_days_before INTEGER NOT NULL DEFAULT 3,  -- daily emails this many days pre-deadline
     weekly_reminders     BOOLEAN NOT NULL DEFAULT true,
     reminder_hour        INTEGER NOT NULL DEFAULT 9,  -- hour-of-day (0-23) in the EVENT timezone
-    daily_activity_email BOOLEAN NOT NULL DEFAULT false, -- admin digest; sent only when ≥1 activity that day
+    daily_activity_email BOOLEAN NOT NULL DEFAULT false, -- gate IRL_TEAM_EMAIL on the daily digest (§9.3)
     -- messaging templates — admin-editable invite/reminder copy for the
     -- Messaging tab. '' means "no override" → generated default (§9).
     invite_subject     TEXT NOT NULL DEFAULT '',
@@ -595,7 +595,7 @@ are not tracked.
 ### 6.2 Authorization
 Two roles:
 
-| Capability | Employee | Admin (People team) |
+| Capability | Employee | Admin (IRL team) |
 |---|---|---|
 | Sign in (`@id5.io`) | ✓ | ✓ |
 | View an event page by URL, submit/edit own response (current events) | ✓ | ✓ |
@@ -703,8 +703,8 @@ once past (§5.2, §6).
 
 `PUT /submission` runs the **conditional validation** (§8), writes the
 `submissions` row, appends a `submission_revisions` snapshot, writes an
-`activity_log` entry (stamping `after_deadline`), and — if this is an edit of an
-existing submission — enqueues an **admin notification** email (§9.2). Admin edits
+`activity_log` entry (stamping `after_deadline`), and enqueues an **admin
+notification** (§9.2). Admin edits
 via `PUT …/submissions/:userId` follow the same path but log the
 `admin.edited_submission` action with the admin as `actor` and the attendee as
 `subject`. They additionally **bypass all field validation** (any day, any option,
@@ -743,13 +743,13 @@ never trusted).
 - No further fields. The UI shows the fixed instructions message:
   > If for any reason you cannot attend this offsite, please follow the steps below:
   > 1. Let your manager know
-  > 2. Inform the People team by emailing irl@id5.io
+  > 2. Inform the People team by emailing people@id5.io
 
   (Stored as a constant; no DB field needed.)
 
 ### Branch: `attending = yes` → travel + other
 - **Independent traveller (per leg).** Travel *to* and *from* the offsite are
-  separate decisions — an attendee may self-arrange one leg and have the People
+  separate decisions — an attendee may self-arrange one leg and have the IRL
   team book the other. The top item of **each** leg's **Day** dropdown names the
   core check-in / check-out date: arrival reads "I'm arranging my own pre-offsite
   stay and will check in on `<start_date>`" (`arrival_independent`) and departure
@@ -779,19 +779,19 @@ never trusted).
     night. Leaving it unticked (or picking a later arrival day) is the only
     alternative — an early arrival with no confirmation is rejected.
   Self-funding the night (`extra_stay_self_funded`) is **no longer offered in the
-  employee form** — the flag/column is retained and the People team can still set it
+  employee form** — the flag/column is retained and the IRL team can still set it
   via the admin editor (see [Self-funded early arrival](#self-funded)); the form
   clears any stale value on load so it can't silently satisfy the early-arrival
   check. **Late return is not offered** — there is no "night after" option and
   `extra_stay_end` is never written (column retained only for historical data).
   - **Admin override** — in the admin submission editor `long_haul`,
-    `extra_stay_start` (a *date picker* with no one-day cap, so the People team can
+    `extra_stay_start` (a *date picker* with no one-day cap, so the IRL team can
     grant 2+ extra nights for visa stopovers etc.) and `extra_stay_self_funded` are
     each independent controls with no validation. The after-night is blanked for
     every writer, admin included.
 - <a name="self-funded"></a>**Self-funded early arrival** (`extra_stay_self_funded`).
   The attendee arrives the day before and arranges their own accommodation, but
-  still wants the People team's transport and to be considered for any shared
+  still wants the IRL team's transport and to be considered for any shared
   transfer that day. **No longer offered in the employee form** (which now covers the
   day-before only via the long-haul confirmation) — retained as an **admin-only**
   control and for historical data. Mutually exclusive with `extra_stay_start` (the
@@ -847,7 +847,7 @@ goes read-only (the server returns 403 on an employee write to a locked or past
 submission). Admins can always edit, including past and locked events. Every save appends a
 `submission_revisions` snapshot **and** an `activity_log` entry; edits that land
 after the submission deadline are stamped `after_deadline=true` so they stand out
-in the admin timeline (§11). The admin notification email fires on edits (§9.2).
+in the admin timeline (§11). The admin notification fires on every save (§9.2).
 
 ---
 
@@ -862,13 +862,26 @@ dispatch over **email** or **Slack**. Slack delivery (`internal/slack.Notifier`)
 posts a bot **direct message** to each recipient: the company email is resolved
 to a Slack user ID with `users.lookupByEmail`, then `chat.postMessage` sends the
 DM. It uses a workspace **bot token** (`SLACK_BOT_TOKEN`, scopes
-`users:read.email` + `chat:write`), so the People team can message any employee
+`users:read.email` + `chat:write`), so the IRL team can message any employee
 **without that employee installing or authorizing the app** — the enterprise
 install model. An empty `SLACK_BOT_TOKEN` disables Slack (the tab shows it as
 selectable but "not configured"). Each per-recipient send is recorded in
 `message_send_log` with its `channel`, and the same `reminder_log` idempotency
 claim makes Slack sends exactly-once and retry-safe, identical to email.
-The scheduled reminders (§9.1) and admin notices (§9.2–9.3) remain email-only.
+The scheduled attendee reminders (§9.1) remain email-only. Admin notices
+(§9.2–9.3) can also go over Slack when an opted-in admin selects that channel.
+
+### 9.0 Per-event notification preferences
+Each event's **Notifications** tab (edit mode) controls who hears about activity:
+
+- **`daily_activity_email`** — when enabled, the address in `IRL_TEAM_EMAIL`
+  (email only) is prepended to the daily-digest recipient list. The IRL team is
+  *not* on the immediate "any activity" path (§9.2).
+- **`event_admin_notifications`** — each admin independently opts into one of two
+  streams (`daily` = the once-a-day digest, `activity` = an immediate alert on
+  every submission create/edit) and picks one or both channels (`channel_email`,
+  `channel_slack`). A row exists only for opted-in admins; absence means "off".
+  The matrix is a full replace on save.
 
 ### 9.1 Reminder scheduler
 A single background goroutine started in `main.go`, bound to the root context,
@@ -902,22 +915,29 @@ Reminder timing is configured per event (`reminder_days_before`,
 form.
 
 ### 9.2 Admin "submission changed" notification
-When `PUT …/submission` updates an **existing** submission (not the first create),
-`notify.go` sends a summary email to `PEOPLE_TEAM_EMAIL` (and/or the current set of
-admin users). The email names the employee, the event, and what changed (a diff
-derived from the latest two `submission_revisions` snapshots). Sent asynchronously
-so it never blocks the response.
+On every submission create or edit (`PUT …/submission` and the admin
+`PUT …/submissions/:userId` path), `notify.go` dispatches an immediate notice to
+admins who opted into the **`activity`** stream for that event (§9.0), over the
+channel(s) they selected. The message names the attendee, who made the change,
+the event, and a human-readable summary (edits also carry a field diff in
+`activity_log`, but the notification body is the summary line). Sent
+asynchronously and best-effort so it never blocks the response. `IRL_TEAM_EMAIL`
+is **not** on this path.
 
 ### 9.3 Daily activity digest (admin, per event)
-When an event has `daily_activity_email = true`, the reminder scheduler also
-assembles a once-per-day digest of that event's `activity_log` entries from the
-last 24h, in the event timezone at `reminder_hour`. **The email is sent only if
-there is at least one activity in the window** — a quiet day produces no mail. The
-digest groups entries (new submissions, edits, attending changes, roster uploads)
-and visibly flags any `after_deadline` edits at the top, giving admins a low-effort
-way to notice late changes without watching the dashboard. Idempotency reuses
-`reminder_log` with `reminder_kind='daily_digest'` keyed by event + date so a
-restart never double-sends.
+When an event has `daily_activity_email = true`, the reminder scheduler
+(`processEventDigest` in `reminders.go`) assembles a once-per-day digest of that
+event's `activity_log` entries from the last 24h, in the event timezone at
+`reminder_hour`, and sends it to:
+
+- admins who opted into the **`daily`** stream (email and/or Slack per §9.0), and
+- `IRL_TEAM_EMAIL` when configured (email only, prepended to the list).
+
+**The digest is sent only if there is at least one activity in the window** — a
+quiet day produces no mail. It groups entries (new submissions, edits, attending
+changes, roster uploads) and visibly flags any `after_deadline` edits at the top.
+Idempotency reuses `reminder_log` with `reminder_kind='daily_digest'` keyed by
+event + date so a restart never double-sends.
 
 ---
 
@@ -1078,7 +1098,7 @@ The `activity_log` (§5.8) is surfaced two ways, both rendered by the shared
   any `admin.edited_submission` — is visually highlighted so a change made after the
   deadline, or an admin editing on someone's behalf, is immediately obvious.
   A **Participant / Admin / All** segmented filter on `category` (§5.8) sits at the
-  front of the toolbar and **defaults to Participant** — the People team almost
+  front of the toolbar and **defaults to Participant** — the IRL team almost
   always wants to review what attendees did, and only occasionally audits admin
   configuration. The tab also filters by free-text search and toggles sort order.
 
@@ -1113,9 +1133,9 @@ OIDC_CLIENT_SECRET=...
 OIDC_REDIRECT_URL=                       # defaults to PUBLIC_BASE_URL + /api/auth/oidc/callback
 OIDC_GOOGLE_WORKSPACE_DOMAINS=id5.io
 
-# People team. The FIRST user to sign in becomes admin automatically; admins
+# IRL team. The FIRST user to sign in becomes admin automatically; admins
 # then promote/demote others in-app — no admin allowlist env needed.
-PEOPLE_TEAM_EMAIL=irl@id5.io          # recipient for "submission changed" + digest notices
+IRL_TEAM_EMAIL=irl@id5.io             # daily activity digest (when daily_activity_email is on)
 
 # Currency conversion for the admin Financial tab (§10). Base URL of the
 # Frankfurter FX API; the default public host needs no key. Point at a mirror or

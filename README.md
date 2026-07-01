@@ -1,7 +1,7 @@
 # ID5 IRL Attendance App
 
 A web app for collecting attendee information ahead of company offsites ("IRLs").
-Admins (People team) configure an event once; employees sign in with Google SSO
+Admins (IRL team) configure an event once; employees sign in with Google SSO
 (restricted to `@id5.io`) and submit attendance + travel details via a form with
 conditional logic. The app tracks non-responders, sends invitations + tz-aware
 reminders over **email or Slack**, logs all activity, and exports responses.
@@ -83,7 +83,7 @@ row records each outcome for the failure list):
 - **Email** — stdlib SMTP (`internal/email`). Empty `SMTP_HOST` disables it.
 - **Slack** — workspace **bot** DMs (`internal/slack`): the recipient's company
   email is resolved with `users.lookupByEmail`, then `chat.postMessage` sends the
-  DM. Because it uses a bot token, the People team can message any employee
+  DM. Because it uses a bot token, the IRL team can message any employee
   **without that employee installing or authorizing the app** — the enterprise
   install model. Set `SLACK_BOT_TOKEN` (scopes `users:read.email` + `chat:write`);
   empty disables Slack. In Helm, supply `SLACK_BOT_TOKEN` in the sealed secret.
@@ -161,7 +161,7 @@ display_information:
   background_color: "#2c2d30"
   long_description: >-
     IRL Planner (ID5 IRL Attendance App) collects attendee info ahead of
-    company offsites. This app lets the People team deliver reminders and event
+    company offsites. This app lets the IRL team deliver reminders and event
     announcements to employees as Slack direct messages, as an alternative to
     email. It only sends outbound DMs; it does not read messages, listen to
     events, or expose slash commands.

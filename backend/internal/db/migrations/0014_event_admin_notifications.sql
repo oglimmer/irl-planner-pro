@@ -1,7 +1,7 @@
 -- 0014_event_admin_notifications: per-event, per-admin notification preferences.
--- Replaces the old "people team + every admin" blanket notification model. The
--- event-level `daily_activity_email` flag (0001) is repurposed to mean *people
--- team only* (a daily summary email to PEOPLE_TEAM_EMAIL); admins now opt in
+-- Replaces the old "IRL team + every admin" blanket notification model. The
+-- event-level `daily_activity_email` flag (0001) is repurposed to mean *IRL
+-- team only* (a daily summary email to IRL_TEAM_EMAIL); admins now opt in
 -- individually here.
 --
 -- A row exists ONLY for an admin who opted in — absence of a row means "off".

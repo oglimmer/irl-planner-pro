@@ -171,7 +171,7 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 	// after the offsite, so never persist one — for any writer, admin included.
 	req.ExtraStayEnd = nil
 
-	// Long-haul accommodation only applies when the People team handles at least
+	// Long-haul accommodation only applies when the IRL team handles at least
 	// one leg; a fully self-arranging attendee gets no accommodation block (this
 	// is the old single-flag behavior, now keyed on both legs being independent).
 	if req.ArrivalIndependent && req.DepartureIndependent {
@@ -196,7 +196,7 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 	// own accommodation (ExtraStaySelfFunded) — otherwise it's rejected. Conversely a
 	// company night booked with an in-window arrival is an orphan to remove, and a
 	// stray self-funded flag with an in-window arrival is just cleared (it's only an
-	// attendee note, not a People-team booking). Runs after the long-haul block has
+	// attendee note, not a IRL team booking). Runs after the long-haul block has
 	// settled ExtraStayStart. A self-arranged leg is skipped (handled above). Mirrors
 	// submissionRules.ts / extraNightErrors; like the date-window check it relaxes
 	// for admins, who record out-of-window days for special cases. (The departure
@@ -391,7 +391,7 @@ func (a *App) handlePutMySubmission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err == nil && sub.Locked {
-		writeErr(w, http.StatusForbidden, "your response has been finalized by an organizer and can no longer be edited — contact the People team if something needs changing")
+		writeErr(w, http.StatusForbidden, "your response has been finalized by an organizer and can no longer be edited — contact the IRL team if something needs changing")
 		return
 	}
 	a.writeSubmission(w, r, e, user.ID, user, false)

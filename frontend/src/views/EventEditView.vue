@@ -149,14 +149,14 @@ async function loadForEdit() {
 }
 
 // --- Notifications (per-event admin matrix) --------------------------------
-// Edit-mode only: needs the event id and the admin roster. The People-team
+// Edit-mode only: needs the event id and the admin roster. The IRL team
 // daily-summary toggle is `form.dailyActivityEmail` (the events column), kept
 // in sync here so the main form's save and this section never disagree.
 const notifLoading = ref(false)
 const notifSaving = ref(false)
 const notifError = ref('')
 const notifNotice = ref('')
-const peopleTeamEmail = ref('')
+const irlTeamEmail = ref('')
 const emailConfigured = ref(false)
 const slackConfigured = ref(false)
 const notifPrefs = ref<AdminNotifPref[]>([])
@@ -167,8 +167,8 @@ async function loadNotifications() {
   notifError.value = ''
   try {
     const n = await api.getNotifications(props.id)
-    form.dailyActivityEmail = n.peopleTeamDailySummary
-    peopleTeamEmail.value = n.peopleTeamEmail
+    form.dailyActivityEmail = n.irlTeamDailySummary
+    irlTeamEmail.value = n.irlTeamEmail
     emailConfigured.value = n.channels.find((c) => c.name === 'email')?.configured ?? false
     slackConfigured.value = n.channels.find((c) => c.name === 'slack')?.configured ?? false
     notifPrefs.value = n.admins
@@ -194,7 +194,7 @@ async function saveNotifications() {
   notifError.value = ''
   notifNotice.value = ''
   const payload: NotificationsInput = {
-    peopleTeamDailySummary: form.dailyActivityEmail,
+    irlTeamDailySummary: form.dailyActivityEmail,
     admins: notifPrefs.value.map((a) => ({
       userId: a.userId,
       notifType: a.notifType,
@@ -205,7 +205,7 @@ async function saveNotifications() {
   try {
     const n = await api.saveNotifications(props.id, payload)
     notifPrefs.value = n.admins
-    form.dailyActivityEmail = n.peopleTeamDailySummary
+    form.dailyActivityEmail = n.irlTeamDailySummary
     notifNotice.value = 'Notification settings saved.'
   } catch (e) {
     notifError.value = errMsg(e)
@@ -403,9 +403,9 @@ onMounted(async () => {
         <label class="check">
           <input v-model="form.dailyActivityEmail" type="checkbox">
           <span>
-            Send a daily summary to the People team
-            <code v-if="peopleTeamEmail">{{ peopleTeamEmail }}</code>
-            <em v-else class="muted">(PEOPLE_TEAM_EMAIL not configured)</em>
+            Send a daily summary to the IRL team
+            <code v-if="irlTeamEmail">{{ irlTeamEmail }}</code>
+            <em v-else class="muted">(IRL_TEAM_EMAIL not configured)</em>
           </span>
         </label>
 

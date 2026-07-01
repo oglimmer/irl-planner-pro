@@ -87,7 +87,7 @@ export interface StayFormState extends SubmissionFormState {
 //     hotel); a self-funded flag still counts as covered here for parity with the
 //     server / admin editor, which can still set it. Otherwise it's rejected.
 //   • Conversely, a booked company night with an in-window arrival is an orphan the
-//     People team would never book, so it must be removed (or the arrival day
+//     IRL team would never book, so it must be removed (or the arrival day
 //     extended to match). A stray self-funded flag is not an error (the form clears
 //     it), so it isn't reported here.
 // It returns a human message when the arrival side is off (empty when all good),

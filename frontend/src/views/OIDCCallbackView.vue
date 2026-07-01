@@ -11,7 +11,7 @@ const error = ref('')
 const errorCopy: Record<string, string> = {
   domain_not_allowed: 'Your account isn\'t allowed. Sign in with your @id5.io Google account.',
   provider_error: 'Sign-in failed. Please try again.',
-  account_error: 'We couldn\'t set up your account. Please contact the People team.',
+  account_error: 'We couldn\'t set up your account. Please contact the IRL team.',
 }
 
 onMounted(() => {

@@ -94,9 +94,9 @@ func (s *Store) invitedCount(ctx context.Context, eventID string) (int, error) {
 // the stored overrides, so rendering is uniform whichever is in effect.
 const (
 	defaultInviteSubject   = "You're invited to {{event}}"
-	defaultInviteBody      = "Hi {{name}},\n\nYou're invited to {{event}} in {{city}}.\n\nPlease share your attendance and travel details here:\n{{link}}\n\nKindly respond by {{deadline}}.\n\nThanks,\nThe People team\n"
+	defaultInviteBody      = "Hi {{name}},\n\nYou're invited to {{event}} in {{city}}.\n\nPlease share your attendance and travel details here:\n{{link}}\n\nKindly respond by {{deadline}}.\n\nThanks,\nThe IRL team\n"
 	defaultReminderSubject = "Reminder: please respond for {{event}}"
-	defaultReminderBody    = "Hi {{name}},\n\nWe haven't received your attendance details for {{event}} yet.\n\nPlease respond here:\n{{link}}\n\nThe deadline is {{deadline}}.\n\nThanks,\nThe People team\n"
+	defaultReminderBody    = "Hi {{name}},\n\nWe haven't received your attendance details for {{event}} yet.\n\nPlease respond here:\n{{link}}\n\nThe deadline is {{deadline}}.\n\nThanks,\nThe IRL team\n"
 )
 
 // messageTemplates is the editable per-event copy, on the wire and in storage.

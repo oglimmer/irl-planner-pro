@@ -161,20 +161,20 @@ export interface AdminNotifPref {
   viaSlack: boolean // deliver over Slack DM
 }
 
-// The per-event notification matrix: the People-team daily-summary toggle plus
+// The per-event notification matrix: the IRL-team daily-summary toggle plus
 // every admin's preference. channels reports which transports are wired up so
 // the UI can disable an unavailable channel.
 export interface EventNotifications {
-  peopleTeamEmail: string // configured PEOPLE_TEAM_EMAIL ('' if unset)
-  peopleTeamDailySummary: boolean
+  irlTeamEmail: string // configured IRL_TEAM_EMAIL ('' if unset)
+  irlTeamDailySummary: boolean
   channels: MessagingChannel[]
   admins: AdminNotifPref[]
 }
 
-// NotificationsInput is the PUT payload: the People-team toggle plus every
+// NotificationsInput is the PUT payload: the IRL-team toggle plus every
 // admin's chosen stream + channels (a full replace).
 export interface NotificationsInput {
-  peopleTeamDailySummary: boolean
+  irlTeamDailySummary: boolean
   admins: Array<{
     userId: string
     notifType: '' | 'daily' | 'activity'

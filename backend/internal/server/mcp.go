@@ -201,7 +201,7 @@ type mcpCreateEventIn struct {
 	ReminderDaysBefore      *int   `json:"reminderDaysBefore,omitempty" jsonschema:"daily reminders this many days before the deadline (default 3)"`
 	WeeklyReminders         *bool  `json:"weeklyReminders,omitempty" jsonschema:"send a weekly reminder to non-responders (default true)"`
 	ReminderHour            *int   `json:"reminderHour,omitempty" jsonschema:"hour-of-day 0-23 in the event timezone for reminders (default 9)"`
-	DailyActivityEmail      *bool  `json:"dailyActivityEmail,omitempty" jsonschema:"send a daily activity summary to the People team email (default false); admins set their own per-event notifications in the app"`
+	DailyActivityEmail      *bool  `json:"dailyActivityEmail,omitempty" jsonschema:"send a daily activity summary to the IRL team email (default false); admins set their own per-event notifications in the app"`
 }
 
 // mcpUpdateEventIn is a partial update: only the fields present are changed; the
@@ -266,7 +266,7 @@ type mcpSubmitResponseIn struct {
 	DepartureDetails     string  `json:"departureDetails,omitempty" jsonschema:"flight number when departureMode=flight (required); free-text details otherwise (optional)"`
 	ArrivalIndependent   bool    `json:"arrivalIndependent,omitempty" jsonschema:"attendee self-arranges arrival; blanks the arrival leg"`
 	DepartureIndependent bool    `json:"departureIndependent,omitempty" jsonschema:"attendee self-arranges departure; blanks the departure leg"`
-	LongHaul             bool    `json:"longHaul,omitempty" jsonschema:"long-haul: needs accommodation / extra night before (only when at least one leg is People-team arranged)"`
+	LongHaul             bool    `json:"longHaul,omitempty" jsonschema:"long-haul: needs accommodation / extra night before (only when at least one leg is IRL team arranged)"`
 	ExtraStayStart       string  `json:"extraStayStart,omitempty" jsonschema:"company-paid extra night before the event (long-haul only), YYYY-MM-DD"`
 	ExtraStaySelfFunded  bool    `json:"extraStaySelfFunded,omitempty" jsonschema:"attendee arrives the day before and arranges their own accommodation, but still wants company transport; mutually exclusive with extraStayStart"`
 	Comments             string  `json:"comments,omitempty" jsonschema:"free-text comments, optional"`
@@ -1296,7 +1296,7 @@ func (a *App) addToolSubmitResponse(s *mcp.Server) {
 		// Once an admin has edited this response it is locked: the attendee can no
 		// longer change it (mirrors handlePutMySubmission).
 		if existing, lerr := a.Store.loadSubmission(ctx, e.ID, user.ID); lerr == nil && existing.Locked {
-			return nil, nil, errors.New("your response has been finalized by an organizer and can no longer be edited — contact the People team if something needs changing")
+			return nil, nil, errors.New("your response has been finalized by an organizer and can no longer be edited — contact the IRL team if something needs changing")
 		} else if lerr != nil && lerr != sql.ErrNoRows {
 			return nil, nil, fmt.Errorf("db error: %w", lerr)
 		}

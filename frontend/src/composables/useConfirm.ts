@@ -10,7 +10,7 @@ export interface ConfirmOptions {
   danger?: boolean
   // 'warning' renders a loud, high-visibility alert (warning icon, red banner)
   // for prompts the user must not skim past — e.g. an after-deadline edit that
-  // gets flagged to the People team.
+  // gets flagged to the IRL team.
   variant?: 'default' | 'warning'
 }
 
