@@ -69,6 +69,17 @@
       "pinDigests": false
     },
     {
+      "description": "ArgoCD Image Updater owns the app image tags in the Helm values (digest write-back to backend/frontend.image.tag). Renovate must not pin or bump them — a Renovate pin on an empty/non-'latest' tag once rendered an invalid 'repo:@sha256:' reference (commit 6fd0f09).",
+      "matchFileNames": [
+        "helm/irl-planner-pro/values.yaml"
+      ],
+      "matchPackageNames": [
+        "ghcr.io/oglimmer/irl-planner-pro-backend",
+        "ghcr.io/oglimmer/irl-planner-pro-frontend"
+      ],
+      "enabled": false
+    },
+    {
       "description": "No release-age delay on Docker digest pins — a pin records which image a tag resolves to, not a new version (version bumps keep their soak)",
       "matchDatasources": [
         "docker"
