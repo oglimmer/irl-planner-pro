@@ -1,4 +1,4 @@
-FROM node:24.17.0-alpine@sha256:156b55f92e98ccd5ef49578a8cea0df4679826564bad1c9d4ef04462b9f0ded6 AS build
+FROM node:24.18.0-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS build
 WORKDIR /src
 COPY package.json package-lock.json* ./
 RUN npm install --no-audit --no-fund
@@ -11,7 +11,7 @@ ENV VITE_GIT_COMMIT=${VITE_GIT_COMMIT}
 ENV VITE_BUILD_TIME=${VITE_BUILD_TIME}
 RUN npm run build
 
-FROM nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+FROM nginx:1.31-alpine@sha256:54f2a904c251d5a34adf545a72d32515a15e08418dae0266e23be2e18c66fefa
 COPY --from=build /src/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY nginx-security-headers.conf /etc/nginx/snippets/security-headers.conf
