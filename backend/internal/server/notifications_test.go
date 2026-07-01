@@ -31,8 +31,8 @@ func TestNotifyTargetsSplitsByChannel(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
 
-	admin1 := mkAdmin(t, a, ctx, "first@id5.io")  // both channels, daily
-	admin2 := mkAdmin(t, a, ctx, "second@id5.io") // email only, activity
+	admin1 := mkAdmin(t, a, ctx, "first@oglimmer.com")  // both channels, daily
+	admin2 := mkAdmin(t, a, ctx, "second@oglimmer.com") // email only, activity
 	eventID := mkEventForTest(t, a, ctx, admin1, "notif-event", "2026-09-01", "2026-09-03")
 
 	ins := func(userID, typ string, email, slack bool) {
@@ -46,16 +46,16 @@ func TestNotifyTargetsSplitsByChannel(t *testing.T) {
 	ins(admin2, notifTypeActivity, true, false)
 
 	dailyEmail, dailySlack := a.notifyTargets(ctx, eventID, notifTypeDaily)
-	if len(dailyEmail) != 1 || dailyEmail[0] != "first@id5.io" {
-		t.Errorf("daily email = %v, want [first@id5.io]", dailyEmail)
+	if len(dailyEmail) != 1 || dailyEmail[0] != "first@oglimmer.com" {
+		t.Errorf("daily email = %v, want [first@oglimmer.com]", dailyEmail)
 	}
-	if len(dailySlack) != 1 || dailySlack[0] != "first@id5.io" {
-		t.Errorf("daily slack = %v, want [first@id5.io]", dailySlack)
+	if len(dailySlack) != 1 || dailySlack[0] != "first@oglimmer.com" {
+		t.Errorf("daily slack = %v, want [first@oglimmer.com]", dailySlack)
 	}
 
 	actEmail, actSlack := a.notifyTargets(ctx, eventID, notifTypeActivity)
-	if len(actEmail) != 1 || actEmail[0] != "second@id5.io" {
-		t.Errorf("activity email = %v, want [second@id5.io]", actEmail)
+	if len(actEmail) != 1 || actEmail[0] != "second@oglimmer.com" {
+		t.Errorf("activity email = %v, want [second@oglimmer.com]", actEmail)
 	}
 	if len(actSlack) != 0 {
 		t.Errorf("activity slack = %v, want []", actSlack)
@@ -80,7 +80,7 @@ func putNotifications(t *testing.T, a *App, ctx context.Context, adminID, eventI
 func TestSaveNotificationsHandler(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin := mkAdmin(t, a, ctx, "admin@id5.io")
+	admin := mkAdmin(t, a, ctx, "admin@oglimmer.com")
 	eventID := mkEventForTest(t, a, ctx, admin, "save-event", "2026-09-01", "2026-09-03")
 
 	row := func(typ string, email, slack bool) struct {

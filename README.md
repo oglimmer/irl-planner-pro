@@ -2,7 +2,7 @@
 
 A web app for collecting attendee information ahead of company offsites ("IRLs").
 Admins (IRL team) configure an event once; employees sign in with Google SSO
-(restricted to `@id5.io`) and submit attendance + travel details via a form with
+(restricted to `@oglimmer.com`) and submit attendance + travel details via a form with
 conditional logic. The app tracks non-responders, sends invitations + tz-aware
 reminders over **email or Slack**, logs all activity, and exports responses.
 Events can carry a cover image, and the admin activity timeline is filterable by
@@ -131,7 +131,7 @@ sign in becomes admin**, so mint the token for that first user.
    ```sh
    curl -s -X POST http://localhost:8080/api/auth/dev-login \
      -H 'Content-Type: application/json' \
-     -d '{"email":"you@id5.io","name":"You Dev"}' | jq -r .token
+     -d '{"email":"you@oglimmer.com","name":"You Dev"}' | jq -r .token
    ```
 
 4. **Register it with Claude Code** (HTTP transport + the token as a header):

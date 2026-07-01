@@ -9,7 +9,7 @@ import (
 func TestClaimReminderIdempotent(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@oglimmer.com", "Admin", "", "")
 
 	var eventID string
 	if err := a.DB.QueryRowContext(ctx,
@@ -19,14 +19,14 @@ func TestClaimReminderIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := a.claimReminder(ctx, eventID, "x@id5.io", "weekly", "2026-W40")
+	first, err := a.claimReminder(ctx, eventID, "x@oglimmer.com", "weekly", "2026-W40")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !first {
 		t.Fatal("first claim should succeed")
 	}
-	second, err := a.claimReminder(ctx, eventID, "x@id5.io", "weekly", "2026-W40")
+	second, err := a.claimReminder(ctx, eventID, "x@oglimmer.com", "weekly", "2026-W40")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestClaimReminderIdempotent(t *testing.T) {
 		t.Fatal("second claim for the same window must be a no-op (idempotent)")
 	}
 	// A different period key is a fresh claim.
-	third, _ := a.claimReminder(ctx, eventID, "x@id5.io", "weekly", "2026-W41")
+	third, _ := a.claimReminder(ctx, eventID, "x@oglimmer.com", "weekly", "2026-W41")
 	if !third {
 		t.Fatal("a new period key should claim successfully")
 	}
@@ -43,7 +43,7 @@ func TestClaimReminderIdempotent(t *testing.T) {
 func TestNonResponders(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@oglimmer.com", "Admin", "", "")
 
 	var eventID string
 	if err := a.DB.QueryRowContext(ctx,
@@ -59,9 +59,9 @@ func TestNonResponders(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := provisionAttendees(ctx, tx, eventID, []RosterEntry{
-		{FullName: "Alice", Email: "alice@id5.io"},
-		{FullName: "Bob", Email: "bob@id5.io"},
-		{FullName: "Carol", Email: "carol@id5.io"},
+		{FullName: "Alice", Email: "alice@oglimmer.com"},
+		{FullName: "Bob", Email: "bob@oglimmer.com"},
+		{FullName: "Carol", Email: "carol@oglimmer.com"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestNonResponders(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Bob responds.
-	bob, _ := a.Store.findOrCreateUser(ctx, "bob@id5.io", "Bob", "B", "")
+	bob, _ := a.Store.findOrCreateUser(ctx, "bob@oglimmer.com", "Bob", "B", "")
 	e, _ := a.Store.loadEventByColumn(ctx, "id", eventID, time.Now())
 	req := &submissionReq{Attending: "no"}
 	if err := req.normalizeAndValidate(e, false); err != nil {

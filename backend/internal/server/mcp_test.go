@@ -74,7 +74,7 @@ func TestRequireMCPAdmin(t *testing.T) {
 
 	// Non-admin user → admin only, and the error names the user tools so an MCP
 	// client can self-correct.
-	nonAdmin := context.WithValue(context.Background(), ctxUserKey, &User{ID: "u1", Email: "e@id5.io", IsAdmin: false})
+	nonAdmin := context.WithValue(context.Background(), ctxUserKey, &User{ID: "u1", Email: "e@oglimmer.com", IsAdmin: false})
 	err := func() error { _, e := requireMCPAdmin(nonAdmin); return e }()
 	if err == nil {
 		t.Fatal("requireMCPAdmin allowed a non-admin caller")
@@ -86,7 +86,7 @@ func TestRequireMCPAdmin(t *testing.T) {
 	}
 
 	// Admin user → allowed.
-	admin := context.WithValue(context.Background(), ctxUserKey, &User{ID: "u2", Email: "a@id5.io", IsAdmin: true})
+	admin := context.WithValue(context.Background(), ctxUserKey, &User{ID: "u2", Email: "a@oglimmer.com", IsAdmin: true})
 	u, err := requireMCPAdmin(admin)
 	if err != nil {
 		t.Fatalf("requireMCPAdmin rejected an admin: %v", err)
@@ -103,7 +103,7 @@ func TestRequireMCPUser(t *testing.T) {
 		t.Error("requireMCPUser allowed an unauthenticated caller")
 	}
 	for _, isAdmin := range []bool{false, true} {
-		ctx := context.WithValue(context.Background(), ctxUserKey, &User{ID: "u", Email: "e@id5.io", IsAdmin: isAdmin})
+		ctx := context.WithValue(context.Background(), ctxUserKey, &User{ID: "u", Email: "e@oglimmer.com", IsAdmin: isAdmin})
 		if _, err := requireMCPUser(ctx); err != nil {
 			t.Errorf("requireMCPUser rejected a signed-in user (isAdmin=%v): %v", isAdmin, err)
 		}
@@ -113,7 +113,7 @@ func TestRequireMCPUser(t *testing.T) {
 // TestProfileOut derives the display name from the two name parts and carries the
 // confirm flag through.
 func TestProfileOut(t *testing.T) {
-	out := profileOut(&User{Email: "a@id5.io", FirstName: "Ada", LastName: "Lovelace", Allergies: "none", ProfileConfirmed: true})
+	out := profileOut(&User{Email: "a@oglimmer.com", FirstName: "Ada", LastName: "Lovelace", Allergies: "none", ProfileConfirmed: true})
 	if out.Name != "Ada Lovelace" {
 		t.Errorf("Name = %q, want %q", out.Name, "Ada Lovelace")
 	}

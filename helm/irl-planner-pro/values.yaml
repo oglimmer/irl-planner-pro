@@ -31,11 +31,18 @@ corsAllowedOrigins: []
 # IRL team. Receives "submission changed" notifications and the daily
 # activity digest (IRL_TEAM_EMAIL). The FIRST user to sign in becomes admin
 # automatically; admins then promote/demote others in-app.
-irlTeamEmail: "irl@id5.io"
+irlTeamEmail: "irl@oglimmer.com"
 
 # People team. Address shown to employees in the "can't attend" instructions on
 # the form (PEOPLE_TEAM_EMAIL) — distinct from irlTeamEmail (the activity digest).
-peopleTeamEmail: "people@id5.io"
+peopleTeamEmail: "people@oglimmer.com"
+
+# Email domain shown in the sign-in UI copy ("Restricted to verified @<domain>
+# accounts"), SIGN_IN_DOMAIN. Leave empty to default to the first
+# auth.oidc.googleWorkspaceDomains entry; set explicitly when the IdP has no
+# domain restriction (e.g. Keycloak) but you still want a domain in the copy.
+# Empty with no workspace domain → generic copy with no domain.
+signInDomain: ""
 
 # IANA timezone pre-filled when an admin creates a new event
 # (DEFAULT_EVENT_TIMEZONE).
@@ -102,7 +109,7 @@ mcp:
 #   port: 587
 #   useTLS: true
 #   implicitTLS: false
-#   from: '"ID5 IRL" <noreply@id5.io>'
+#   from: '"ID5 IRL" <noreply@oglimmer.com>'
 smtp:
   host: "192.168.178.52"
   port: 25

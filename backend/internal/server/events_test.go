@@ -89,7 +89,7 @@ func TestInvalidTimezoneRejected(t *testing.T) {
 
 // withAdmin returns ctx carrying an admin *User, as authMiddleware would.
 func withAdmin(ctx context.Context, id string) context.Context {
-	return context.WithValue(ctx, ctxUserKey, &User{ID: id, Email: "admin@id5.io", IsAdmin: true})
+	return context.WithValue(ctx, ctxUserKey, &User{ID: id, Email: "admin@oglimmer.com", IsAdmin: true})
 }
 
 // withUser returns ctx carrying a regular (non-admin) *User.
@@ -100,7 +100,7 @@ func withUser(ctx context.Context, id, email string) context.Context {
 func TestCreateEventHandlerDBRoundtrip(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@oglimmer.com", "Admin", "", "")
 
 	body, _ := json.Marshal(eventReq{
 		Slug: "dubrovnik-oct-2026", Name: "IRL Dubrovnik October 2026",
@@ -143,8 +143,8 @@ func TestCreateEventHandlerDBRoundtrip(t *testing.T) {
 func TestListCurrentEventsAnnotatesRSVP(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
-	user, _ := a.Store.findOrCreateUser(ctx, "bob@id5.io", "Bob", "Jones", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@oglimmer.com", "Admin", "", "")
+	user, _ := a.Store.findOrCreateUser(ctx, "bob@oglimmer.com", "Bob", "Jones", "")
 
 	mkEvent := func(slug, start, end string) string {
 		body, _ := json.Marshal(eventReq{
@@ -170,7 +170,7 @@ func TestListCurrentEventsAnnotatesRSVP(t *testing.T) {
 
 	listAs := func(uid string) []ActiveEvent {
 		r := httptest.NewRequest(http.MethodGet, "/api/active-events", nil)
-		r = r.WithContext(withUser(ctx, uid, "bob@id5.io"))
+		r = r.WithContext(withUser(ctx, uid, "bob@oglimmer.com"))
 		w := httptest.NewRecorder()
 		a.handleListCurrentEvents(w, r)
 		if w.Code != http.StatusOK {

@@ -53,10 +53,10 @@ func seedEventForRSVP(t *testing.T, a *App, ctx context.Context, adminID string)
 func TestApplySubmissionAsAttendeeRSVP(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@oglimmer.com", "Admin", "", "")
 	e := seedEventForRSVP(t, a, ctx, admin.ID)
 
-	owner, err := a.Store.findOrCreateUser(ctx, "elena.rossi@id5.io", "Elena", "Rossi", "")
+	owner, err := a.Store.findOrCreateUser(ctx, "elena.rossi@oglimmer.com", "Elena", "Rossi", "")
 	if err != nil {
 		t.Fatalf("create attendee: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestApplySubmissionAsAttendeeRSVP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applySubmission: %v", err)
 	}
-	if sub.Attending != "yes" || sub.Email != "elena.rossi@id5.io" {
+	if sub.Attending != "yes" || sub.Email != "elena.rossi@oglimmer.com" {
 		t.Fatalf("unexpected submission: %+v", sub)
 	}
 	if sub.ArrivalDay == nil || *sub.ArrivalDay != "2026-10-14" {
@@ -106,7 +106,7 @@ func TestApplySubmissionAsAttendeeRSVP(t *testing.T) {
 		Scan(&actor); err != nil {
 		t.Fatalf("read activity: %v", err)
 	}
-	if actor != "elena.rossi@id5.io" {
+	if actor != "elena.rossi@oglimmer.com" {
 		t.Errorf("activity actor = %q, want the attendee", actor)
 	}
 }
@@ -117,9 +117,9 @@ func TestApplySubmissionAsAttendeeRSVP(t *testing.T) {
 func TestAdminEditLocksResponse(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@oglimmer.com", "Admin", "", "")
 	e := seedEventForRSVP(t, a, ctx, admin.ID)
-	owner, _ := a.Store.findOrCreateUser(ctx, "carla@id5.io", "Carla", "", "")
+	owner, _ := a.Store.findOrCreateUser(ctx, "carla@oglimmer.com", "Carla", "", "")
 
 	// Admin edits on the attendee's behalf with no validation (any option) and
 	// locks the response.
@@ -162,9 +162,9 @@ func TestAdminEditLocksResponse(t *testing.T) {
 func TestApplySubmissionValidationError(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@oglimmer.com", "Admin", "", "")
 	e := seedEventForRSVP(t, a, ctx, admin.ID)
-	owner, _ := a.Store.findOrCreateUser(ctx, "bob@id5.io", "Bob", "", "")
+	owner, _ := a.Store.findOrCreateUser(ctx, "bob@oglimmer.com", "Bob", "", "")
 
 	// attending=yes but no travel legs and not independent → invalid.
 	req := submissionReq{Attending: "yes"}

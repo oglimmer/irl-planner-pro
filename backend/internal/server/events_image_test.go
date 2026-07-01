@@ -67,7 +67,7 @@ func createTestEvent(t *testing.T, a *App, adminID, slug string) (string, string
 func TestEventImageUploadServeDelete(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@oglimmer.com", "Admin", "", "")
 	id, slug := createTestEvent(t, a, admin.ID, "img-offsite")
 
 	// Upload.
@@ -156,7 +156,7 @@ func TestEventImageUploadServeDelete(t *testing.T) {
 func TestEventImageRejectsNonImage(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@oglimmer.com", "Admin", "", "")
 	id, _ := createTestEvent(t, a, admin.ID, "bad-img-offsite")
 
 	buf, contentType := multipartImage(t, "image", "notes.txt", []byte("just some plain text, definitely not an image"))

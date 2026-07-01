@@ -29,7 +29,7 @@ export const router = createRouter({
       meta: { hideChrome: true },
     },
     {
-      // The shareable attendee URL. Any signed-in @id5.io user.
+      // The shareable attendee URL. Any signed-in @oglimmer.com user.
       path: '/events/:slug',
       component: () => import('./views/AttendeeFormView.vue'),
       props: true,

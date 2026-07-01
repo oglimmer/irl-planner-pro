@@ -21,14 +21,14 @@ describe('attending maps', () => {
 
 describe('matchesQuery', () => {
   it('matches case-insensitively across any provided field', () => {
-    expect(matchesQuery('ann', 'Anna Smith', 'anna@id5.io')).toBe(true)
-    expect(matchesQuery('id5.io', 'Anna Smith', 'anna@id5.io')).toBe(true)
+    expect(matchesQuery('ann', 'Anna Smith', 'anna@oglimmer.com')).toBe(true)
+    expect(matchesQuery('oglimmer.com', 'Anna Smith', 'anna@oglimmer.com')).toBe(true)
   })
   it('returns false when no field contains the query', () => {
-    expect(matchesQuery('zzz', 'Anna Smith', 'anna@id5.io')).toBe(false)
+    expect(matchesQuery('zzz', 'Anna Smith', 'anna@oglimmer.com')).toBe(false)
   })
   it('tolerates undefined fields', () => {
-    expect(matchesQuery('anna', undefined, 'anna@id5.io')).toBe(true)
+    expect(matchesQuery('anna', undefined, 'anna@oglimmer.com')).toBe(true)
     expect(matchesQuery('anna', undefined, undefined)).toBe(false)
   })
 })

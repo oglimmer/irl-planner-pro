@@ -21,7 +21,7 @@ func TestConfigured(t *testing.T) {
 }
 
 func TestSendNotConfigured(t *testing.T) {
-	if err := (Notifier{}).Send([]string{"a@id5.io"}, "s", "b"); err == nil {
+	if err := (Notifier{}).Send([]string{"a@oglimmer.com"}, "s", "b"); err == nil {
 		t.Fatal("expected error from unconfigured notifier")
 	}
 }
@@ -47,13 +47,13 @@ func TestSendLooksUpThenPosts(t *testing.T) {
 	defer srv.Close()
 
 	n := Notifier{Token: "xoxb-test", APIBase: srv.URL}
-	if err := n.Send([]string{"jane@id5.io"}, "You're invited", "Hello Jane"); err != nil {
+	if err := n.Send([]string{"jane@oglimmer.com"}, "You're invited", "Hello Jane"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if gotAuth != "Bearer xoxb-test" {
 		t.Errorf("Authorization = %q, want bearer token", gotAuth)
 	}
-	if gotLookupEmail != "jane@id5.io" {
+	if gotLookupEmail != "jane@oglimmer.com" {
 		t.Errorf("lookup email = %q", gotLookupEmail)
 	}
 	if gotChannel != "U123" {
@@ -73,7 +73,7 @@ func TestSendUserNotFound(t *testing.T) {
 	defer srv.Close()
 
 	n := Notifier{Token: "xoxb-test", APIBase: srv.URL}
-	err := n.Send([]string{"ghost@id5.io"}, "s", "b")
+	err := n.Send([]string{"ghost@oglimmer.com"}, "s", "b")
 	if err == nil {
 		t.Fatal("expected error when the email has no Slack user")
 	}
@@ -94,7 +94,7 @@ func TestSendPostErrorPropagates(t *testing.T) {
 	defer srv.Close()
 
 	n := Notifier{Token: "xoxb-test", APIBase: srv.URL}
-	err := n.Send([]string{"jane@id5.io"}, "s", "b")
+	err := n.Send([]string{"jane@oglimmer.com"}, "s", "b")
 	if err == nil || !strings.Contains(err.Error(), "scope") {
 		t.Fatalf("expected missing-scope error, got %v", err)
 	}

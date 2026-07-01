@@ -56,9 +56,9 @@ func isAttendee(t *testing.T, a *App, ctx context.Context, eventID, userID strin
 func TestEventCreationSnapshotsAllUsers(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
-	a.Store.findOrCreateUser(ctx, "bob@id5.io", "Bob", "Jones", "")
-	a.Store.findOrCreateUser(ctx, "carol@id5.io", "Carol", "Smith", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@oglimmer.com", "Admin", "", "")
+	a.Store.findOrCreateUser(ctx, "bob@oglimmer.com", "Bob", "Jones", "")
+	a.Store.findOrCreateUser(ctx, "carol@oglimmer.com", "Carol", "Smith", "")
 
 	id := mkEventForTest(t, a, ctx, admin.ID, "offsite", "2099-10-12", "2099-10-16")
 	if got := attendeeCount(t, a, ctx, id); got != 3 {
@@ -70,12 +70,12 @@ func TestEventCreationSnapshotsAllUsers(t *testing.T) {
 func TestNewUserAddedToOpenEventsOnly(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@oglimmer.com", "Admin", "", "")
 	openID := mkEventForTest(t, a, ctx, admin.ID, "future-offsite", "2099-10-12", "2099-10-16")
 	pastID := mkEventForTest(t, a, ctx, admin.ID, "past-offsite", "2000-10-12", "2000-10-16")
 
 	// New employee logs in for the first time after both events exist.
-	bob, err := a.Store.findOrCreateUser(ctx, "bob@id5.io", "Bob", "Jones", "")
+	bob, err := a.Store.findOrCreateUser(ctx, "bob@oglimmer.com", "Bob", "Jones", "")
 	if err != nil {
 		t.Fatalf("create bob: %v", err)
 	}
@@ -91,8 +91,8 @@ func TestNewUserAddedToOpenEventsOnly(t *testing.T) {
 func TestRemovedAttendeeStaysRemoved(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
-	admin, _ := a.Store.findOrCreateUser(ctx, "admin@id5.io", "Admin", "", "")
-	bob, _ := a.Store.findOrCreateUser(ctx, "bob@id5.io", "Bob", "Jones", "")
+	admin, _ := a.Store.findOrCreateUser(ctx, "admin@oglimmer.com", "Admin", "", "")
+	bob, _ := a.Store.findOrCreateUser(ctx, "bob@oglimmer.com", "Bob", "Jones", "")
 	id := mkEventForTest(t, a, ctx, admin.ID, "offsite", "2099-10-12", "2099-10-16")
 
 	// Remove Bob from the event.
@@ -109,7 +109,7 @@ func TestRemovedAttendeeStaysRemoved(t *testing.T) {
 	}
 
 	// A new employee joining must not re-add Bob.
-	a.Store.findOrCreateUser(ctx, "carol@id5.io", "Carol", "Smith", "")
+	a.Store.findOrCreateUser(ctx, "carol@oglimmer.com", "Carol", "Smith", "")
 	if isAttendee(t, a, ctx, id, bob.ID) {
 		t.Error("removed attendee must not be resurrected by a later user creation")
 	}
@@ -121,14 +121,14 @@ func TestUpsertDirectoryUser(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
 
-	id1, created, err := upsertDirectoryUser(ctx, a.DB, "new@id5.io", "New", "Hire")
+	id1, created, err := upsertDirectoryUser(ctx, a.DB, "new@oglimmer.com", "New", "Hire")
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 	if !created {
 		t.Error("first upsert of an unknown email should report created")
 	}
-	id2, created2, err := upsertDirectoryUser(ctx, a.DB, "new@id5.io", "Ignored", "Name")
+	id2, created2, err := upsertDirectoryUser(ctx, a.DB, "new@oglimmer.com", "Ignored", "Name")
 	if err != nil {
 		t.Fatalf("upsert again: %v", err)
 	}

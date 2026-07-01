@@ -116,12 +116,20 @@ type AuthConfig struct {
 	Mode                 string `json:"mode"`
 	DefaultEventTimezone string `json:"defaultEventTimezone"`
 	PeopleTeamEmail      string `json:"peopleTeamEmail"` // address shown in the "can't attend" instructions (§8)
+	SignInDomain         string `json:"signInDomain"`    // email domain shown in the sign-in copy ("" → generic)
 }
 
 func (a *App) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
+	// Prefer the explicit SIGN_IN_DOMAIN; otherwise fall back to the primary
+	// Google Workspace restriction so the copy matches the actual login gate.
+	domain := a.Cfg.SignInDomain
+	if domain == "" && len(a.Cfg.AllowedGoogleWorkspaceDomains) > 0 {
+		domain = a.Cfg.AllowedGoogleWorkspaceDomains[0]
+	}
 	writeJSON(w, http.StatusOK, AuthConfig{
 		Mode:                 a.Cfg.AuthMode,
 		DefaultEventTimezone: a.Cfg.DefaultEventTimezone,
 		PeopleTeamEmail:      a.Cfg.PeopleTeamEmail,
+		SignInDomain:         domain,
 	})
 }

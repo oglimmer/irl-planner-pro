@@ -16,6 +16,11 @@ const lastName = ref('')
 const allergies = ref('')
 const submitting = ref(false)
 
+// Sign-in email placeholder tracks the configured domain (falls back generic).
+const emailPlaceholder = computed(() =>
+  auth.signInDomain ? `you@${auth.signInDomain}` : 'you@company.com',
+)
+
 // Editorial issue-line date, e.g. "SUNDAY · 28 JUNE 2026" — mirrors HomeView.
 const todayLine = computed(() =>
   new Intl.DateTimeFormat('en-GB', {
@@ -112,7 +117,7 @@ async function signInDev() {
           <form class="reveal" @submit.prevent="signInDev">
             <label class="field">
               <span class="field-label">Email</span>
-              <input v-model="email" type="email" placeholder="you@id5.io" required>
+              <input v-model="email" type="email" :placeholder="emailPlaceholder" required>
             </label>
             <div class="field-row">
               <label class="field">
@@ -136,8 +141,13 @@ async function signInDev() {
 
         <template v-else>
           <p class="panel-lede reveal">
-            Use your <strong>@id5.io</strong> Google account to continue to the
-            attendance desk.
+            <template v-if="auth.signInDomain">
+              Use your <strong>@{{ auth.signInDomain }}</strong> Google account to continue to
+              the attendance desk.
+            </template>
+            <template v-else>
+              Use your Google account to continue to the attendance desk.
+            </template>
           </p>
           <button class="btn google reveal" @click="signInGoogle">
             <svg class="g" viewBox="0 0 18 18" aria-hidden="true">
@@ -154,7 +164,10 @@ async function signInDev() {
 
         <footer class="panel-foot reveal">
           <span class="lock" aria-hidden="true">●</span>
-          Restricted to verified <strong>@id5.io</strong> accounts.
+          <template v-if="auth.signInDomain">
+            Restricted to verified <strong>@{{ auth.signInDomain }}</strong> accounts.
+          </template>
+          <template v-else> Restricted to verified company accounts. </template>
         </footer>
       </section>
     </article>

@@ -6,6 +6,7 @@ export interface AuthConfig {
   mode: AuthMode
   defaultEventTimezone: string
   peopleTeamEmail: string // address shown in the "can't attend" instructions
+  signInDomain: string // email domain shown in the sign-in copy ('' → generic)
 }
 
 export interface User {

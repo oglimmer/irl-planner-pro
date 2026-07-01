@@ -8,19 +8,30 @@ const router = useRouter()
 const auth = useAuthStore()
 const error = ref('')
 
-const errorCopy: Record<string, string> = {
-  domain_not_allowed: 'Your account isn\'t allowed. Sign in with your @id5.io Google account.',
-  provider_error: 'Sign-in failed. Please try again.',
-  account_error: 'We couldn\'t set up your account. Please contact the IRL team.',
+// errorCopyFor builds the failure message. The domain-not-allowed case names the
+// configured sign-in domain (falls back generic when none is configured).
+function errorCopyFor(code: string, domain: string): string {
+  switch (code) {
+    case 'domain_not_allowed':
+      return domain
+        ? `Your account isn't allowed. Sign in with your @${domain} Google account.`
+        : "Your account isn't allowed. Sign in with an authorized Google account."
+    case 'account_error':
+      return "We couldn't set up your account. Please contact the IRL team."
+    default:
+      return 'Sign-in failed. Please try again.'
+  }
 }
 
-onMounted(() => {
+onMounted(async () => {
   // The backend redirects here with the session in the URL fragment:
   //   #token=<jwt>&user=<base64url-json>   or   #error=<code>
   const frag = new URLSearchParams(window.location.hash.replace(/^#/, ''))
   const errCode = frag.get('error')
   if (errCode) {
-    error.value = errorCopy[errCode] ?? 'Sign-in failed. Please try again.'
+    // Fetch config so the domain-not-allowed copy names the right domain.
+    await auth.ensureMode().catch(() => {})
+    error.value = errorCopyFor(errCode, auth.signInDomain)
     return
   }
   const token = frag.get('token')

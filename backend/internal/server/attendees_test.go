@@ -6,12 +6,12 @@ import (
 )
 
 func TestParseRosterCSVWithHeader(t *testing.T) {
-	csv := "Name,Email\nAlice Smith,Alice@ID5.io\nBob Jones,bob@id5.io\n"
+	csv := "Name,Email\nAlice Smith,Alice@oglimmer.com\nBob Jones,bob@oglimmer.com\n"
 	entries, res := parseRosterCSV(strings.NewReader(csv))
 	if len(entries) != 2 {
 		t.Fatalf("want 2 entries, got %d (%+v)", len(entries), res)
 	}
-	if entries[0].Email != "alice@id5.io" {
+	if entries[0].Email != "alice@oglimmer.com" {
 		t.Errorf("email should be lower-cased: %q", entries[0].Email)
 	}
 	if entries[0].FullName != "Alice Smith" {
@@ -20,7 +20,7 @@ func TestParseRosterCSVWithHeader(t *testing.T) {
 }
 
 func TestParseRosterCSVNoHeader(t *testing.T) {
-	csv := "Alice Smith,alice@id5.io\nBob Jones,bob@id5.io\n"
+	csv := "Alice Smith,alice@oglimmer.com\nBob Jones,bob@oglimmer.com\n"
 	entries, _ := parseRosterCSV(strings.NewReader(csv))
 	if len(entries) != 2 {
 		t.Fatalf("want 2 entries, got %d", len(entries))
@@ -28,7 +28,7 @@ func TestParseRosterCSVNoHeader(t *testing.T) {
 }
 
 func TestParseRosterCSVDedupAndInvalid(t *testing.T) {
-	csv := "name,email\nAlice,alice@id5.io\nAlice Again,ALICE@id5.io\nNoEmail,\nBad,not-an-email\n"
+	csv := "name,email\nAlice,alice@oglimmer.com\nAlice Again,ALICE@oglimmer.com\nNoEmail,\nBad,not-an-email\n"
 	entries, res := parseRosterCSV(strings.NewReader(csv))
 	if len(entries) != 1 {
 		t.Fatalf("want 1 unique valid entry, got %d (%+v)", len(entries), entries)
@@ -40,9 +40,9 @@ func TestParseRosterCSVDedupAndInvalid(t *testing.T) {
 
 func TestParseRosterCSVHeaderColumnOrder(t *testing.T) {
 	// Columns in reversed order, named by header.
-	csv := "email,name\nalice@id5.io,Alice\n"
+	csv := "email,name\nalice@oglimmer.com,Alice\n"
 	entries, _ := parseRosterCSV(strings.NewReader(csv))
-	if len(entries) != 1 || entries[0].FullName != "Alice" || entries[0].Email != "alice@id5.io" {
+	if len(entries) != 1 || entries[0].FullName != "Alice" || entries[0].Email != "alice@oglimmer.com" {
 		t.Fatalf("header column order not honoured: %+v", entries)
 	}
 }

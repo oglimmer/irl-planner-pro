@@ -53,6 +53,13 @@ type Config struct {
 	// "can't attend" instructions (§8). Surfaced to the SPA via /api/auth/config.
 	PeopleTeamEmail string
 
+	// SignInDomain is the email domain shown in the sign-in UI copy (e.g.
+	// "Restricted to verified @<domain> accounts"). Surfaced to the SPA via
+	// /api/auth/config. When empty it defaults to the first
+	// AllowedGoogleWorkspaceDomains entry; if that is also empty the SPA renders
+	// generic copy with no domain.
+	SignInDomain string
+
 	// DefaultEventTimezone is the IANA tz pre-filled when creating a new event.
 	DefaultEventTimezone string
 
@@ -112,7 +119,8 @@ func Load() Config {
 		AllowedGoogleWorkspaceDomains: parseList(getenv("OIDC_GOOGLE_WORKSPACE_DOMAINS", ""), true),
 
 		IRLTeamEmail:         strings.TrimSpace(getenv("IRL_TEAM_EMAIL", "")),
-		PeopleTeamEmail:      strings.TrimSpace(getenv("PEOPLE_TEAM_EMAIL", "people@id5.io")),
+		PeopleTeamEmail:      strings.TrimSpace(getenv("PEOPLE_TEAM_EMAIL", "people@oglimmer.com")),
+		SignInDomain:         strings.TrimSpace(getenv("SIGN_IN_DOMAIN", "")),
 		DefaultEventTimezone: getenv("DEFAULT_EVENT_TIMEZONE", "Europe/Paris"),
 		FrankfurterBaseURL:   strings.TrimRight(getenv("FRANKFURTER_BASE_URL", "https://api.frankfurter.dev/v1"), "/"),
 

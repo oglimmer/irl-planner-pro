@@ -57,6 +57,10 @@ spec:
           value: {{ .Values.irlTeamEmail | quote }}
         - name: PEOPLE_TEAM_EMAIL
           value: {{ .Values.peopleTeamEmail | quote }}
+        {{- with .Values.signInDomain }}
+        - name: SIGN_IN_DOMAIN
+          value: {{ . | quote }}
+        {{- end }}
         - name: DEFAULT_EVENT_TIMEZONE
           value: {{ .Values.defaultEventTimezone | quote }}
         {{- if .Values.postgres.enabled }}

@@ -28,7 +28,7 @@ automated reminders, notifies admins on edits, and exports responses as CSV.
   action is recorded in an activity log (employees see their own; admins see all,
   with after-deadline edits highlighted); admins are emailed on any change and can
   enable a per-event daily activity digest.
-- **Access** — Google SSO restricted to `@id5.io`; each event has a shareable URL.
+- **Access** — Google SSO restricted to `@oglimmer.com`; each event has a shareable URL.
 - **Attendees + dashboard** — each event has a list of expected attendees, who are
   company-directory users; admins import them via CSV (provisioning users) or add
   existing employees, and anyone who responds is added automatically. The
@@ -197,7 +197,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE users (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email       TEXT UNIQUE NOT NULL,         -- @id5.io, lower-cased
+    email       TEXT UNIQUE NOT NULL,         -- @oglimmer.com, lower-cased
     first_name  TEXT NOT NULL DEFAULT '',     -- seeded from OIDC given_name on first login
     last_name   TEXT NOT NULL DEFAULT '',     -- seeded from OIDC family_name on first login
     allergies   TEXT NOT NULL DEFAULT '',     -- dietary preferences; a profile property, not per-event
@@ -246,7 +246,7 @@ intended destination, then forwards them on once they save.
 (`is_admin = true` when the `users` table is otherwise empty — decided atomically
 in SQL so concurrent first logins can't both win). From then on, admins
 **promote/demote** other users in-app. There is no self-service registration; the
-`@id5.io` domain restriction is the gate. A guard prevents the last remaining
+`@oglimmer.com` domain restriction is the gate. A guard prevents the last remaining
 admin from being demoted, so a deployment is never left without an admin.
 
 ### 5.2 `events`
@@ -581,7 +581,7 @@ are not tracked.
     deployment.
 - In prod, `OIDC_GOOGLE_WORKSPACE_DOMAINS=id5.io` enforces the `hd` claim via
   `workspaceauth.ValidateGoogleHD` (and is sent as the `hd` auth hint). Anyone
-  outside `@id5.io` is rejected at callback with a generic "domain not allowed"
+  outside `@oglimmer.com` is rejected at callback with a generic "domain not allowed"
   page. The check only applies to the Google issuer, so stage/Keycloak is
   unaffected.
 - On successful callback the user is **upserted** into `users` (no approval queue —
@@ -597,7 +597,7 @@ Two roles:
 
 | Capability | Employee | Admin (IRL team) |
 |---|---|---|
-| Sign in (`@id5.io`) | ✓ | ✓ |
+| Sign in (`@oglimmer.com`) | ✓ | ✓ |
 | View an event page by URL, submit/edit own response (current events) | ✓ | ✓ |
 | View own activity log | ✓ | ✓ |
 | Create/configure events (incl. past events) | — | ✓ |
@@ -656,7 +656,7 @@ GET  /api/me                           current user { id, email, firstName, last
 PUT  /api/me                           edit own profile { firstName, lastName, allergies } (names required; allergies optional) — also flips profile_confirmed=true (first-login confirm, §5.1)
 ```
 
-### Attendee-facing (any signed-in @id5.io user)
+### Attendee-facing (any signed-in @oglimmer.com user)
 ```
 GET  /api/active-events                current/upcoming events the caller can RSVP to
 GET  /api/events/:slug                 event details + typed days + timezone + imageUrl (form header)
@@ -743,7 +743,7 @@ never trusted).
 - No further fields. The UI shows the fixed instructions message:
   > If for any reason you cannot attend this offsite, please follow the steps below:
   > 1. Let your manager know
-  > 2. Inform the People team by emailing `PEOPLE_TEAM_EMAIL` (default `people@id5.io`)
+  > 2. Inform the People team by emailing `PEOPLE_TEAM_EMAIL` (default `people@oglimmer.com`)
 
   (The address comes from the `PEOPLE_TEAM_EMAIL` env var, surfaced to the SPA via
   `/api/auth/config`; the rest is a constant with no DB field. Distinct from
@@ -909,7 +909,7 @@ The email links the recipient to the event URL (`PUBLIC_BASE_URL/events/:slug`).
 
 Because the recipient pool is the event's **attendees**, reminders may reach
 people an admin imported who have never signed in. As a company-internal tool,
-sending to any `@id5.io` address is acceptable without separate consent — there
+sending to any `@oglimmer.com` address is acceptable without separate consent — there
 is no opt-out flow.
 
 Reminder timing is configured per event (`reminder_days_before`,
@@ -1066,7 +1066,7 @@ add an existing employee directly (`POST /api/events/:id/attendees/{userId}`).
 /auth/callback                 OIDC token handoff
 /welcome                       WelcomeView        (first-login profile confirm; the auth guard redirects here until profile_confirmed, §5.1)
 /profile                       ProfileView        (any signed-in user; edit name + allergies)
-/events/:slug                  AttendeeFormView   (any signed-in @id5.io user)   ← the shareable URL
+/events/:slug                  AttendeeFormView   (any signed-in @oglimmer.com user)   ← the shareable URL
                                  — includes a "My activity" panel (own log only)
 /admin/events                  EventListView      (admin; current vs Past tabs)
 /admin/events/new              EventEditView      (admin)
@@ -1137,11 +1137,11 @@ OIDC_GOOGLE_WORKSPACE_DOMAINS=id5.io
 
 # IRL team. The FIRST user to sign in becomes admin automatically; admins
 # then promote/demote others in-app — no admin allowlist env needed.
-IRL_TEAM_EMAIL=irl@id5.io             # daily activity digest (when daily_activity_email is on)
+IRL_TEAM_EMAIL=irl@oglimmer.com             # daily activity digest (when daily_activity_email is on)
 
 # People team. Address employees are told to email in the "can't attend"
 # instructions (§8) — distinct from IRL_TEAM_EMAIL (the activity digest).
-PEOPLE_TEAM_EMAIL=people@id5.io
+PEOPLE_TEAM_EMAIL=people@oglimmer.com
 
 # Currency conversion for the admin Financial tab (§10). Base URL of the
 # Frankfurter FX API; the default public host needs no key. Point at a mirror or
@@ -1160,7 +1160,7 @@ SMTP_HOST=
 SMTP_PORT=587
 SMTP_USERNAME=
 SMTP_PASSWORD=
-SMTP_FROM=irl-noreply@id5.io
+SMTP_FROM=irl-noreply@oglimmer.com
 SMTP_USE_TLS=true
 
 # Slack messaging channel (optional). Workspace bot token (xoxb-…) with scopes
