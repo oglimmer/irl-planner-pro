@@ -591,7 +591,7 @@ onMounted(load)
           <p>If for any reason you cannot attend this offsite, please follow the steps below:</p>
           <ol>
             <li>Let your manager know</li>
-            <li>Inform the People team by emailing <a href="mailto:irl@id5.io">irl@id5.io</a></li>
+            <li>Inform the People team by emailing <a href="mailto:people@id5.io">people@id5.io</a></li>
           </ol>
         </div>
 
