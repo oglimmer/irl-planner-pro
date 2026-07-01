@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,6 +57,14 @@ type Submission struct {
 	Allergies string `json:"allergies"`
 	Comments  string `json:"comments"`
 
+	// TravelCost is the attendee's total personal travel spend (ticket fare /
+	// price and any other personal travel cost, as one figure) and
+	// TravelCostCurrency its ISO-4217 code (e.g. "USD"). Only meaningful for an
+	// attending=yes response; nil / "" when not provided or blanked (migration
+	// 0018). The admin Financial tab converts these to USD/GBP/EUR.
+	TravelCost         *float64 `json:"travelCost"`
+	TravelCostCurrency string   `json:"travelCostCurrency"`
+
 	// Locked is set when an admin edits this response on the attendee's behalf
 	// (migration 0015). Once locked the employee form is read-only and only an
 	// admin can change it; the lock is permanent (no in-app unlock).
@@ -69,26 +78,41 @@ type Submission struct {
 // The attendee's name and allergies are not part of it — they live on the user
 // profile.
 type submissionReq struct {
-	Attending            string  `json:"attending"`
-	NotSureReason        string  `json:"notSureReason"`
-	ArrivalDay           *string `json:"arrivalDay"`
-	ArrivalTime          string  `json:"arrivalTime"`
-	ArrivalMode          *string `json:"arrivalMode"`
-	ArrivalDetails       string  `json:"arrivalDetails"`
-	DepartureDay         *string `json:"departureDay"`
-	DepartureTime        string  `json:"departureTime"`
-	DepartureMode        *string `json:"departureMode"`
-	DepartureDetails     string  `json:"departureDetails"`
-	ArrivalIndependent   bool    `json:"arrivalIndependent"`
-	DepartureIndependent bool    `json:"departureIndependent"`
-	LongHaul             bool    `json:"longHaul"`
-	ExtraStayStart       *string `json:"extraStayStart"`
-	ExtraStayEnd         *string `json:"extraStayEnd"`
-	ExtraStaySelfFunded  bool    `json:"extraStaySelfFunded"`
-	Comments             string  `json:"comments"`
+	Attending            string   `json:"attending"`
+	NotSureReason        string   `json:"notSureReason"`
+	ArrivalDay           *string  `json:"arrivalDay"`
+	ArrivalTime          string   `json:"arrivalTime"`
+	ArrivalMode          *string  `json:"arrivalMode"`
+	ArrivalDetails       string   `json:"arrivalDetails"`
+	DepartureDay         *string  `json:"departureDay"`
+	DepartureTime        string   `json:"departureTime"`
+	DepartureMode        *string  `json:"departureMode"`
+	DepartureDetails     string   `json:"departureDetails"`
+	ArrivalIndependent   bool     `json:"arrivalIndependent"`
+	DepartureIndependent bool     `json:"departureIndependent"`
+	LongHaul             bool     `json:"longHaul"`
+	ExtraStayStart       *string  `json:"extraStayStart"`
+	ExtraStayEnd         *string  `json:"extraStayEnd"`
+	ExtraStaySelfFunded  bool     `json:"extraStaySelfFunded"`
+	Comments             string   `json:"comments"`
+	TravelCost           *float64 `json:"travelCost"`
+	TravelCostCurrency   string   `json:"travelCostCurrency"`
 }
 
 var validTravelModes = map[string]bool{"flight": true, "car": true, "train": true, "other": true}
+
+// supportedCurrencies is the ISO-4217 set the app accepts for a travel cost —
+// exactly the currencies the Frankfurter FX API can convert, so every stored
+// amount is convertible in the Financial tab. Keep in sync with
+// frontend/src/lib/currencies.ts.
+var supportedCurrencies = map[string]bool{
+	"AUD": true, "BGN": true, "BRL": true, "CAD": true, "CHF": true, "CNY": true,
+	"CZK": true, "DKK": true, "EUR": true, "GBP": true, "HKD": true, "HUF": true,
+	"IDR": true, "ILS": true, "INR": true, "ISK": true, "JPY": true, "KRW": true,
+	"MXN": true, "MYR": true, "NOK": true, "NZD": true, "PHP": true, "PLN": true,
+	"RON": true, "SEK": true, "SGD": true, "THB": true, "TRY": true, "USD": true,
+	"ZAR": true,
+}
 
 // normalizeAndValidate enforces the conditional form rules (DESIGN.md §8) and
 // blanks fields outside the chosen branch. For an admin editing on an attendee's
@@ -120,6 +144,7 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 		req.ExtraStayStart, req.ExtraStayEnd = nil, nil
 		req.ExtraStaySelfFunded = false
 		req.Comments = ""
+		req.TravelCost, req.TravelCostCurrency = nil, ""
 		return nil
 	}
 
@@ -195,6 +220,35 @@ func (req *submissionReq) normalizeAndValidate(e *Event, isAdmin bool) error {
 			return errors.New("the extra night before isn't needed unless you arrive the day before — remove it or change your arrival day")
 		}
 	}
+
+	// Travel cost (optional): a value + its currency. An amount of nil or ≤0 means
+	// "not provided" and blanks both. When an amount is given the currency must be
+	// a supported ISO-4217 code so the Financial tab can convert it — enforced for
+	// every writer (an unconvertible currency is meaningless in the report).
+	if err := normalizeTravelCost(&req.TravelCost, &req.TravelCostCurrency); err != nil {
+		return err
+	}
+	return nil
+}
+
+// normalizeTravelCost canonicalizes the optional travel-cost pair in place. A
+// missing or non-positive amount clears both fields; otherwise the currency is
+// upper-cased and checked against supportedCurrencies. Applies to admins too:
+// unlike the date/leg rules, a stored amount with an unconvertible currency would
+// silently break the Financial report, so the currency is always validated.
+func normalizeTravelCost(amount **float64, currency *string) error {
+	cur := strings.ToUpper(strings.TrimSpace(*currency))
+	if *amount == nil || **amount <= 0 {
+		*amount, *currency = nil, ""
+		return nil
+	}
+	if cur == "" {
+		return errors.New("a currency is required for the travel cost")
+	}
+	if !supportedCurrencies[cur] {
+		return errors.New("travel cost currency is not a supported code")
+	}
+	*currency = cur
 	return nil
 }
 
@@ -445,16 +499,18 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 	existed := true
 	var pArrDay, pDepDay, pExtraStart, pExtraEnd sql.NullTime
 	var pArrMode, pDepMode sql.NullString
+	var pTravelCost sql.NullFloat64
+	var pTravelCurrency sql.NullString
 	err = tx.QueryRowContext(ctx,
 		`SELECT attending, not_sure_reason, arrival_day, arrival_time, arrival_mode, arrival_details,
 		        departure_day, departure_time, departure_mode, departure_details,
 		        arrival_independent, departure_independent, long_haul, extra_stay_start, extra_stay_end,
-		        extra_stay_self_funded, comments
+		        extra_stay_self_funded, comments, travel_cost, travel_cost_currency
 		   FROM submissions WHERE event_id = $1 AND user_id = $2`, e.ID, ownerID).
 		Scan(&prev.Attending, &prev.NotSureReason, &pArrDay, &prev.ArrivalTime, &pArrMode, &prev.ArrivalDetails,
 			&pDepDay, &prev.DepartureTime, &pDepMode, &prev.DepartureDetails,
 			&prev.ArrivalIndependent, &prev.DepartureIndependent, &prev.LongHaul, &pExtraStart, &pExtraEnd,
-			&prev.ExtraStaySelfFunded, &prev.Comments)
+			&prev.ExtraStaySelfFunded, &prev.Comments, &pTravelCost, &pTravelCurrency)
 	if err == sql.ErrNoRows {
 		existed = false
 	} else if err != nil {
@@ -466,6 +522,10 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 	prev.ExtraStayEnd = nullDateStr(pExtraEnd)
 	prev.ArrivalMode = nullStr(pArrMode)
 	prev.DepartureMode = nullStr(pDepMode)
+	if pTravelCost.Valid {
+		prev.TravelCost = &pTravelCost.Float64
+	}
+	prev.TravelCostCurrency = pTravelCurrency.String
 
 	var subID string
 	err = tx.QueryRowContext(ctx,
@@ -473,8 +533,8 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 		   arrival_day, arrival_time, arrival_mode, arrival_details,
 		   departure_day, departure_time, departure_mode, departure_details,
 		   arrival_independent, departure_independent, long_haul, extra_stay_start, extra_stay_end,
-		   extra_stay_self_funded, comments, locked)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+		   extra_stay_self_funded, comments, locked, travel_cost, travel_cost_currency)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
 		 ON CONFLICT (event_id, user_id) DO UPDATE SET
 		   attending=EXCLUDED.attending,
 		   not_sure_reason=EXCLUDED.not_sure_reason, arrival_day=EXCLUDED.arrival_day,
@@ -487,6 +547,7 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 		   extra_stay_start=EXCLUDED.extra_stay_start, extra_stay_end=EXCLUDED.extra_stay_end,
 		   extra_stay_self_funded=EXCLUDED.extra_stay_self_funded,
 		   comments=EXCLUDED.comments,
+		   travel_cost=EXCLUDED.travel_cost, travel_cost_currency=EXCLUDED.travel_cost_currency,
 		   -- locked is sticky: an admin edit sets it, and a later write (false)
 		   -- never clears it.
 		   locked=submissions.locked OR EXCLUDED.locked, updated_at=now()
@@ -495,7 +556,7 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 		datePtr(req.ArrivalDay), req.ArrivalTime, strPtr(req.ArrivalMode), req.ArrivalDetails,
 		datePtr(req.DepartureDay), req.DepartureTime, strPtr(req.DepartureMode), req.DepartureDetails,
 		req.ArrivalIndependent, req.DepartureIndependent, req.LongHaul, datePtr(req.ExtraStayStart), datePtr(req.ExtraStayEnd),
-		req.ExtraStaySelfFunded, req.Comments, lock).
+		req.ExtraStaySelfFunded, req.Comments, lock, costPtr(req.TravelCost), strEmptyToNil(req.TravelCostCurrency)).
 		Scan(&subID)
 	if err != nil {
 		metrics.SubmissionMutationsTotal.WithLabelValues("write", "error").Inc()
@@ -611,7 +672,17 @@ func diffSubmissionReq(prev, next submissionReq) []fieldChange {
 	add("Extra stay end", optStr(prev.ExtraStayEnd), optStr(next.ExtraStayEnd))
 	add("Self-funded early arrival", boolStr(prev.ExtraStaySelfFunded), boolStr(next.ExtraStaySelfFunded))
 	add("Comments", prev.Comments, next.Comments)
+	add("Travel cost", costStr(prev.TravelCost, prev.TravelCostCurrency), costStr(next.TravelCost, next.TravelCostCurrency))
 	return changes
+}
+
+// costStr renders a travel-cost pair for the activity diff, e.g. "123.45 USD"
+// (empty when no amount is set).
+func costStr(amount *float64, currency string) string {
+	if amount == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*amount, 'f', 2, 64) + " " + currency
 }
 
 func optStr(p *string) string {
@@ -663,6 +734,25 @@ func strPtr(s *string) interface{} {
 		return nil
 	}
 	return *s
+}
+
+// costPtr binds an optional travel-cost amount to a NUMERIC column (nil → SQL
+// NULL). A nil or non-positive amount is normalized away upstream, but guard here
+// too so a stray zero never lands as a row value.
+func costPtr(f *float64) interface{} {
+	if f == nil || *f <= 0 {
+		return nil
+	}
+	return *f
+}
+
+// strEmptyToNil maps "" to a SQL NULL for a nullable TEXT column, keeping an
+// unset travel-cost currency NULL rather than an empty string.
+func strEmptyToNil(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func nullDateStr(t sql.NullTime) *string {

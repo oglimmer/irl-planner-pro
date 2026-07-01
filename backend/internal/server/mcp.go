@@ -253,23 +253,25 @@ type mcpRemoveAttendeeIn struct {
 // conditional form — fields outside the chosen branch are ignored/blanked
 // server-side.
 type mcpSubmitResponseIn struct {
-	Event                string `json:"event,omitempty" jsonschema:"the event slug or id; omit to use the sole active event"`
-	Attending            string `json:"attending" jsonschema:"yes, no, or not_sure"`
-	NotSureReason        string `json:"notSureReason,omitempty" jsonschema:"required when attending=not_sure; ignored otherwise"`
-	ArrivalDay           string `json:"arrivalDay,omitempty" jsonschema:"arrival date YYYY-MM-DD (event-local); required when attending=yes unless arrivalIndependent"`
-	ArrivalTime          string `json:"arrivalTime,omitempty" jsonschema:"arrival time HH:MM; required when arrivalMode=flight, optional otherwise"`
-	ArrivalMode          string `json:"arrivalMode,omitempty" jsonschema:"flight, car, train, or other; required when attending=yes unless arrivalIndependent"`
-	ArrivalDetails       string `json:"arrivalDetails,omitempty" jsonschema:"flight number when arrivalMode=flight (required); free-text details otherwise (optional)"`
-	DepartureDay         string `json:"departureDay,omitempty" jsonschema:"departure date YYYY-MM-DD (event-local); required when attending=yes unless departureIndependent"`
-	DepartureTime        string `json:"departureTime,omitempty" jsonschema:"departure time HH:MM; required when departureMode=flight, optional otherwise"`
-	DepartureMode        string `json:"departureMode,omitempty" jsonschema:"flight, car, train, or other; required when attending=yes unless departureIndependent"`
-	DepartureDetails     string `json:"departureDetails,omitempty" jsonschema:"flight number when departureMode=flight (required); free-text details otherwise (optional)"`
-	ArrivalIndependent   bool   `json:"arrivalIndependent,omitempty" jsonschema:"attendee self-arranges arrival; blanks the arrival leg"`
-	DepartureIndependent bool   `json:"departureIndependent,omitempty" jsonschema:"attendee self-arranges departure; blanks the departure leg"`
-	LongHaul             bool   `json:"longHaul,omitempty" jsonschema:"long-haul: needs accommodation / extra night before (only when at least one leg is People-team arranged)"`
-	ExtraStayStart       string `json:"extraStayStart,omitempty" jsonschema:"company-paid extra night before the event (long-haul only), YYYY-MM-DD"`
-	ExtraStaySelfFunded  bool   `json:"extraStaySelfFunded,omitempty" jsonschema:"attendee arrives the day before and arranges their own accommodation, but still wants company transport; mutually exclusive with extraStayStart"`
-	Comments             string `json:"comments,omitempty" jsonschema:"free-text comments, optional"`
+	Event                string  `json:"event,omitempty" jsonschema:"the event slug or id; omit to use the sole active event"`
+	Attending            string  `json:"attending" jsonschema:"yes, no, or not_sure"`
+	NotSureReason        string  `json:"notSureReason,omitempty" jsonschema:"required when attending=not_sure; ignored otherwise"`
+	ArrivalDay           string  `json:"arrivalDay,omitempty" jsonschema:"arrival date YYYY-MM-DD (event-local); required when attending=yes unless arrivalIndependent"`
+	ArrivalTime          string  `json:"arrivalTime,omitempty" jsonschema:"arrival time HH:MM; required when arrivalMode=flight, optional otherwise"`
+	ArrivalMode          string  `json:"arrivalMode,omitempty" jsonschema:"flight, car, train, or other; required when attending=yes unless arrivalIndependent"`
+	ArrivalDetails       string  `json:"arrivalDetails,omitempty" jsonschema:"flight number when arrivalMode=flight (required); free-text details otherwise (optional)"`
+	DepartureDay         string  `json:"departureDay,omitempty" jsonschema:"departure date YYYY-MM-DD (event-local); required when attending=yes unless departureIndependent"`
+	DepartureTime        string  `json:"departureTime,omitempty" jsonschema:"departure time HH:MM; required when departureMode=flight, optional otherwise"`
+	DepartureMode        string  `json:"departureMode,omitempty" jsonschema:"flight, car, train, or other; required when attending=yes unless departureIndependent"`
+	DepartureDetails     string  `json:"departureDetails,omitempty" jsonschema:"flight number when departureMode=flight (required); free-text details otherwise (optional)"`
+	ArrivalIndependent   bool    `json:"arrivalIndependent,omitempty" jsonschema:"attendee self-arranges arrival; blanks the arrival leg"`
+	DepartureIndependent bool    `json:"departureIndependent,omitempty" jsonschema:"attendee self-arranges departure; blanks the departure leg"`
+	LongHaul             bool    `json:"longHaul,omitempty" jsonschema:"long-haul: needs accommodation / extra night before (only when at least one leg is People-team arranged)"`
+	ExtraStayStart       string  `json:"extraStayStart,omitempty" jsonschema:"company-paid extra night before the event (long-haul only), YYYY-MM-DD"`
+	ExtraStaySelfFunded  bool    `json:"extraStaySelfFunded,omitempty" jsonschema:"attendee arrives the day before and arranges their own accommodation, but still wants company transport; mutually exclusive with extraStayStart"`
+	Comments             string  `json:"comments,omitempty" jsonschema:"free-text comments, optional"`
+	TravelCost           float64 `json:"travelCost,omitempty" jsonschema:"total personal travel cost (ticket fare/price and any other personal travel spend, one figure); optional, only for attending=yes; requires travelCostCurrency"`
+	TravelCostCurrency   string  `json:"travelCostCurrency,omitempty" jsonschema:"ISO-4217 currency code for travelCost (e.g. USD, EUR, GBP); required when travelCost is set"`
 }
 
 type mcpAttendee struct {
@@ -288,6 +290,16 @@ type mcpAttendeesOut struct {
 
 func toolText(text string) []mcp.Content {
 	return []mcp.Content{&mcp.TextContent{Text: text}}
+}
+
+// costFromMCP maps an MCP travel-cost amount (a plain float64, 0 when omitted) to
+// the *float64 submissionReq expects — nil when unset so normalizeTravelCost
+// blanks the pair.
+func costFromMCP(v float64) *float64 {
+	if v <= 0 {
+		return nil
+	}
+	return &v
 }
 
 // nilIfEmpty maps a trimmed-empty MCP string field to a nil *string, so an
@@ -1306,6 +1318,8 @@ func (a *App) addToolSubmitResponse(s *mcp.Server) {
 			ExtraStayStart:       nilIfEmpty(in.ExtraStayStart),
 			ExtraStaySelfFunded:  in.ExtraStaySelfFunded,
 			Comments:             in.Comments,
+			TravelCost:           costFromMCP(in.TravelCost),
+			TravelCostCurrency:   in.TravelCostCurrency,
 		}
 
 		// Always the caller's own response: owner = actor = user, isAdmin=false

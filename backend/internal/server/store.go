@@ -164,13 +164,15 @@ func (s *Store) loadSubmission(ctx context.Context, eventID, userID string) (*Su
 	sub := &Submission{}
 	var arrivalDay, departureDay, extraStart, extraEnd sql.NullTime
 	var arrivalMode, departureMode sql.NullString
+	var travelCost sql.NullFloat64
+	var travelCurrency sql.NullString
 	err := s.db.QueryRowContext(ctx,
 		`SELECT s.id, s.event_id, s.user_id, u.email, u.first_name, u.last_name, s.attending, s.not_sure_reason,
 		        s.arrival_day, s.arrival_time, s.arrival_mode, s.arrival_details,
 		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
 		        s.arrival_independent, s.departure_independent, s.long_haul, s.extra_stay_start, s.extra_stay_end,
 		        s.extra_stay_self_funded, u.allergies, s.comments,
-		        s.locked, s.created_at, s.updated_at
+		        s.locked, s.created_at, s.updated_at, s.travel_cost, s.travel_cost_currency
 		   FROM submissions s JOIN users u ON u.id = s.user_id
 		  WHERE s.event_id = $1 AND s.user_id = $2`, eventID, userID).
 		Scan(&sub.ID, &sub.EventID, &sub.UserID, &sub.Email, &sub.FirstName, &sub.LastName, &sub.Attending, &sub.NotSureReason,
@@ -178,7 +180,7 @@ func (s *Store) loadSubmission(ctx context.Context, eventID, userID string) (*Su
 			&departureDay, &sub.DepartureTime, &departureMode, &sub.DepartureDetails,
 			&sub.ArrivalIndependent, &sub.DepartureIndependent, &sub.LongHaul, &extraStart, &extraEnd,
 			&sub.ExtraStaySelfFunded, &sub.Allergies, &sub.Comments,
-			&sub.Locked, &sub.CreatedAt, &sub.UpdatedAt)
+			&sub.Locked, &sub.CreatedAt, &sub.UpdatedAt, &travelCost, &travelCurrency)
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +190,10 @@ func (s *Store) loadSubmission(ctx context.Context, eventID, userID string) (*Su
 	sub.ExtraStayEnd = nullDateStr(extraEnd)
 	sub.ArrivalMode = nullStr(arrivalMode)
 	sub.DepartureMode = nullStr(departureMode)
+	if travelCost.Valid {
+		sub.TravelCost = &travelCost.Float64
+	}
+	sub.TravelCostCurrency = travelCurrency.String
 	return sub, nil
 }
 

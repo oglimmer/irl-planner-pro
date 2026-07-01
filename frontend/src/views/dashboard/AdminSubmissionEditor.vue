@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { api, errMsg } from '../../api'
+import { CURRENCIES } from '../../lib/currencies'
 import type { Attending, Submission, SubmissionInput, TravelMode } from '../../types'
 
 const props = defineProps<{
@@ -48,7 +49,17 @@ const form = reactive<EditorState>({
   extraStayEnd: s?.extraStayEnd ?? null,
   extraStaySelfFunded: s?.extraStaySelfFunded ?? false,
   comments: s?.comments ?? '',
+  travelCost: s?.travelCost ?? null,
+  travelCostCurrency: s?.travelCostCurrency || 'EUR',
 })
+
+// A native <input type="number"> yields '' when cleared; map that (and any
+// non-numeric value) to null so the backend stores NULL rather than a bad amount.
+function setTravelCost(ev: globalThis.Event) {
+  const v = (ev.target as HTMLInputElement).value
+  const n = Number(v)
+  form.travelCost = v === '' || Number.isNaN(n) ? null : n
+}
 
 const saving = ref(false)
 const error = ref('')
@@ -173,6 +184,18 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               </label>
               <div class="grid2">
                 <label>Extra night before<input :value="form.extraStayStart ?? ''" type="date" @input="setDay('extraStayStart', $event)"></label>
+              </div>
+            </fieldset>
+
+            <fieldset class="leg">
+              <legend>Travel cost</legend>
+              <div class="grid2">
+                <label>Total cost<input :value="form.travelCost ?? ''" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" @input="setTravelCost"></label>
+                <label>Currency
+                  <select v-model="form.travelCostCurrency">
+                    <option v-for="c in CURRENCIES" :key="c" :value="c">{{ c }}</option>
+                  </select>
+                </label>
               </div>
             </fieldset>
           </template>

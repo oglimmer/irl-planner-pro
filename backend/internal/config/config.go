@@ -52,6 +52,11 @@ type Config struct {
 	// DefaultEventTimezone is the IANA tz pre-filled when creating a new event.
 	DefaultEventTimezone string
 
+	// FrankfurterBaseURL is the base URL of the Frankfurter FX API the admin
+	// Financial tab uses to convert travel costs to USD/GBP/EUR. Defaults to the
+	// public host; overridable (e.g. a self-hosted mirror or a test stub).
+	FrankfurterBaseURL string
+
 	// Reminders / digest scheduler.
 	RemindersEnabled     bool
 	ReminderTickInterval time.Duration
@@ -104,6 +109,7 @@ func Load() Config {
 
 		PeopleTeamEmail:      strings.TrimSpace(getenv("PEOPLE_TEAM_EMAIL", "")),
 		DefaultEventTimezone: getenv("DEFAULT_EVENT_TIMEZONE", "Europe/Paris"),
+		FrankfurterBaseURL:   strings.TrimRight(getenv("FRANKFURTER_BASE_URL", "https://api.frankfurter.dev/v1"), "/"),
 
 		RemindersEnabled:     getenv("REMINDERS_ENABLED", "true") != "false",
 		ReminderTickInterval: parseDuration(getenv("REMINDER_TICK_INTERVAL", "1h"), time.Hour),

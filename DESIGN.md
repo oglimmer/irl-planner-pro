@@ -750,11 +750,15 @@ never trusted).
 ### Branch: `attending = yes` → travel + other
 - **Independent traveller (per leg).** Travel *to* and *from* the offsite are
   separate decisions — an attendee may self-arrange one leg and have the People
-  team book the other. The top item of **each** leg's **Day** dropdown is "I
-  arrange my own travel here, no support needed" (`arrival_independent` /
-  `departure_independent`). Selecting it hides and blanks only that leg's
-  time/mode/details and skips its validation. The long-haul/accommodation section
-  is hidden and blanked only when **both** legs are independent.
+  team book the other. The top item of **each** leg's **Day** dropdown names the
+  core check-in / check-out date: arrival reads "I'm arranging my own pre-offsite
+  stay and will check in on `<start_date>`" (`arrival_independent`) and departure
+  "I'm arranging my own post-offsite stay and will check out on `<end_date>`"
+  (`departure_independent`), both driven from the event dates. Selecting it hides
+  and blanks only that leg's time/mode/details and skips its validation. The
+  long-haul/accommodation section is hidden and blanked only when **both** legs are
+  independent. A fresh "yes" **pre-selects the core dates as the default** — arrival
+  = `start_date`, departure = `end_date` — so the common case needs no picking.
 - **Arrival** — day (constrained to the day before the event through its last day —
   there is no day-after option), time, mode
   (`flight`/`car`/`train`/`other`), details (flight number / free text). When the
@@ -766,30 +770,41 @@ never trusted).
 - **The night before** (employee form). The accommodation question appears **only
   when the attendee arrives the day before the event** (`arrival_day = start_date −
   1` on a non-independent arrival leg) — that's the only night needing cover.
-  Arriving on the event day shows nothing. It is a **single mutually-exclusive
-  choice** of how that night is handled:
-  - **"The company books and pays for it"** — for long-haul travellers (intl flight
-    7h+). Sets `long_haul = true` **and** `extra_stay_start = start_date − 1`
-    together.
-  - **"I'll book and pay for it myself"** — self-funded; the attendee still wants
-    company transport / shared-transfer consideration. Sets `extra_stay_self_funded
-    = true`. See [Self-funded early arrival](#self-funded) below.
-  The two are mutually exclusive (`long_haul`/`extra_stay_start` is one outcome,
-  `extra_stay_self_funded` the other), and the three flags are written atomically so
-  they never disagree. **Late return is not offered** — there is no "night after"
-  option and `extra_stay_end` is never written (column retained only for historical
-  data).
+  Arriving on the event day shows nothing. That early night is **reserved for
+  long-haul travellers**, so the employee form offers a **single confirmation**, not
+  a choice:
+  - **"I confirm I'm a long-haul traveller (international flight of 7+ hours) and
+    need an extra night at the hotel"** — sets `long_haul = true` **and**
+    `extra_stay_start = start_date − 1` together; the company books and pays the
+    night. Leaving it unticked (or picking a later arrival day) is the only
+    alternative — an early arrival with no confirmation is rejected.
+  Self-funding the night (`extra_stay_self_funded`) is **no longer offered in the
+  employee form** — the flag/column is retained and the People team can still set it
+  via the admin editor (see [Self-funded early arrival](#self-funded)); the form
+  clears any stale value on load so it can't silently satisfy the early-arrival
+  check. **Late return is not offered** — there is no "night after" option and
+  `extra_stay_end` is never written (column retained only for historical data).
   - **Admin override** — in the admin submission editor `long_haul`,
     `extra_stay_start` (a *date picker* with no one-day cap, so the People team can
     grant 2+ extra nights for visa stopovers etc.) and `extra_stay_self_funded` are
     each independent controls with no validation. The after-night is blanked for
     every writer, admin included.
 - <a name="self-funded"></a>**Self-funded early arrival** (`extra_stay_self_funded`).
-  The self-pay branch of the choice above: the attendee arrives the day before and
-  arranges their own accommodation, but still wants the People team's transport and
-  to be considered for any shared transfer that day. Mutually exclusive with
-  `extra_stay_start` (the company-paid night wins). Only meaningful for a day-before
-  arrival on a non-independent arrival leg; blanked otherwise.
+  The attendee arrives the day before and arranges their own accommodation, but
+  still wants the People team's transport and to be considered for any shared
+  transfer that day. **No longer offered in the employee form** (which now covers the
+  day-before only via the long-haul confirmation) — retained as an **admin-only**
+  control and for historical data. Mutually exclusive with `extra_stay_start` (the
+  company-paid night wins). Only meaningful for a day-before arrival on a
+  non-independent arrival leg; blanked otherwise.
+- **Total travel cost** (optional). One figure capturing **all** of the attendee's
+  personal travel spend — ticket fare, ticket price and any other travel cost — as
+  a **value + currency**. Stored on the submission (`travel_cost NUMERIC(14,2)` +
+  `travel_cost_currency`, migration 0018); only meaningful on `attending = yes` and
+  blanked on the other branches. The currency is an ISO-4217 code drawn from the
+  set the Frankfurter FX API can convert (see the Financial tab, §10); a stored
+  amount always carries a supported currency so it stays convertible. An amount of
+  0 / blank clears the pair. Rolled up and converted in the admin **Financial tab**.
 - **Comments** (free text). (Allergies / dietary preferences are **not** asked here
   — they live on the profile; see Step 1.)
 
@@ -805,6 +820,7 @@ never trusted).
 | `departure_*` | `attending = 'yes'` **and** `departure_independent = false` (day + mode required; when mode = `flight`, time + flight-number details also required, else optional) |
 | `extra_stay_start` | optional; the extra night before, one-day cap from the event start for employees, unrestricted for admins. `extra_stay_end` (late return) is always blanked — no longer offered |
 | `extra_stay_self_funded` | optional; a day-before arrival must be covered by **either** `extra_stay_start` (company night) **or** this flag, else rejected. Mutually exclusive with `extra_stay_start`; blanked unless arriving the day before on a non-independent arrival leg |
+| `travel_cost` / `travel_cost_currency` | optional; only when `attending = 'yes'`. A non-positive/blank amount clears both. When an amount is given the currency is required and must be a supported ISO-4217 code — enforced for **admins too** (an unconvertible currency would break the Financial report) |
 | comments | optional |
 
 Fields outside the chosen branch are blanked on write so a user toggling Yes→No
@@ -960,6 +976,40 @@ filter is active. One row per person, all form fields + email + timestamps
 for "which people", any future filter dimension (e.g. long-haul only, by arrival
 day) extends both the table and the export for free.
 
+### Financial tab (`GET /api/admin/events/:id/financial`)
+A dedicated **Financial** tab in `EventDashboardView.vue` rolls up the travel
+costs attendees declared on the form (§8). The endpoint joins every non-archived
+attendee who has a `travel_cost` (only `attending = yes` responses carry one) and
+returns each person's amount in its **original currency** plus its value converted
+to **USD, GBP and EUR**, with grand totals per target currency:
+
+```json
+{
+  "targets": ["USD", "GBP", "EUR"],
+  "rows": [
+    { "userId": "…", "name": "…", "email": "…", "amount": 240.00, "currency": "GBP",
+      "converted": { "USD": 305.20, "GBP": 240.00, "EUR": 282.35 } }
+  ],
+  "totals": { "USD": 305.20, "GBP": 240.00, "EUR": 282.35 },
+  "ratesAvailable": true,
+  "ratesAsOf": "2026-06-30"
+}
+```
+
+- **Conversion is server-side** via the free **Frankfurter** FX API
+  (`FRANKFURTER_BASE_URL`, default `https://api.frankfurter.dev/v1`). The backend
+  fetches the EUR-based rate table once (`GET /latest?base=EUR`) and caches it in
+  process for **1 hour** (rates move at most daily); a failed refresh serves the
+  last good table, and if none has ever been fetched the report still renders the
+  original amounts with `ratesAvailable = false` (`converted` null, no totals).
+- Conversion goes **via EUR**: an amount in currency `C` is `amount / rate[C] *
+  rate[T]`, with EUR implicit (rate 1, omitted from Frankfurter's map). Every
+  stored currency is a Frankfurter-supported code (enforced on write, §8), so a
+  row is only ever unconvertible during an FX outage.
+- The tab **fetches lazily** on first open (the FX call shouldn't run on every
+  dashboard load) and offers a manual **Refresh**. Costs also appear as an optional
+  **Travel cost** column in the Responses table and two columns in the CSV export.
+
 ### Attendee CSV import
 `POST /api/events/:id/attendees` accepts `multipart/form-data`. Parsed with
 `encoding/csv`; expected headers `name,email` (case-insensitive, tolerant of extra
@@ -1066,6 +1116,11 @@ OIDC_GOOGLE_WORKSPACE_DOMAINS=id5.io
 # People team. The FIRST user to sign in becomes admin automatically; admins
 # then promote/demote others in-app — no admin allowlist env needed.
 PEOPLE_TEAM_EMAIL=irl@id5.io          # recipient for "submission changed" + digest notices
+
+# Currency conversion for the admin Financial tab (§10). Base URL of the
+# Frankfurter FX API; the default public host needs no key. Point at a mirror or
+# a test stub to override.
+FRANKFURTER_BASE_URL=https://api.frankfurter.dev/v1
 
 # SMTP (reminders + admin notifications). Empty SMTP_HOST disables email.
 # The sender (internal/email) is a provider-agnostic stdlib net/smtp client

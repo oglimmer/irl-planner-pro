@@ -112,6 +112,12 @@ const responseColumns: ResponseColumn[] = [
   { key: 'allergies', label: 'Allergies', text: (r) => r.sub?.allergies ?? '' },
   { key: 'comments', label: 'Comments', text: (r) => r.sub?.comments ?? '' },
   {
+    key: 'travelCost',
+    label: 'Travel cost',
+    text: (r) => (r.sub?.travelCost != null ? `${r.sub.travelCost.toFixed(2)} ${r.sub.travelCostCurrency}` : ''),
+    sort: (r) => r.sub?.travelCost ?? -1,
+  },
+  {
     key: 'updatedAt',
     label: 'Last updated',
     text: (r) => (r.sub ? formatInZone(r.sub.updatedAt, props.timezone) : ''),

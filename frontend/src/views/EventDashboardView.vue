@@ -6,6 +6,7 @@ import { useAutoReload } from '../composables/useAutoReload'
 import ResponsesTab from './dashboard/ResponsesTab.vue'
 import AttendeesTab from './dashboard/AttendeesTab.vue'
 import ActivityTab from './dashboard/ActivityTab.vue'
+import FinancialTab from './dashboard/FinancialTab.vue'
 import EventMessaging from './EventMessaging.vue'
 import type { ActivityEntry, Dashboard, Event, Submission, UserSummary } from '../types'
 
@@ -14,7 +15,7 @@ const props = defineProps<{ id: string }>()
 const event = ref<Event | null>(null)
 const error = ref('')
 const copied = ref(false)
-const tab = ref<'responses' | 'activity' | 'attendees' | 'messaging'>('responses')
+const tab = ref<'responses' | 'activity' | 'attendees' | 'financial' | 'messaging'>('responses')
 
 // Data owned by the page and shared across tabs: the Responses and Attendees
 // tabs both read `dashboard`, so it lives here and is passed down rather than
@@ -128,6 +129,7 @@ onMounted(async () => {
         <button :class="{ active: tab === 'responses' }" @click="tab = 'responses'">Responses</button>
         <button :class="{ active: tab === 'activity' }" @click="tab = 'activity'">Activity</button>
         <button :class="{ active: tab === 'attendees' }" @click="tab = 'attendees'">Attendees</button>
+        <button :class="{ active: tab === 'financial' }" @click="tab = 'financial'">Financial</button>
         <button :class="{ active: tab === 'messaging' }" @click="tab = 'messaging'">Messaging</button>
       </div>
 
@@ -157,6 +159,13 @@ onMounted(async () => {
         :event-id="props.id"
         :event-name="event.name"
         @changed="onAttendeesChanged"
+        @error="error = $event"
+      />
+
+      <FinancialTab
+        v-show="tab === 'financial'"
+        :event-id="props.id"
+        :active="tab === 'financial'"
         @error="error = $event"
       />
 

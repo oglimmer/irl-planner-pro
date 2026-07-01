@@ -82,9 +82,10 @@ export interface StayFormState extends SubmissionFormState {
 
 // extraNightErrors enforces the consistency between the arrival day and how the
 // night before it is covered:
-//   • Picking the day *before* the event as your arrival needs that night covered —
-//     by the "night before" choice: a company-paid hotel (long-haul) or arranging
-//     your own accommodation — otherwise it's rejected.
+//   • Picking the day *before* the event as your arrival needs that night covered.
+//     The employee form now offers only the long-haul confirmation (company-paid
+//     hotel); a self-funded flag still counts as covered here for parity with the
+//     server / admin editor, which can still set it. Otherwise it's rejected.
 //   • Conversely, a booked company night with an in-window arrival is an orphan the
 //     People team would never book, so it must be removed (or the arrival day
 //     extended to match). A stray self-funded flag is not an error (the form clears
@@ -110,9 +111,8 @@ export function extraNightErrors(
     const covered = bookedBefore || form.extraStaySelfFunded
     if (arrivesEarly && !covered) {
       errs.push(
-        `You're arriving on ${fmt(beforeDate)}, the day before the event starts — choose how that night is ` +
-          `covered: a company-paid hotel (for long-haul travellers) or arranging your own accommodation. ` +
-          `You can also pick a later arrival day.`,
+        `You're arriving on ${fmt(beforeDate)}, the day before the event starts — confirm you're a ` +
+          `long-haul traveller who needs the extra night at the hotel, or pick a later arrival day.`,
       )
     } else if (bookedBefore && !arrivesEarly) {
       errs.push(

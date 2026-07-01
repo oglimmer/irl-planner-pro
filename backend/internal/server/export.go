@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,6 +40,7 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
 		        s.arrival_independent, s.departure_independent, s.long_haul, s.extra_stay_start, s.extra_stay_end,
 		        s.extra_stay_self_funded, u.allergies, s.comments,
+		        s.travel_cost, s.travel_cost_currency,
 		        s.updated_at
 		   FROM event_attendees ea
 		   JOIN users u ON u.id = ea.user_id
@@ -60,20 +62,21 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		"name", "email", "attending", "arrival_day", "arrival_time", "arrival_mode",
 		"arrival_details", "departure_day", "departure_time", "departure_mode",
 		"departure_details", "arrival_independent", "departure_independent", "long_haul", "extra_night_before", "extra_night_after",
-		"self_funded_early_arrival", "allergies", "comments", "last_updated",
+		"self_funded_early_arrival", "allergies", "comments", "travel_cost", "travel_cost_currency", "last_updated",
 	})
 
 	for rows.Next() {
 		var firstName, lastName, email string
 		var attending, arrTime, arrMode, arrDetails sql.NullString
-		var depTime, depMode, depDetails, allergies, comments sql.NullString
+		var depTime, depMode, depDetails, allergies, comments, travelCurrency sql.NullString
 		var arrDay, depDay, extraStart, extraEnd, updatedAt sql.NullTime
 		var arrivalIndependent, departureIndependent, longHaul, selfFundedEarly sql.NullBool
+		var travelCost sql.NullFloat64
 		if err := rows.Scan(&firstName, &lastName, &email, &attending,
 			&arrDay, &arrTime, &arrMode, &arrDetails,
 			&depDay, &depTime, &depMode, &depDetails,
 			&arrivalIndependent, &departureIndependent, &longHaul, &extraStart, &extraEnd,
-			&selfFundedEarly, &allergies, &comments, &updatedAt); err != nil {
+			&selfFundedEarly, &allergies, &comments, &travelCost, &travelCurrency, &updatedAt); err != nil {
 			serverErr(w, r, err, "db error")
 			return
 		}
@@ -93,7 +96,7 @@ func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 			dateOrEmpty(arrDay), arrTime.String, arrMode.String, arrDetails.String,
 			dateOrEmpty(depDay), depTime.String, depMode.String, depDetails.String,
 			boolOrEmpty(arrivalIndependent), boolOrEmpty(departureIndependent), boolOrEmpty(longHaul), dateOrEmpty(extraStart), dateOrEmpty(extraEnd),
-			boolOrEmpty(selfFundedEarly), allergies.String, comments.String, timeInZoneOrEmpty(updatedAt, loc),
+			boolOrEmpty(selfFundedEarly), allergies.String, comments.String, costOrEmpty(travelCost), travelCurrency.String, timeInZoneOrEmpty(updatedAt, loc),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -156,6 +159,13 @@ func dateOrEmpty(t sql.NullTime) string {
 		return ""
 	}
 	return t.Time.Format(dateLayout)
+}
+
+func costOrEmpty(f sql.NullFloat64) string {
+	if !f.Valid {
+		return ""
+	}
+	return strconv.FormatFloat(f.Float64, 'f', 2, 64)
 }
 
 func boolOrEmpty(b sql.NullBool) string {

@@ -158,11 +158,11 @@ describe('extraNightErrors — extra-night consistency', () => {
     expect(check({ attending: 'yes', arrivalDay: '2026-07-27', departureDay: '2026-07-31' })).toEqual([])
   })
 
-  it('flags an early arrival with no choice, naming both options', () => {
+  it('flags an early arrival with no long-haul confirmation', () => {
     const errs = check({ attending: 'yes', arrivalDay: BEFORE })
     expect(errs).toHaveLength(1)
-    expect(errs[0]).toContain('company-paid hotel')
-    expect(errs[0]).toContain('your own accommodation')
+    expect(errs[0]).toContain('long-haul')
+    expect(errs[0]).toContain('later arrival day')
   })
 
   it('accepts an early arrival once the company night is booked', () => {

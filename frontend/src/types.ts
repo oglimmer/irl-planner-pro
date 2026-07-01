@@ -211,6 +211,11 @@ export interface Submission {
   extraStaySelfFunded: boolean
   allergies: string
   comments: string
+  // Total personal travel cost (ticket fare / price and any other personal
+  // travel spend, one figure) and its ISO-4217 currency. null / '' when not
+  // provided; only meaningful for an attending=yes response.
+  travelCost: number | null
+  travelCostCurrency: string
   // Set once an admin has edited this response on the attendee's behalf; the
   // attendee form then becomes read-only (only admins can change it).
   locked: boolean
@@ -238,6 +243,33 @@ export interface SubmissionInput {
   extraStayEnd: string | null
   extraStaySelfFunded: boolean
   comments: string
+  travelCost: number | null
+  travelCostCurrency: string
+}
+
+// --- Financial (event admin "Financial" tab) -------------------------------
+
+// One attendee's declared travel cost in its original currency plus its value
+// converted to each report target (USD/GBP/EUR). `converted` is null when live FX
+// rates were unavailable.
+export interface FinancialRow {
+  userId: string
+  name: string
+  email: string
+  amount: number
+  currency: string
+  converted: Record<string, number> | null
+}
+
+// The Financial tab payload: every payer with per-target conversions and grand
+// totals. `ratesAvailable` is false when the FX API couldn't be reached — rows
+// still carry their original amounts.
+export interface FinancialReport {
+  targets: string[]
+  rows: FinancialRow[]
+  totals: Record<string, number>
+  ratesAvailable: boolean
+  ratesAsOf: string
 }
 
 export interface ActivityChange {

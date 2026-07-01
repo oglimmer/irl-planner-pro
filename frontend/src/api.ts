@@ -7,6 +7,7 @@ import type {
   Dashboard,
   Event,
   EventInput,
+  FinancialReport,
   EventNotifications,
   MessageTemplates,
   NotificationsInput,
@@ -235,6 +236,8 @@ export const api = {
 
   dashboard: (id: string) => request<Dashboard>(`/api/admin/events/${id}/dashboard`),
   listSubmissions: (id: string) => request<Submission[]>(`/api/admin/events/${id}/submissions`),
+  // Financial tab: travel costs converted to USD/GBP/EUR via live FX rates.
+  financial: (id: string) => request<FinancialReport>(`/api/admin/events/${id}/financial`),
   // Fetches the filter-driven export as a Blob (the endpoint needs the bearer
   // header, so a plain <a> download can't be used). states = attending subset.
   fetchExport: async (id: string, states: string[]): Promise<Blob> => {

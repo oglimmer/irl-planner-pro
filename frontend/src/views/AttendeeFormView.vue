@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/auth'
 import { useConfirm } from '../composables/useConfirm'
 import { addDays, formatDate, formatDateRange, formatDeadline, tripLength as tripLengthOf } from '../lib/datetime'
 import { extraNightErrors, fieldChecks, missingRequiredCount, type FieldKey } from '../lib/submissionRules'
+import { CURRENCIES } from '../lib/currencies'
 import ActivityLog from '../components/ActivityLog.vue'
 import SubmitFeedback from '../components/SubmitFeedback.vue'
 import type { ActivityEntry, Attending, Event, SubmissionInput, TravelMode } from '../types'
@@ -55,7 +56,18 @@ const form = reactive<AttendeeFormState>({
   extraStayEnd: null,
   extraStaySelfFunded: false,
   comments: '',
+  travelCost: null,
+  travelCostCurrency: 'EUR',
 })
+
+// A native <input type="number"> yields '' when cleared; map that (and any
+// non-numeric value) to null so the backend stores NULL rather than choking on an
+// empty string in the *float64 field.
+function setTravelCost(ev: globalThis.Event) {
+  const v = (ev.target as HTMLInputElement).value
+  const n = Number(v)
+  form.travelCost = v === '' || Number.isNaN(n) ? null : n
+}
 
 // Preserve in-progress edits across a round-trip to /profile (e.g. the "Edit
 // your profile" link to set allergies): the view re-mounts and reloads from the
@@ -119,9 +131,17 @@ const departureDaySelection = computed<string | null>({
 // Changing the attendance answer invalidates any prior save outcome: a success
 // banner for a previous choice (or a stale validation error) is misleading once
 // the user picks a different answer, so clear both.
-watch(() => form.attending, () => {
+watch(() => form.attending, (val) => {
   error.value = ''
   saved.value = false
+  // Core dates are the default: pre-fill a fresh "yes" with the event's first /
+  // last day so the common case (arrive day one, leave the last day) needs no
+  // picking. Only fills empty, non-independent legs, so loading an existing
+  // response or restoring a draft never clobbers a real choice.
+  if (val === 'yes' && event.value) {
+    if (form.arrivalDay == null && !form.arrivalIndependent) form.arrivalDay = event.value.startDate
+    if (form.departureDay == null && !form.departureIndependent) form.departureDay = event.value.endDate
+  }
 })
 
 const arrivalTimeLabel = computed(() =>
@@ -139,6 +159,21 @@ const arrivalDetailsLabel = computed(() =>
 )
 const departureDetailsLabel = computed(() =>
   form.departureMode === 'flight' ? 'Flight number' : 'Travel details (optional)',
+)
+
+// The self-arranged option in each leg's Day dropdown names the core check-in /
+// check-out date (the event's first / last day) so the dates read at a glance
+// instead of the old vague "no support needed". Driven from the event so future
+// offsites stay correct.
+const arrivalIndependentLabel = computed(() =>
+  event.value
+    ? `I'm arranging my own pre-offsite stay and will check in on ${formatDate(event.value.startDate)}`
+    : '',
+)
+const departureIndependentLabel = computed(() =>
+  event.value
+    ? `I'm arranging my own post-offsite stay and will check out on ${formatDate(event.value.endDate)}`
+    : '',
 )
 
 // An admin who edits a response on the attendee's behalf locks it: the attendee
@@ -295,19 +330,18 @@ watch(arrivesEarly, (early) => {
   }
 })
 
-// The night before is a single, mutually-exclusive choice between a company-paid
-// hotel (long-haul travellers) and self-funding it. The three underlying flags are
-// set atomically so they never disagree:
-//   • 'company' → long-haul + the company extra night before
-//   • 'self'    → self-funded early arrival (own accommodation, wants transport)
-//   • ''        → no choice yet (blocked on submit while arriving early)
-type NightBeforeChoice = '' | 'company' | 'self'
-const nightBeforeChoice = computed<NightBeforeChoice>({
-  get: () => (form.extraStayStart != null ? 'company' : form.extraStaySelfFunded ? 'self' : ''),
+// The night before the event is reserved for long-haul travellers, so the
+// employee form offers a single confirmation rather than a choice: ticking it
+// books the company extra night (self-funding that night is no longer offered
+// here — the People team can still record it via the admin editor). The two
+// flags are set atomically so they never disagree, and the self-funded flag is
+// always cleared on this path.
+const longHaulConfirmed = computed<boolean>({
+  get: () => form.longHaul && form.extraStayStart != null,
   set: (v) => {
-    form.longHaul = v === 'company'
-    form.extraStayStart = v === 'company' ? beforeDate.value : null
-    form.extraStaySelfFunded = v === 'self'
+    form.longHaul = v
+    form.extraStayStart = v ? beforeDate.value : null
+    form.extraStaySelfFunded = false
   },
 })
 
@@ -361,6 +395,8 @@ async function load() {
         extraStayEnd: existing.extraStayEnd,
         extraStaySelfFunded: existing.extraStaySelfFunded,
         comments: existing.comments,
+        travelCost: existing.travelCost,
+        travelCostCurrency: existing.travelCostCurrency || 'EUR',
       })
     }
     // Restore any unsaved draft over the server state (it always reflects the
@@ -373,6 +409,11 @@ async function load() {
         sessionStorage.removeItem(draftKey)
       }
     }
+    // Self-funding the night before is no longer offered in the employee form
+    // (long-haul only). Clear any stale flag from an older response so it can't
+    // silently satisfy the early-arrival check — the attendee is gated to either
+    // confirm long-haul or pick a later arrival day.
+    form.extraStaySelfFunded = false
     draftReady.value = true
     activity.value = await api.myActivity(props.slug)
   } catch (e) {
@@ -564,7 +605,7 @@ onMounted(load)
                 <select v-model="arrivalDaySelection" required>
                   <option :value="null" disabled>Select a day</option>
                   <option :value="INDEPENDENT_TRAVEL">
-                    I arrange my own travel here, no support needed
+                    {{ arrivalIndependentLabel }}
                   </option>
                   <option v-for="d in arrivalDayOptions" :key="d" :value="d">{{ dayLabel(d) }}</option>
                 </select>
@@ -604,7 +645,7 @@ onMounted(load)
                 <select v-model="departureDaySelection" required>
                   <option :value="null" disabled>Select a day</option>
                   <option :value="INDEPENDENT_TRAVEL">
-                    I arrange my own travel here, no support needed
+                    {{ departureIndependentLabel }}
                   </option>
                   <option v-for="d in departureDayOptions" :key="d" :value="d">{{ dayLabel(d) }}</option>
                 </select>
@@ -637,26 +678,21 @@ onMounted(load)
             </div>
           </div>
 
-          <!-- The night before only needs covering when arriving the day before. A
-               single choice: company-paid (long-haul) vs self-funded. -->
-          <div v-if="arrivesEarly" class="field accommodation" :class="{ missing: triedSave && !nightBeforeChoice }">
+          <!-- The night before only needs covering when arriving the day before,
+               and that early night is reserved for long-haul travellers — so it's a
+               single confirmation, not a choice. -->
+          <div v-if="arrivesEarly" class="field accommodation" :class="{ missing: triedSave && !longHaulConfirmed }">
             <h3 class="sub">The night before — {{ formatDate(beforeDate) }}</h3>
             <p class="field-note">
-              You're arriving the day before the event, so that night needs covering.
-              How would you like to handle it?
+              You've chosen to arrive on {{ formatDate(beforeDate) }}, the day before the
+              event. This extra night is reserved for long-haul travellers — please
+              confirm below, or pick a later arrival day.
             </p>
             <label class="choice">
-              <input v-model="nightBeforeChoice" type="radio" value="company">
+              <input v-model="longHaulConfirmed" type="checkbox">
               <span class="choice-text">
-                <strong>The company books and pays for it</strong>
-                <small class="confirm">I confirm I'm a long-haul traveller (international flight of 7+ hours)</small>
-              </span>
-            </label>
-            <label class="choice">
-              <input v-model="nightBeforeChoice" type="radio" value="self">
-              <span class="choice-text">
-                <strong>I'll book and pay for it myself</strong>
-                <small>Please still include me in any company transport</small>
+                <strong>I confirm I'm a long-haul traveller (international flight of 7+ hours) and need an extra night at the hotel</strong>
+                <small>The company books and pays for the night of {{ formatDate(beforeDate) }}.</small>
               </span>
             </label>
             <p class="field-note">
@@ -670,6 +706,29 @@ onMounted(load)
           </div>
 
           <h3 class="section-head">Other</h3>
+          <div class="row">
+            <label>Total travel cost (optional)
+              <input
+                :value="form.travelCost ?? ''"
+                type="number"
+                min="0"
+                step="0.01"
+                inputmode="decimal"
+                placeholder="0.00"
+                @input="setTravelCost"
+              >
+            </label>
+            <label>Currency
+              <select v-model="form.travelCostCurrency">
+                <option v-for="c in CURRENCIES" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </label>
+          </div>
+          <p class="field-note">
+            Please include all your personal travel costs as a single figure — fares,
+            tickets, and any other travel-related expenses. This should cover travel
+            only, not food.
+          </p>
           <label>Comments
             <textarea v-model="form.comments" rows="2" />
           </label>
@@ -1151,9 +1210,6 @@ input.time.empty::-webkit-datetime-edit {
 .choice-text small {
   font-size: 12px;
   color: var(--muted);
-}
-.choice-text small.confirm {
-  font-weight: 600;
 }
 /* After a save attempt with no option picked, flag the unanswered choice. */
 .accommodation.missing .choice {

@@ -153,6 +153,10 @@ func NewRouter(app *App) http.Handler {
 				r.Get("/admin/events/{id}/submissions", app.handleListSubmissions)
 				r.Get("/admin/events/{id}/export.csv", app.handleExportCSV)
 
+				// Financial tab: every attendee's declared travel cost converted
+				// to USD/GBP/EUR via live Frankfurter FX rates (see financial.go).
+				r.Get("/admin/events/{id}/financial", app.handleFinancial)
+
 				// Messaging tab: editable invite/reminder templates, an
 				// admin-pressed invitation to all attendees, and a manual
 				// follow-up to current non-responders. Dispatches over email
