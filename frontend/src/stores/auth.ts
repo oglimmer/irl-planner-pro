@@ -8,6 +8,7 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(loadUser())
   const mode = ref<AuthMode | null>(null)
   const defaultEventTimezone = ref<string>('Europe/Paris')
+  const peopleTeamEmail = ref<string>('people@id5.io')
   let modePromise: Promise<AuthMode> | null = null
   let freshUserPromise: Promise<void> | null = null
 
@@ -52,6 +53,7 @@ export const useAuthStore = defineStore('auth', () => {
         .then((c) => {
           mode.value = c.mode
           defaultEventTimezone.value = c.defaultEventTimezone
+          if (c.peopleTeamEmail) peopleTeamEmail.value = c.peopleTeamEmail
           return c.mode
         })
         .catch((e) => {
@@ -130,6 +132,7 @@ export const useAuthStore = defineStore('auth', () => {
     token,
     mode,
     defaultEventTimezone,
+    peopleTeamEmail,
     ensureMode,
     ensureFreshUser,
     refreshUser,

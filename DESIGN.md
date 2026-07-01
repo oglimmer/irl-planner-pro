@@ -743,9 +743,11 @@ never trusted).
 - No further fields. The UI shows the fixed instructions message:
   > If for any reason you cannot attend this offsite, please follow the steps below:
   > 1. Let your manager know
-  > 2. Inform the People team by emailing people@id5.io
+  > 2. Inform the People team by emailing `PEOPLE_TEAM_EMAIL` (default `people@id5.io`)
 
-  (Stored as a constant; no DB field needed.)
+  (The address comes from the `PEOPLE_TEAM_EMAIL` env var, surfaced to the SPA via
+  `/api/auth/config`; the rest is a constant with no DB field. Distinct from
+  `IRL_TEAM_EMAIL`, which receives the daily activity digest — §9.3.)
 
 ### Branch: `attending = yes` → travel + other
 - **Independent traveller (per leg).** Travel *to* and *from* the offsite are
@@ -1136,6 +1138,10 @@ OIDC_GOOGLE_WORKSPACE_DOMAINS=id5.io
 # IRL team. The FIRST user to sign in becomes admin automatically; admins
 # then promote/demote others in-app — no admin allowlist env needed.
 IRL_TEAM_EMAIL=irl@id5.io             # daily activity digest (when daily_activity_email is on)
+
+# People team. Address employees are told to email in the "can't attend"
+# instructions (§8) — distinct from IRL_TEAM_EMAIL (the activity digest).
+PEOPLE_TEAM_EMAIL=people@id5.io
 
 # Currency conversion for the admin Financial tab (§10). Base URL of the
 # Frankfurter FX API; the default public host needs no key. Point at a mirror or

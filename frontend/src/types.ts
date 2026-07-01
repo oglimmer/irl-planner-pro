@@ -5,6 +5,7 @@ export type AuthMode = 'oidc' | 'password'
 export interface AuthConfig {
   mode: AuthMode
   defaultEventTimezone: string
+  peopleTeamEmail: string // address shown in the "can't attend" instructions
 }
 
 export interface User {

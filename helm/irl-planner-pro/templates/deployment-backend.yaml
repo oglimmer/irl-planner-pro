@@ -55,6 +55,8 @@ spec:
         {{- end }}
         - name: IRL_TEAM_EMAIL
           value: {{ .Values.irlTeamEmail | quote }}
+        - name: PEOPLE_TEAM_EMAIL
+          value: {{ .Values.peopleTeamEmail | quote }}
         - name: DEFAULT_EVENT_TIMEZONE
           value: {{ .Values.defaultEventTimezone | quote }}
         {{- if .Values.postgres.enabled }}

@@ -33,6 +33,10 @@ corsAllowedOrigins: []
 # automatically; admins then promote/demote others in-app.
 irlTeamEmail: "irl@id5.io"
 
+# People team. Address shown to employees in the "can't attend" instructions on
+# the form (PEOPLE_TEAM_EMAIL) — distinct from irlTeamEmail (the activity digest).
+peopleTeamEmail: "people@id5.io"
+
 # IANA timezone pre-filled when an admin creates a new event
 # (DEFAULT_EVENT_TIMEZONE).
 defaultEventTimezone: "Europe/Paris"

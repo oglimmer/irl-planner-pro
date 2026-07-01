@@ -96,6 +96,12 @@ router.beforeEach(async (to) => {
     auth.logout()
     return { path: '/login', query: { redirect: to.fullPath } }
   }
+  // Seed app-wide config (auth mode, default tz, people-team email) in parallel
+  // with the freshness check — otherwise a user who lands straight on a guarded
+  // page (bookmark, email link, OIDC redirect) never fetches /api/auth/config.
+  // Best-effort: the store keeps sensible defaults, so a config failure must not
+  // block navigation — only ensureFreshUser can.
+  const configReady = auth.ensureMode().catch(() => {})
   try {
     await auth.ensureFreshUser()
   } catch (e: unknown) {
@@ -104,6 +110,7 @@ router.beforeEach(async (to) => {
     }
     return { path: '/error', query: { code: String(errStatus(e) ?? 503) } }
   }
+  await configReady
   if (!auth.token) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }

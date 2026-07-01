@@ -49,6 +49,10 @@ type Config struct {
 	// activity digest.
 	IRLTeamEmail string
 
+	// PeopleTeamEmail is the address employees are told to email in the
+	// "can't attend" instructions (§8). Surfaced to the SPA via /api/auth/config.
+	PeopleTeamEmail string
+
 	// DefaultEventTimezone is the IANA tz pre-filled when creating a new event.
 	DefaultEventTimezone string
 
@@ -108,6 +112,7 @@ func Load() Config {
 		AllowedGoogleWorkspaceDomains: parseList(getenv("OIDC_GOOGLE_WORKSPACE_DOMAINS", ""), true),
 
 		IRLTeamEmail:         strings.TrimSpace(getenv("IRL_TEAM_EMAIL", "")),
+		PeopleTeamEmail:      strings.TrimSpace(getenv("PEOPLE_TEAM_EMAIL", "people@id5.io")),
 		DefaultEventTimezone: getenv("DEFAULT_EVENT_TIMEZONE", "Europe/Paris"),
 		FrankfurterBaseURL:   strings.TrimRight(getenv("FRANKFURTER_BASE_URL", "https://api.frankfurter.dev/v1"), "/"),
 

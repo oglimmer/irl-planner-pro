@@ -115,11 +115,13 @@ func serverErr(w http.ResponseWriter, r *http.Request, err error, publicMsg stri
 type AuthConfig struct {
 	Mode                 string `json:"mode"`
 	DefaultEventTimezone string `json:"defaultEventTimezone"`
+	PeopleTeamEmail      string `json:"peopleTeamEmail"` // address shown in the "can't attend" instructions (§8)
 }
 
 func (a *App) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, AuthConfig{
 		Mode:                 a.Cfg.AuthMode,
 		DefaultEventTimezone: a.Cfg.DefaultEventTimezone,
+		PeopleTeamEmail:      a.Cfg.PeopleTeamEmail,
 	})
 }
