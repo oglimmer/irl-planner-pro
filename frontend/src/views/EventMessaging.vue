@@ -6,8 +6,8 @@ import type { MessagingStatus } from '../types'
 
 // The Messaging tab: edit the per-event invite/reminder copy, send the
 // invitation to every attendee not yet invited, and fire a manual follow-up to
-// current non-responders. Email (SMTP) and Slack (bot DMs) are both live
-// channels; each is selectable once configured on the server.
+// current non-responders. Every send goes out over all configured channels at
+// once — email (SMTP) and Slack (bot DMs) — with no per-send channel choice.
 const props = defineProps<{ eventId: string }>()
 
 const { confirm } = useConfirm()
@@ -29,15 +29,16 @@ const reminderBody = ref('')
 // to parse as a binding).
 const placeholderTokens = ['{{name}}', '{{event}}', '{{city}}', '{{link}}', '{{deadline}}']
 
-const channel = ref('email')
 const savingTemplates = ref(false)
 const inviting = ref(false)
 const followingUp = ref(false)
 
-const channelOptions = computed(() => status.value?.channels ?? [])
-const selectedChannel = computed(() => channelOptions.value.find((c) => c.name === channel.value))
-const selectedAvailable = computed(() => selectedChannel.value?.available ?? false)
-const selectedConfigured = computed(() => selectedChannel.value?.configured ?? false)
+// The channels a send will actually go out on: those wired up on the server.
+const activeChannels = computed(() =>
+  (status.value?.channels ?? []).filter((c) => c.configured).map((c) => c.name),
+)
+const anyChannelConfigured = computed(() => activeChannels.value.length > 0)
+const channelLabel = computed(() => activeChannels.value.join(' and ') || 'no channel')
 const stats = computed(() => status.value?.stats)
 const notYetInvited = computed(() => {
   const s = status.value?.stats
@@ -124,8 +125,8 @@ async function sendInvitation() {
     title: 'Send invitation?',
     message:
       n > 0
-        ? `Send the invitation to ${n} attendee(s) not yet invited, via ${channel.value}. Already-invited attendees are skipped.`
-        : `Everyone has already been invited. Re-pressing won't email anyone unless new attendees were added.`,
+        ? `Send the invitation to ${n} attendee(s) not yet invited, via ${channelLabel.value}. Already-invited attendees are skipped.`
+        : `Everyone has already been invited. Re-pressing won't message anyone unless new attendees were added.`,
     confirmLabel: 'Send invitation',
   })
   if (!ok) return
@@ -133,8 +134,8 @@ async function sendInvitation() {
   error.value = ''
   notice.value = ''
   try {
-    const res = await api.sendInvitation(props.eventId, channel.value)
-    notice.value = `Inviting ${res.queued} attendee(s) in the background — already-invited people are skipped. This can take a few minutes; counts update as it sends.`
+    const res = await api.sendInvitation(props.eventId)
+    notice.value = `Inviting ${res.queued} attendee(s) via ${res.channels.join(' and ')} in the background — already-invited people are skipped. This can take a few minutes; counts update as it sends.`
     // Poll progress a couple of times without disturbing the editors.
     scheduleRefresh(3000)
     scheduleRefresh(15000)
@@ -149,7 +150,7 @@ async function sendFollowup() {
   const n = stats.value?.nonResponders ?? 0
   const ok = await confirm({
     title: 'Send follow-up now?',
-    message: `Send the reminder to ${n} non-responder(s) now, via ${channel.value}. Scheduled reminders still send on their own. A repeat within the same day is skipped.`,
+    message: `Send the reminder to ${n} non-responder(s) now, via ${channelLabel.value}. Scheduled reminders still send on their own. A repeat within the same day is skipped.`,
     confirmLabel: 'Send follow-up',
   })
   if (!ok) return
@@ -157,8 +158,8 @@ async function sendFollowup() {
   error.value = ''
   notice.value = ''
   try {
-    const res = await api.sendFollowup(props.eventId, channel.value)
-    notice.value = `Sending the follow-up to ${res.queued} non-responder(s) in the background. This can take a few minutes.`
+    const res = await api.sendFollowup(props.eventId)
+    notice.value = `Sending the follow-up to ${res.queued} non-responder(s) via ${res.channels.join(' and ')} in the background. This can take a few minutes.`
     scheduleRefresh(3000)
     scheduleRefresh(15000)
   } catch (e) {
@@ -177,33 +178,20 @@ onMounted(load)
     <p v-if="notice" class="notice">{{ notice }}</p>
 
     <template v-if="status">
-      <!-- Audience + channel -->
+      <!-- Audience + channels -->
       <div class="card">
         <div class="stats">
           <div><strong>{{ stats?.attendees ?? 0 }}</strong><span>attendees</span></div>
           <div><strong>{{ stats?.invited ?? 0 }}</strong><span>invited</span></div>
           <div><strong>{{ stats?.nonResponders ?? 0 }}</strong><span>not responded</span></div>
         </div>
-        <label class="channel">
-          Channel
-          <select v-model="channel">
-            <option
-              v-for="c in channelOptions"
-              :key="c.name"
-              :value="c.name"
-              :disabled="!c.available"
-            >
-              {{ c.name }}{{ c.available ? '' : ' (coming soon)' }}
-            </option>
-          </select>
-        </label>
-        <p v-if="!selectedAvailable" class="muted hint">
-          The “{{ channel }}” channel isn’t available yet — coming soon. Pick email to send.
+        <p v-if="anyChannelConfigured" class="muted hint">
+          Every send goes out over <strong>{{ channelLabel }}</strong> at once.
         </p>
-        <p v-else-if="!selectedConfigured" class="muted hint">
-          The “{{ channel }}” channel isn’t configured on the server yet
-          (set <code>{{ channel === 'slack' ? 'SLACK_BOT_TOKEN' : 'SMTP_HOST' }}</code>). You can still
-          edit and save templates; sending will work once it’s configured.
+        <p v-else class="muted hint">
+          No delivery channel is configured on the server yet
+          (set <code>SMTP_HOST</code> for email or <code>SLACK_BOT_TOKEN</code> for Slack). You can
+          still edit and save templates; sending will work once one is configured.
         </p>
       </div>
 
@@ -211,8 +199,9 @@ onMounted(load)
       <div class="card">
         <h3>Invitation</h3>
         <p class="muted">
-          Sent when you press the button below — to every attendee not yet invited.
-          Re-pressing only emails people added since the last send.
+          Sent when you press the button below — to every attendee not yet invited,
+          over all configured channels. Re-pressing only messages people added since
+          the last send.
         </p>
         <label>
           Subject
@@ -230,7 +219,7 @@ onMounted(load)
           <button class="btn secondary" :disabled="savingTemplates" @click="saveTemplates">
             {{ savingTemplates ? 'Saving…' : 'Save templates' }}
           </button>
-          <button class="btn" :disabled="inviting || !selectedConfigured" @click="sendInvitation">
+          <button class="btn" :disabled="inviting || !anyChannelConfigured" @click="sendInvitation">
             {{ inviting ? 'Sending…' : `Send invitation (${notYetInvited} pending)` }}
           </button>
         </div>
@@ -258,7 +247,7 @@ onMounted(load)
           </button>
           <button
             class="btn"
-            :disabled="followingUp || !selectedConfigured || (stats?.nonResponders ?? 0) === 0"
+            :disabled="followingUp || !anyChannelConfigured || (stats?.nonResponders ?? 0) === 0"
             @click="sendFollowup"
           >
             {{ followingUp ? 'Sending…' : `Send follow-up now (${stats?.nonResponders ?? 0})` }}
@@ -335,19 +324,6 @@ onMounted(load)
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
-}
-.channel {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-.channel select {
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  text-transform: capitalize;
 }
 .hint { margin: 0.5rem 0 0; }
 label {

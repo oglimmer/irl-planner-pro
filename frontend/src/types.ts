@@ -147,7 +147,7 @@ export interface MessagingStatus {
 }
 
 export interface SendMessageResult {
-  channel: string
+  channels: string[] // channels the campaign is delivering over (email + Slack when configured)
   queued: number // recipients handed to the background sender; delivery continues async
 }
 

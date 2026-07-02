@@ -21,6 +21,10 @@ const saving = ref(false)
 const error = ref('')
 const saved = ref(false)
 const hasSubmitted = ref(false)
+// The attendance value as actually persisted in the DB ('' = nothing saved yet).
+// Drives the status chip, so live radio changes don't claim a response the user
+// hasn't saved. Set on load and only after a successful save.
+const savedAttending = ref<Attending | ''>('')
 // Snapshot of hasSubmitted *before* the current save, so the success message can
 // say "Saved" for a first submission and "Updated" for a later edit.
 const savedWasUpdate = ref(false)
@@ -237,12 +241,13 @@ const deadlineBlock = computed<{ value: string; caption: string }>(() => {
   return { value: 'Closed', caption: 'deadline passed' }
 })
 
-// Live RSVP status chip — tracks the radio selection as the user picks, reusing
+// RSVP status chip — reflects the response as saved in the DB, not the live radio
+// selection, so it never claims an answer the user hasn't submitted yet. Reuses
 // HomeView's status--* color tokens.
 type StatusKey = 'none' | Attending
-const statusKey = computed<StatusKey>(() => form.attending || 'none')
+const statusKey = computed<StatusKey>(() => savedAttending.value || 'none')
 const statusLabel = computed(() => {
-  switch (form.attending) {
+  switch (savedAttending.value) {
     case 'yes':
       return "You're going"
     case 'no':
@@ -376,6 +381,7 @@ async function load() {
     const existing = await api.getMySubmission(props.slug)
     if (existing) {
       hasSubmitted.value = true
+      savedAttending.value = existing.attending
       lockedByAdmin.value = existing.locked
       Object.assign(form, {
         attending: existing.attending,
@@ -473,6 +479,7 @@ async function submit() {
     savedWasUpdate.value = hasSubmitted.value
     saved.value = true
     hasSubmitted.value = true
+    savedAttending.value = attending
     activity.value = await api.myActivity(props.slug)
   } catch (e) {
     error.value = errMsg(e)
@@ -725,9 +732,10 @@ onMounted(load)
             </label>
           </div>
           <p class="field-note">
-            Please include all your personal travel costs as a single figure — fares,
-            tickets, and any other travel-related expenses. This should cover travel
-            only, not food.
+            Enter your total travel cost as a single figure — fares, tickets, and any
+            other travel-related expenses (travel only, not food). This just helps us
+            estimate the overall offsite budget, so a rough number is fine: put in
+            whatever you already know and update it later if needed.
           </p>
           <label>Comments
             <textarea v-model="form.comments" rows="2" />

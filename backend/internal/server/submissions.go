@@ -394,7 +394,7 @@ func (a *App) handlePutMySubmission(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "your response has been finalized by an organizer and can no longer be edited — contact the IRL team if something needs changing")
 		return
 	}
-	a.writeSubmission(w, r, e, user.ID, user, false)
+	a.writeSubmission(w, r, e, user.ID, user, false, false)
 }
 
 // --- write (admin, any attendee's submission) ------------------------------
@@ -412,7 +412,12 @@ func (a *App) handleAdminUpdateSubmission(w http.ResponseWriter, r *http.Request
 		serverErr(w, r, err, "db error")
 		return
 	}
-	a.writeSubmission(w, r, e, targetUserID, currentUser(r), true)
+	// The admin editor offers "Save & lock" and a plain "Save"; ?lock=false is the
+	// plain save (leaves the response attendee-editable). Default true keeps the
+	// historical behaviour when the param is absent. Note the lock is sticky, so a
+	// plain save never *unlocks* an already-locked row (see applySubmission).
+	lock := r.URL.Query().Get("lock") != "false"
+	a.writeSubmission(w, r, e, targetUserID, currentUser(r), true, lock)
 }
 
 // errSubmissionInvalid wraps a conditional-form validation failure so callers
@@ -431,15 +436,16 @@ var errSubmissionOwnerNotFound = errors.New("user not found")
 // selects the admin-edit activity action. It decodes the request, delegates the
 // transactional work to applySubmission, and maps its error sentinels to status
 // codes.
-func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, ownerID string, actor *User, isAdmin bool) {
+func (a *App) writeSubmission(w http.ResponseWriter, r *http.Request, e *Event, ownerID string, actor *User, isAdmin, lock bool) {
 	var req submissionReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	// An admin edit through the HTTP path locks the response (isAdmin is true
-	// only on the admin-edit route); the employee path never locks.
-	sub, err := a.applySubmission(r.Context(), e, &req, ownerID, actor, isAdmin, isAdmin)
+	// isAdmin relaxes validation and selects the admin-edit activity action; lock
+	// is decided by the caller (the admin editor chooses per save; the employee
+	// path never locks).
+	sub, err := a.applySubmission(r.Context(), e, &req, ownerID, actor, isAdmin, lock)
 	if err != nil {
 		var inv errSubmissionInvalid
 		switch {

@@ -5,7 +5,7 @@ import { useAuthStore } from './stores/auth'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import UserMenu from './components/UserMenu.vue'
 import ThemeSwitcher from './components/ThemeSwitcher.vue'
-import Id5Logo from './components/Id5Logo.vue'
+import BrandLogo from './components/BrandLogo.vue'
 import SiteFooter from './components/SiteFooter.vue'
 
 const route = useRoute()
@@ -18,8 +18,7 @@ const showChrome = computed(() => !route.meta.hideChrome)
     <nav v-if="showChrome" class="top">
       <div class="nav-left">
         <RouterLink to="/" class="brand" aria-label="ID5 IRL home">
-          <Id5Logo class="brand-logo" />
-          <em>IRL</em>
+          <BrandLogo class="brand-logo" />
         </RouterLink>
         <div v-if="auth.user?.isAdmin" class="links">
           <RouterLink to="/admin/events">Events</RouterLink>
@@ -74,24 +73,14 @@ nav.top {
 }
 .brand {
   display: inline-flex;
-  align-items: baseline;
-  gap: 9px;
-  font-family: var(--serif);
-  font-size: 20px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
+  align-items: center;
   color: var(--text);
 }
 .brand-logo {
-  height: 22px;
+  height: 24px;
   width: auto;
   display: block;
-  align-self: center;
   color: var(--text);
-}
-.brand em {
-  font-style: italic;
-  color: var(--accent-2);
 }
 .brand:hover { color: var(--text); }
 

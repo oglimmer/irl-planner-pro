@@ -15,7 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
-  // The admin saved; the response is now locked. Parent should refetch.
+  // The admin saved (locked or not). Parent should refetch.
   saved: []
 }>()
 
@@ -62,6 +62,9 @@ function setTravelCost(ev: globalThis.Event) {
 }
 
 const saving = ref(false)
+// Which action is in flight, so the right button shows "Saving…": true = the
+// "Save & lock" button, false = the plain "Save" button.
+const pendingLock = ref(false)
 const error = ref('')
 
 // Native <input type="date"> / <select> yield '' when cleared; map that to null
@@ -73,18 +76,21 @@ function setMode(key: 'arrivalMode' | 'departureMode', ev: globalThis.Event) {
   form[key] = ((ev.target as HTMLSelectElement).value || null) as TravelMode | null
 }
 
-async function save() {
+// lock=true saves and locks (attendee can no longer self-edit); lock=false is a
+// plain save that leaves the response attendee-editable.
+async function save(lock: boolean) {
   if (!form.attending) {
     error.value = 'Pick an attendance answer first.'
     return
   }
   saving.value = true
+  pendingLock.value = lock
   error.value = ''
   try {
     await api.adminUpdateSubmission(props.eventId, props.userId, {
       ...form,
       attending: form.attending,
-    })
+    }, lock)
     emit('saved')
   } catch (e) {
     error.value = errMsg(e)
@@ -114,11 +120,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
         <p class="warn">
           Admin edits accept any value with no validation — any day, any option.
-          <strong>Saving locks this response</strong>, so the attendee can no longer
-          edit it themselves.
+          <strong>Save &amp; lock</strong> also makes the response read-only for the
+          attendee; <strong>Save</strong> leaves it editable by them. A lock is
+          permanent — a later plain Save won't undo it.
         </p>
 
-        <form class="form" novalidate @submit.prevent="save">
+        <form class="form" novalidate @submit.prevent="save(true)">
           <div class="field">
             <span class="q">Attending?</span>
             <div class="radios">
@@ -209,8 +216,16 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
           <div class="actions">
             <button type="button" class="btn secondary" @click="emit('close')">Cancel</button>
+            <button
+              type="button"
+              class="btn secondary"
+              :disabled="saving || !form.attending"
+              @click="save(false)"
+            >
+              {{ saving && !pendingLock ? 'Saving…' : 'Save' }}
+            </button>
             <button type="submit" class="btn" :disabled="saving || !form.attending">
-              {{ saving ? 'Saving…' : 'Save & lock' }}
+              {{ saving && pendingLock ? 'Saving…' : 'Save & lock' }}
             </button>
           </div>
         </form>

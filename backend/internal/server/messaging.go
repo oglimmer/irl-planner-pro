@@ -18,9 +18,11 @@ import (
 // Messaging is the admin outreach surface (the event "Messaging" tab): an
 // admin-pressed invitation to every attendee, and a manual follow-up to the
 // people who still haven't responded. Both render an admin-editable, per-event
-// template (falling back to a generated default) and dispatch over a channel.
-// Both channels are real: email over SMTP (internal/email) and Slack bot DMs
-// (internal/slack). Each is selectable in the tab once configured on the server.
+// template (falling back to a generated default) and dispatch over every
+// configured channel at once — email over SMTP (internal/email) and Slack bot
+// DMs (internal/slack) — with no per-send channel choice. A recipient is claimed
+// once (a single channel-agnostic idempotency flag) and counts as reached if any
+// channel accepts; the claim is only released when every channel fails.
 //
 // The scheduled non-responder reminders (reminders.go) share the same template
 // and rendering helpers here, so editing the reminder copy in the tab also
@@ -167,28 +169,10 @@ func (a *App) sendVia(channel string, to []string, subject, body string) error {
 	return a.Email.Send(to, subject, body)
 }
 
-// channelConfigured reports whether the named channel's transport is wired up
-// so a send can actually succeed.
-func (a *App) channelConfigured(channel string) bool {
-	if channel == channelSlack {
-		return a.Slack.Configured()
-	}
-	return a.Email.Configured()
-}
-
-// channelUnconfiguredMsg is the 409 message when a send targets a channel whose
-// transport isn't set up, naming the env var that enables it.
-func channelUnconfiguredMsg(channel string) string {
-	if channel == channelSlack {
-		return "slack is not configured (set SLACK_BOT_TOKEN)"
-	}
-	return "email is not configured (set SMTP_HOST)"
-}
-
-// channelStatus is the per-channel availability the tab uses to enable/disable
-// its selector. Available means the channel is implemented and selectable (both
-// email and Slack are); Configured means its transport is actually wired up
-// (SMTP for email, a bot token for Slack) so a send can succeed.
+// channelStatus is the per-channel availability the notification/messaging
+// surfaces read. Available means the channel is implemented (both email and
+// Slack are); Configured means its transport is actually wired up (SMTP for
+// email, a bot token for Slack) so a send can succeed.
 type channelStatus struct {
 	Name       string `json:"name"`
 	Available  bool   `json:"available"`
@@ -315,32 +299,9 @@ func (a *App) handleSaveMessaging(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, req)
 }
 
-type sendMessageReq struct {
-	Channel string `json:"channel"`
-}
-
 type sendMessageResp struct {
-	Channel string `json:"channel"`
-	Queued  int    `json:"queued"` // recipients handed to the background sender
-}
-
-// decodeChannel parses and validates the channel from a send request body,
-// defaulting to email. An empty body is allowed.
-func decodeChannel(r *http.Request) (string, error) {
-	var req sendMessageReq
-	if r.Body != nil {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
-			return "", fmt.Errorf("invalid json")
-		}
-	}
-	ch := strings.TrimSpace(req.Channel)
-	if ch == "" {
-		ch = channelEmail
-	}
-	if ch != channelEmail && ch != channelSlack {
-		return "", fmt.Errorf("channel must be 'email' or 'slack'")
-	}
-	return ch, nil
+	Channels []string `json:"channels"` // channels the campaign is delivering over
+	Queued   int      `json:"queued"`   // recipients handed to the background sender
 }
 
 // handleSendInvitation emails the invitation to every attendee not yet invited
@@ -353,8 +314,8 @@ func (a *App) handleSendInvitation(w http.ResponseWriter, r *http.Request) {
 		subjectTmpl: func(e *Event) string { return firstNonEmpty(e.InviteSubject, defaultInviteSubject) },
 		bodyTmpl:    func(e *Event) string { return firstNonEmpty(e.InviteBody, defaultInviteBody) },
 		audience:    func(ctx context.Context, id string) ([]contact, error) { return a.Store.allAttendeeContacts(ctx, id) },
-		summary: func(sent, failed int, ch string) string {
-			return sendSummary("Sent invitation to", sent, failed, "attendee(s)", ch)
+		summary: func(sent, failed int, chs []string) string {
+			return sendSummary("Sent invitation to", sent, failed, "attendee(s)", chs)
 		},
 		metricKind:     "invitation",
 		emptyAudienceM: "no attendees to invite",
@@ -371,8 +332,8 @@ func (a *App) handleSendFollowup(w http.ResponseWriter, r *http.Request) {
 		subjectTmpl: func(e *Event) string { return firstNonEmpty(e.ReminderSubject, defaultReminderSubject) },
 		bodyTmpl:    func(e *Event) string { return firstNonEmpty(e.ReminderBody, defaultReminderBody) },
 		audience:    func(ctx context.Context, id string) ([]contact, error) { return a.Store.nonResponderContacts(ctx, id) },
-		summary: func(sent, failed int, ch string) string {
-			return sendSummary("Sent follow-up to", sent, failed, "non-responder(s)", ch)
+		summary: func(sent, failed int, chs []string) string {
+			return sendSummary("Sent follow-up to", sent, failed, "non-responder(s)", chs)
 		},
 		metricKind:     "manual",
 		emptyAudienceM: "everyone has responded — no follow-up needed",
@@ -387,15 +348,15 @@ type campaign struct {
 	subjectTmpl    func(e *Event) string
 	bodyTmpl       func(e *Event) string
 	audience       func(ctx context.Context, id string) ([]contact, error)
-	summary        func(sent, failed int, channel string) string
+	summary        func(sent, failed int, channels []string) string
 	metricKind     string
 	emptyAudienceM string
 }
 
 // sendSummary formats the activity summary for a completed campaign, appending
 // the failure count only when there were failures.
-func sendSummary(verb string, sent, failed int, noun, channel string) string {
-	s := fmt.Sprintf("%s %d %s via %s", verb, sent, noun, channel)
+func sendSummary(verb string, sent, failed int, noun string, channels []string) string {
+	s := fmt.Sprintf("%s %d %s via %s", verb, sent, noun, strings.Join(channels, ", "))
 	if failed > 0 {
 		s += fmt.Sprintf(" (%d failed)", failed)
 	}
@@ -406,15 +367,12 @@ func sendSummary(verb string, sent, failed int, noun, channel string) string {
 // for exactly-once delivery, render + dispatch, then log one activity entry.
 func (a *App) sendCampaign(w http.ResponseWriter, r *http.Request, c campaign) {
 	id := chi.URLParam(r, "id")
-	channel, err := decodeChannel(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	// Block when the chosen channel's transport isn't configured — otherwise the
+	// Deliver over every configured channel (email + Slack DM) — there is no
+	// per-send channel choice. Block only when nothing is wired up, otherwise the
 	// campaign would claim recipients and silently deliver nothing.
-	if !a.channelConfigured(channel) {
-		writeErr(w, http.StatusConflict, channelUnconfiguredMsg(channel))
+	channels := a.configuredChannels()
+	if len(channels) == 0 {
+		writeErr(w, http.StatusConflict, "no delivery channel configured (set SMTP_HOST or SLACK_BOT_TOKEN)")
 		return
 	}
 
@@ -474,29 +432,41 @@ func (a *App) sendCampaign(w http.ResponseWriter, r *http.Request, c campaign) {
 			vars := a.messageVars(e, rc)
 			subject := renderTemplate(subjectTmpl, vars)
 			body := renderTemplate(bodyTmpl, vars)
-			if err := a.sendVia(channel, []string{rc.Email}, subject, body); err != nil {
-				log.Printf("WARN: %s send to %s: %v", c.kind, rc.Email, err)
-				// Release the claim so a retry re-sends rather than silently dropping.
+			// Fan out to every configured channel. The recipient is claimed once (a
+			// single channel-agnostic idempotency flag), so we count them reached if
+			// at least one channel accepts. Only when every channel fails do we
+			// release the claim so a retry re-sends. Per-channel failures still land
+			// in message_send_log so a partial failure surfaces to the admin.
+			anySent := false
+			for _, ch := range channels {
+				if err := a.sendVia(ch, []string{rc.Email}, subject, body); err != nil {
+					log.Printf("WARN: %s send to %s via %s: %v", c.kind, rc.Email, ch, err)
+					a.logSend(ctx, e.ID, rc.Email, c.kind, ch, "failed", err.Error())
+					metrics.MessageSendsTotal.WithLabelValues(c.metricKind, ch, "failed").Inc()
+					continue
+				}
+				anySent = true
+				a.logSend(ctx, e.ID, rc.Email, c.kind, ch, "sent", "")
+				metrics.MessageSendsTotal.WithLabelValues(c.metricKind, ch, "sent").Inc()
+			}
+			if !anySent {
+				// Nothing delivered on any channel — release so a retry re-sends.
 				a.unclaimReminder(ctx, e.ID, rc.Email, c.kind, periodKey)
-				a.logSend(ctx, e.ID, rc.Email, c.kind, channel, "failed", err.Error())
-				metrics.MessageSendsTotal.WithLabelValues(c.metricKind, channel, "failed").Inc()
 				failed++
 				continue
 			}
 			sent++
-			a.logSend(ctx, e.ID, rc.Email, c.kind, channel, "sent", "")
 			metrics.RemindersSentTotal.WithLabelValues(c.metricKind).Inc()
-			metrics.MessageSendsTotal.WithLabelValues(c.metricKind, channel, "sent").Inc()
 		}
 		if err := a.logActivity(ctx, a.DB, e.ID, &actorID, actorEmail, "",
-			c.action, c.summary(sent, failed, channel),
-			map[string]any{"channel": channel, "sent": sent, "skipped": skipped, "failed": failed}, false); err != nil {
+			c.action, c.summary(sent, failed, channels),
+			map[string]any{"channels": channels, "sent": sent, "skipped": skipped, "failed": failed}, false); err != nil {
 			log.Printf("WARN: log %s for %s: %v", c.kind, e.ID, err)
 		}
-		log.Printf("messaging: %s for event %s via %s — sent %d, skipped %d, failed %d", c.kind, e.ID, channel, sent, skipped, failed)
+		log.Printf("messaging: %s for event %s via %s — sent %d, skipped %d, failed %d", c.kind, e.ID, strings.Join(channels, ","), sent, skipped, failed)
 	}()
 
-	writeJSON(w, http.StatusAccepted, sendMessageResp{Channel: channel, Queued: len(recipients)})
+	writeJSON(w, http.StatusAccepted, sendMessageResp{Channels: channels, Queued: len(recipients)})
 }
 
 // unclaimReminder removes an idempotency claim so a failed send can be retried.

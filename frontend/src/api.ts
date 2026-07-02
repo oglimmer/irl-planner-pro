@@ -164,8 +164,11 @@ export const api = {
     request<Event>(`/api/admin/events/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   eventActivity: (id: string) =>
     request<ActivityEntry[]>(`/api/admin/events/${id}/activity`),
-  adminUpdateSubmission: (id: string, userId: string, data: SubmissionInput) =>
-    request<Submission>(`/api/admin/events/${id}/submissions/${userId}`, {
+  // lock=true saves and locks the response (attendee can no longer self-edit);
+  // lock=false is a plain save that leaves it attendee-editable. The lock is
+  // sticky server-side, so a plain save never unlocks an already-locked response.
+  adminUpdateSubmission: (id: string, userId: string, data: SubmissionInput, lock: boolean) =>
+    request<Submission>(`/api/admin/events/${id}/submissions/${userId}?lock=${lock}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
@@ -206,23 +209,17 @@ export const api = {
 
   // Messaging tab: templates, audience stats, channel availability; an
   // admin-pressed invitation to all attendees; a manual follow-up to current
-  // non-responders. `channel` defaults to 'email'; 'slack' sends bot DMs.
+  // non-responders. Both deliver over every configured channel (email + Slack).
   getMessaging: (id: string) => request<MessagingStatus>(`/api/admin/events/${id}/messaging`),
   saveMessaging: (id: string, data: MessageTemplates) =>
     request<MessageTemplates>(`/api/admin/events/${id}/messaging`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
-  sendInvitation: (id: string, channel: string) =>
-    request<SendMessageResult>(`/api/admin/events/${id}/messaging/invite`, {
-      method: 'POST',
-      body: JSON.stringify({ channel }),
-    }),
-  sendFollowup: (id: string, channel: string) =>
-    request<SendMessageResult>(`/api/admin/events/${id}/messaging/followup`, {
-      method: 'POST',
-      body: JSON.stringify({ channel }),
-    }),
+  sendInvitation: (id: string) =>
+    request<SendMessageResult>(`/api/admin/events/${id}/messaging/invite`, { method: 'POST' }),
+  sendFollowup: (id: string) =>
+    request<SendMessageResult>(`/api/admin/events/${id}/messaging/followup`, { method: 'POST' }),
 
   // Per-event notification matrix: IRL team daily-summary toggle + each
   // admin's stream and channel preferences.

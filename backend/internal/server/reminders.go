@@ -50,7 +50,7 @@ func (a *App) StartReminders(ctx context.Context, wg *sync.WaitGroup) {
 // runReminderTick processes every open event once. Sends are skipped (nothing
 // is claimed) when no delivery channel is configured, so they fire once one is.
 func (a *App) runReminderTick(ctx context.Context, now time.Time) {
-	if len(a.reminderChannels()) == 0 {
+	if len(a.configuredChannels()) == 0 {
 		return
 	}
 	ids, err := a.openEventIDs(ctx, now)
@@ -94,7 +94,7 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 	if len(windows) == 0 {
 		return
 	}
-	channels := a.reminderChannels()
+	channels := a.configuredChannels()
 	if len(channels) == 0 {
 		return
 	}
@@ -147,9 +147,10 @@ func (a *App) sendReminder(ctx context.Context, e *Event, rc contact, win remind
 	metrics.MessageSendsTotal.WithLabelValues(win.Kind, channel, "sent").Inc()
 }
 
-// reminderChannels lists the delivery channels currently wired up, in send
-// order (email first). A scheduled reminder goes out on each.
-func (a *App) reminderChannels() []string {
+// configuredChannels lists the delivery channels currently wired up, in send
+// order (email first). Scheduled reminders and admin-pressed campaigns both go
+// out on each.
+func (a *App) configuredChannels() []string {
 	var chs []string
 	if a.Email.Configured() {
 		chs = append(chs, channelEmail)
