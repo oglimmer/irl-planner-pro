@@ -205,12 +205,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
                 </label>
               </div>
             </fieldset>
-          </template>
 
-          <label class="field">
-            Comments
-            <textarea v-model="form.comments" rows="2" />
-          </label>
+            <label class="field">
+              Comments
+              <textarea v-model="form.comments" rows="2" />
+            </label>
+          </template>
 
           <p v-if="error" class="error">{{ error }}</p>
 
