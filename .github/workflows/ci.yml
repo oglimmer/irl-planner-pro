@@ -77,16 +77,13 @@ jobs:
       - name: go build
         run: go build ./...
 
-      # The ARC runner image ships no C toolchain, but -race needs cgo.
-      - name: Install gcc for the race detector
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc libc6-dev
-
       # IRL_TEST_DATABASE_URL is set so the DB-backed tests actually run here
       # (they self-skip when it is unset).
+      # No -race: ThreadSanitizer needs a 48-bit VA arm64 kernel, and the ARC
+      # runner node's kernel is 47-bit ("unsupported VMA range").
       - name: go test
-        run: go test -race ./...
+        run: go test ./...
         env:
-          CGO_ENABLED: "1"
           IRL_TEST_DATABASE_URL: postgres://irl:irl@localhost:5432/irl?sslmode=disable
 
   frontend:
