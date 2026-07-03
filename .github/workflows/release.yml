@@ -1,9 +1,11 @@
 name: Release
 
 # Fires when `./oglimmer.sh release` pushes a v* tag. Builds multi-arch
-# (linux/amd64 + linux/arm64) images on the in-cluster ARC runner (arm64;
-# the amd64 half runs under QEMU emulation, so this job is slow),
-# pushes them to ghcr.io/oglimmer tagged as both :v<version> and :latest, and
+# (linux/amd64 + linux/arm64) images on the in-cluster ARC runner. No QEMU:
+# both Dockerfiles cross-compile in a --platform=$BUILDPLATFORM build stage
+# and the final stages have no RUN, so nothing executes under emulation
+# (QEMU crashes the Go toolchain). Images are
+# pushed to ghcr.io/oglimmer tagged as both :v<version> and :latest, and
 # cuts a GitHub Release with auto-generated notes. The everyday :latest build
 # happens in build.yml on every push to main (arm64-only, on the ARC runner);
 # this workflow exists so tagged releases get reproducible, version-pinned,
@@ -25,9 +27,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

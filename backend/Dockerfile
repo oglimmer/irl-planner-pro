@@ -1,4 +1,7 @@
-FROM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS build
+# Build stage always runs on the build host's own arch; multi-arch release
+# builds cross-compile via GOOS/GOARCH instead of emulating the Go toolchain
+# under QEMU (which crashes it).
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -6,7 +9,8 @@ COPY . .
 ARG VERSION="dev"
 ARG GIT_COMMIT="unknown"
 ARG BUILD_TIME="unknown"
-RUN CGO_ENABLED=0 go build -trimpath \
+ARG TARGETOS TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
     -ldflags "-s -w \
       -X irlplanner/internal/buildinfo.Version=${VERSION} \
       -X irlplanner/internal/buildinfo.Commit=${GIT_COMMIT} \

@@ -1,4 +1,6 @@
-FROM node:24.17.0-alpine@sha256:156b55f92e98ccd5ef49578a8cea0df4679826564bad1c9d4ef04462b9f0ded6 AS build
+# Build stage always runs on the build host's own arch — the dist/ output is
+# arch-independent, so multi-arch release builds never emulate node under QEMU.
+FROM --platform=$BUILDPLATFORM node:24.17.0-alpine@sha256:156b55f92e98ccd5ef49578a8cea0df4679826564bad1c9d4ef04462b9f0ded6 AS build
 WORKDIR /src
 COPY package.json package-lock.json* ./
 RUN npm install --no-audit --no-fund
