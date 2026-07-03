@@ -462,21 +462,28 @@ form {
 }
 
 /* ── Page-load reveal (staggered) ───────────────────────────── */
-.reveal {
-  opacity: 0;
-  animation: rise 0.62s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+/* Content is visible by default; the hidden starting state exists only
+   when motion is allowed. Never gate visibility on an animation running —
+   under prefers-reduced-motion the global kill-switch (styles.css) removes
+   animations, and anything that relies on one to become visible stays
+   invisible forever. */
+@media (prefers-reduced-motion: no-preference) {
+  .reveal {
+    opacity: 0;
+    animation: rise 0.62s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .cover-head { animation-delay: 0.02s; }
+  .cover .eyebrow { animation-delay: 0.10s; }
+  .headline { animation-delay: 0.16s; }
+  .standfirst { animation-delay: 0.24s; }
+  .boarding { animation-delay: 0.32s; }
+  .panel-eyebrow { animation-delay: 0.20s; }
+  .panel-title { animation-delay: 0.27s; }
+  .panel-lede { animation-delay: 0.34s; }
+  .panel form,
+  .panel .google { animation-delay: 0.41s; }
+  .panel-foot { animation-delay: 0.50s; }
 }
-.cover-head { animation-delay: 0.02s; }
-.cover .eyebrow { animation-delay: 0.10s; }
-.headline { animation-delay: 0.16s; }
-.standfirst { animation-delay: 0.24s; }
-.boarding { animation-delay: 0.32s; }
-.panel-eyebrow { animation-delay: 0.20s; }
-.panel-title { animation-delay: 0.27s; }
-.panel-lede { animation-delay: 0.34s; }
-.panel form,
-.panel .google { animation-delay: 0.41s; }
-.panel-foot { animation-delay: 0.50s; }
 
 @keyframes rise {
   from { opacity: 0; transform: translateY(16px); }
