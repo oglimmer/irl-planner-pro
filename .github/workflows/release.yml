@@ -1,7 +1,8 @@
 name: Release
 
 # Fires when `./oglimmer.sh release` pushes a v* tag. Builds multi-arch
-# (linux/amd64 + linux/arm64) images on a hosted runner with QEMU/buildx,
+# (linux/amd64 + linux/arm64) images on the in-cluster ARC runner (arm64;
+# the amd64 half runs under QEMU emulation, so this job is slow),
 # pushes them to ghcr.io/oglimmer tagged as both :v<version> and :latest, and
 # cuts a GitHub Release with auto-generated notes. The everyday :latest build
 # happens in build.yml on every push to main (arm64-only, on the ARC runner);
@@ -20,7 +21,7 @@ permissions:
 jobs:
   release:
     name: Build & publish images
-    runs-on: ubuntu-latest
+    runs-on: arc-irl-planner-pro
 
     steps:
       - uses: actions/checkout@v6

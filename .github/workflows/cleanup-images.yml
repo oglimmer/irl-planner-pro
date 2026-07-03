@@ -16,7 +16,7 @@ permissions:
 jobs:
   cleanup:
     name: Delete untagged image versions
-    runs-on: ubuntu-latest
+    runs-on: arc-irl-planner-pro
     steps:
       - uses: dataaxiom/ghcr-cleanup-action@v1
         with:
