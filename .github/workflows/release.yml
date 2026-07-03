@@ -55,8 +55,8 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_TIME=${{ github.event.head_commit.timestamp }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # No type=gha cache: exporting layers to the Actions cache service
+          # stalls for 10+ minutes from the cluster network.
 
       - name: Build and push frontend
         uses: docker/build-push-action@v7
@@ -71,8 +71,6 @@ jobs:
             VITE_APP_VERSION=${{ steps.version.outputs.version }}
             VITE_GIT_COMMIT=${{ github.sha }}
             VITE_BUILD_TIME=${{ github.event.head_commit.timestamp }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
