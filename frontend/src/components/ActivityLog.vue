@@ -53,9 +53,9 @@ defineProps<{
         <div v-for="ch in e.detail.channels" :key="ch">
           {{ ch }}: {{ e.detail.sentPerChannel?.[ch] ?? 0 }} sent
         </div>
-        <div v-if="e.detail.failed > 0" class="failed">
-          {{ e.detail.failed }} failed
-          <ul v-if="e.detail.failedRecipients?.length">
+        <div v-if="e.detail.failedRecipients?.length" class="failed">
+          <div v-if="e.detail.failed > 0">{{ e.detail.failed }} failed</div>
+          <ul>
             <li v-for="f in e.detail.failedRecipients" :key="f.recipient + '-' + f.channel">
               {{ f.recipient }} ({{ f.channel }}): {{ f.error }}
             </li>
