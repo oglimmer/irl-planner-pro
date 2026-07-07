@@ -91,7 +91,14 @@ func (a *App) handleImportAttendees(w http.ResponseWriter, r *http.Request) {
 	actor := currentUser(r)
 	actorID := actor.ID
 	summary := fmt.Sprintf("%s imported %d attendee(s)", actor.Email, added)
-	if err := a.logActivity(r.Context(), tx, eventID, &actorID, actor.Email, "", actionAttendeesImported, summary, nil, false); err != nil {
+	detail := map[string]any{
+		"added":   added,
+		"skipped": result.Skipped,
+	}
+	if len(result.Errors) > 0 {
+		detail["errors"] = result.Errors
+	}
+	if err := a.logActivity(r.Context(), tx, eventID, &actorID, actor.Email, "", actionAttendeesImported, summary, detail, false); err != nil {
 		serverErr(w, r, err, "db error")
 		return
 	}
@@ -281,7 +288,8 @@ func (a *App) handleRemoveAttendee(w http.ResponseWriter, r *http.Request) {
 		actor := currentUser(r)
 		actorID := actor.ID
 		summary := fmt.Sprintf("%s removed %s from the attendee list", actor.Email, email)
-		if err := a.logActivity(r.Context(), tx, eventID, &actorID, actor.Email, email, actionAttendeeRemoved, summary, nil, false); err != nil {
+		detail := map[string]any{"email": email}
+		if err := a.logActivity(r.Context(), tx, eventID, &actorID, actor.Email, email, actionAttendeeRemoved, summary, detail, false); err != nil {
 			serverErr(w, r, err, "db error")
 			return
 		}
