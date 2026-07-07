@@ -113,6 +113,11 @@ func (a *App) handleSendTestNotification(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusBadGateway, "failed to send test "+channel+": "+err.Error())
 		return
 	}
+	// Log the test notification send (no event context, so eventID is empty).
+	if err := a.logActivity(r.Context(), a.DB, "", &user.ID, user.Email, "",
+		actionTestNotificationSent, "Sent test notification via "+channel, nil, false); err != nil {
+		log.Printf("WARN: log test notification for %s: %v", user.Email, err)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sent", "to": user.Email})
 }
 
