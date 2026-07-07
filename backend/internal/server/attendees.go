@@ -95,8 +95,14 @@ func (a *App) handleImportAttendees(w http.ResponseWriter, r *http.Request) {
 		"added":   added,
 		"skipped": result.Skipped,
 	}
+	const maxErrors = 10
 	if len(result.Errors) > 0 {
-		detail["errors"] = result.Errors
+		if len(result.Errors) > maxErrors {
+			detail["errors"] = result.Errors[:maxErrors]
+			detail["errorCount"] = len(result.Errors)
+		} else {
+			detail["errors"] = result.Errors
+		}
 	}
 	if err := a.logActivity(r.Context(), tx, eventID, &actorID, actor.Email, "", actionAttendeesImported, summary, detail, false); err != nil {
 		serverErr(w, r, err, "db error")

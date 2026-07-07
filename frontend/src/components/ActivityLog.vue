@@ -56,7 +56,7 @@ defineProps<{
         <div v-if="e.detail.failed > 0" class="failed">
           {{ e.detail.failed }} failed
           <ul v-if="e.detail.failedRecipients?.length">
-            <li v-for="f in e.detail.failedRecipients" :key="f.recipient">
+            <li v-for="f in e.detail.failedRecipients" :key="f.recipient + '-' + f.channel">
               {{ f.recipient }} ({{ f.channel }}): {{ f.error }}
             </li>
           </ul>

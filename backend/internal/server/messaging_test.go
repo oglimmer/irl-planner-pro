@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -90,13 +92,6 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
-package server
-
-import (
-	"context"
-	"encoding/json"
-	"testing"
-)
 
 // TestCampaignActivityDetail verifies that a campaign send (invitation or
 // follow-up) writes an activity log entry with the expected detail fields:
