@@ -133,4 +133,27 @@ func TestSaveNotificationsHandler(t *testing.T) {
 	if len(email) != 0 || len(slack) != 0 {
 		t.Errorf("after off: email=%v slack=%v, want empty", email, slack)
 	}
+
+	// Verify activity log detail
+	var detailStr sql.NullString
+	if err := a.DB.QueryRowContext(ctx,
+		`SELECT detail FROM activity_log WHERE event_id=$1 AND action=$2 ORDER BY created_at DESC LIMIT 1`,
+		eventID, actionNotificationsSaved).Scan(&detailStr); err != nil {
+		t.Fatalf("read activity log: %v", err)
+	}
+	if !detailStr.Valid {
+		t.Fatal("activity log detail is null")
+	}
+	var detail map[string]any
+	if err := json.Unmarshal([]byte(detailStr.String), &detail); err != nil {
+		t.Fatalf("parse detail: %v", err)
+	}
+	admins, ok := detail["admins"].([]any)
+	if !ok || len(admins) != 1 {
+		t.Fatalf("admins in detail = %v, want 1 entry", detail["admins"])
+	}
+	first := admins[0].(map[string]any)
+	if first["userId"] != admin || first["notifType"] != "" {
+		t.Errorf("admin detail = %v, want userId=%s notifType=''", first, admin)
+	}
 }

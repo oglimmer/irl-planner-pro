@@ -419,6 +419,9 @@ func (a *App) sendCampaign(w http.ResponseWriter, r *http.Request, c campaign) {
 	go func() {
 		ctx := context.Background()
 		sent, skipped, failed := 0, 0, 0
+		sentPerChannel := map[string]int{}
+		var failedRecipients []map[string]string // upto 10, for activity detail
+
 		for _, rc := range recipients {
 			claimed, err := a.claimReminder(ctx, e.ID, rc.Email, c.kind, periodKey)
 			if err != nil {
@@ -443,9 +446,17 @@ func (a *App) sendCampaign(w http.ResponseWriter, r *http.Request, c campaign) {
 					log.Printf("WARN: %s send to %s via %s: %v", c.kind, rc.Email, ch, err)
 					a.logSend(ctx, e.ID, rc.Email, c.kind, ch, "failed", err.Error())
 					metrics.MessageSendsTotal.WithLabelValues(c.metricKind, ch, "failed").Inc()
+					if len(failedRecipients) < 10 {
+						failedRecipients = append(failedRecipients, map[string]string{
+							"recipient": rc.Email,
+							"channel":   ch,
+							"error":     err.Error(),
+						})
+					}
 					continue
 				}
 				anySent = true
+				sentPerChannel[ch]++
 				a.logSend(ctx, e.ID, rc.Email, c.kind, ch, "sent", "")
 				metrics.MessageSendsTotal.WithLabelValues(c.metricKind, ch, "sent").Inc()
 			}
@@ -458,9 +469,19 @@ func (a *App) sendCampaign(w http.ResponseWriter, r *http.Request, c campaign) {
 			sent++
 			metrics.RemindersSentTotal.WithLabelValues(c.metricKind).Inc()
 		}
+		detail := map[string]any{
+			"channels":       channels,
+			"sent":           sent,
+			"skipped":        skipped,
+			"failed":         failed,
+			"sentPerChannel": sentPerChannel,
+		}
+		if len(failedRecipients) > 0 {
+			detail["failedRecipients"] = failedRecipients
+		}
 		if err := a.logActivity(ctx, a.DB, e.ID, &actorID, actorEmail, "",
 			c.action, c.summary(sent, failed, channels),
-			map[string]any{"channels": channels, "sent": sent, "skipped": skipped, "failed": failed}, false); err != nil {
+			detail, false); err != nil {
 			log.Printf("WARN: log %s for %s: %v", c.kind, e.ID, err)
 		}
 		log.Printf("messaging: %s for event %s via %s — sent %d, skipped %d, failed %d", c.kind, e.ID, strings.Join(channels, ","), sent, skipped, failed)

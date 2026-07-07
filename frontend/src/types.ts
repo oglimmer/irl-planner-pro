@@ -290,7 +290,7 @@ export interface ActivityEntry {
   // reminders). An admin submitting their own attendance produces a 'user' entry.
   category: 'user' | 'admin'
   summary: string
-  detail?: { changes?: ActivityChange[] }
+  detail?: Record<string, any> | null
   afterDeadline: boolean
   createdAt: string
 }

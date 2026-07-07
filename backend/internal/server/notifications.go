@@ -270,9 +270,21 @@ func (a *App) handleSaveNotifications(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// collect admin preferences for activity detail
+	admins := make([]adminNotifRow, 0, len(req.Admins))
+	for _, in := range req.Admins {
+		admins = append(admins, adminNotifRow{
+			UserID:       in.UserID,
+			NotifType:    in.NotifType,
+			ChannelEmail: in.ChannelEmail,
+			ChannelSlack: in.ChannelSlack,
+		})
+	}
+	detail := map[string]any{"irlTeamDailySummary": req.IRLTeamDailySummary, "admins": admins}
+
 	user := currentUser(r)
 	if err := a.logActivity(r.Context(), a.DB, id, &user.ID, user.Email, "",
-		actionNotificationsSaved, "Updated notification settings", nil, false); err != nil {
+		actionNotificationsSaved, "Updated notification settings", detail, false); err != nil {
 		log.Printf("WARN: log notifications save for %s: %v", id, err)
 	}
 	a.handleGetNotifications(w, r)

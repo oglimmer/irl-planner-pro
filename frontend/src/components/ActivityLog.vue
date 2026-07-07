@@ -35,6 +35,33 @@ defineProps<{
           <span class="to">{{ c.to || '—' }}</span>
         </li>
       </ul>
+      <!-- Notification preferences detail -->
+      <ul v-if="e.detail?.admins?.length" class="details">
+        <li v-for="a in e.detail.admins" :key="a.userId">
+          <span class="field">{{ a.userId }}</span>
+          <span class="to">{{ a.notifType || 'off' }}</span>
+          <span class="via" v-if="a.notifType"> via
+            <template v-if="a.viaEmail">email</template>
+            <template v-if="a.viaEmail && a.viaSlack"> + </template>
+            <template v-if="a.viaSlack">slack</template>
+          </span>
+        </li>
+      </ul>
+
+      <!-- Broadcast send detail -->
+      <div v-if="e.detail?.channels?.length" class="details">
+        <div v-for="ch in e.detail.channels" :key="ch">
+          {{ ch }}: {{ e.detail.sentPerChannel?.[ch] ?? 0 }} sent
+        </div>
+        <div v-if="e.detail.failed > 0" class="failed">
+          {{ e.detail.failed }} failed
+          <ul v-if="e.detail.failedRecipients?.length">
+            <li v-for="f in e.detail.failedRecipients" :key="f.recipient">
+              {{ f.recipient }} ({{ f.channel }}): {{ f.error }}
+            </li>
+          </ul>
+        </div>
+      </div>
       <div class="meta">
         {{ formatInZone(e.createdAt, timezone) }}
         <span v-if="showActor && e.actorEmail"> · {{ e.actorEmail }}</span>
@@ -96,6 +123,28 @@ defineProps<{
 }
 .changes .to {
   color: var(--text);
+}
+.details {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.85rem;
+}
+.details .field {
+  color: var(--muted);
+  min-width: 9rem;
+}
+.details .to {
+  color: var(--text);
+}
+.details .via {
+  color: var(--muted);
+}
+.details .failed {
+  color: var(--danger);
 }
 .line {
   display: flex;
