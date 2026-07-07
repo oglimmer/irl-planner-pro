@@ -250,7 +250,8 @@ func (a *App) handleAddAttendee(w http.ResponseWriter, r *http.Request) {
 		actor := currentUser(r)
 		actorID := actor.ID
 		summary := fmt.Sprintf("%s added %s as an attendee", actor.Email, email)
-		if err := a.logActivity(r.Context(), tx, eventID, &actorID, actor.Email, email, actionAttendeeAdded, summary, nil, false); err != nil {
+		detail := map[string]any{"email": email}
+		if err := a.logActivity(r.Context(), tx, eventID, &actorID, actor.Email, email, actionAttendeeAdded, summary, detail, false); err != nil {
 			serverErr(w, r, err, "db error")
 			return
 		}

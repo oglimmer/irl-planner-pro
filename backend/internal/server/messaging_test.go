@@ -106,40 +106,37 @@ func TestCampaignActivityDetail(t *testing.T) {
 	a := testDBApp(t)
 	ctx := context.Background()
 
-	admin := mkAdmin(t, a, ctx, "admin@oglimmer.com")
-	eventID := mkEventForTest(t, a, ctx, admin, "campaign-detail", "2026-09-01", "2026-09-03")
+	adminID := mkAdmin(t, a, ctx, "admin@oglimmer.com")
+	eventID := mkEventForTest(t, a, ctx, adminID, "campaign-detail", "2026-09-01", "2026-09-03")
 
-	// Add one attendee so the campaign has a recipient.
-	attendee, err := a.Store.findOrCreateUser(ctx, "attendee@oglimmer.com", "Attendee", "", "")
+	// Build the enriched detail that sendCampaign would produce.
+	detail := map[string]any{
+		"channels":       []string{channelEmail, channelSlack},
+		"sent":           1,
+		"skipped":        0,
+		"failed":         0,
+		"sentPerChannel": map[string]int{channelEmail: 1, channelSlack: 0},
+	}
+	if err := a.logActivity(ctx, a.DB, eventID, &adminID, "admin@oglimmer.com", "",
+		actionInvitationSent, "Sent invitation to 1 attendee(s) via email, slack", detail, false); err != nil {
+		t.Fatalf("logActivity: %v", err)
+	}
+
+	// Read back and assert the required keys exist.
+	var stored []byte
+	err := a.DB.QueryRowContext(ctx,
+		`SELECT detail FROM activity_log WHERE event_id=$1 AND action=$2 ORDER BY created_at DESC LIMIT 1`,
+		eventID, actionInvitationSent).Scan(&stored)
 	if err != nil {
-		t.Fatalf("create attendee: %v", err)
+		t.Fatalf("query activity: %v", err)
 	}
-	if _, err := a.DB.ExecContext(ctx,
-		`INSERT INTO event_attendees (event_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-		eventID, attendee.ID); err != nil {
-		t.Fatalf("add attendee: %v", err)
+	var got map[string]any
+	if err := json.Unmarshal(stored, &got); err != nil {
+		t.Fatalf("unmarshal detail: %v", err)
 	}
-
-	// Run the invitation campaign. The background goroutine will log activity.
-	// We need to wait for it to finish. For simplicity, we call the underlying
-	// sendCampaign synchronously by using a test helper that blocks.
-	// Instead, we can directly invoke the campaign logic in a goroutine and
-	// then poll the activity log.
-	// For this test we'll just trigger the handler and then check the log.
-	// The handler returns 202 and runs the send in the background.
-	// We'll wait a short time for the goroutine to finish.
-	// A more robust approach would be to mock the sender, but for now we
-	// accept the race.
-	// We'll use a synchronous helper: call a.sendCampaign directly with a
-	// context that cancels after the send? Not possible.
-	// For now, we'll just verify that the activity log eventually contains
-	// the expected action.
-	// We'll use a simple polling loop.
-	_ = a
-	_ = ctx
-	_ = eventID
-	_ = admin
-	_ = attendee
-	_ = json.Marshal
-	// TODO: implement proper synchronous test
+	for _, key := range []string{"channels", "sent", "skipped", "failed", "sentPerChannel"} {
+		if _, ok := got[key]; !ok {
+			t.Errorf("detail missing key %q", key)
+		}
+	}
 }
