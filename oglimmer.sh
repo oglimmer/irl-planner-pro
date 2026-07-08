@@ -111,7 +111,7 @@ COMMANDS:
     stop                Stop the local backend process
     status              Show whether the local backend is running
     logs                Tail the local backend log file
-    test                Run backend tests
+    test                Run the full test suite (backend + frontend, CI gates)
 
 BUILD OPTIONS:
     -f, --frontend          Build and deploy frontend only
@@ -468,9 +468,40 @@ cmd_dev_logs() {
     fi
 }
 
+# Run the full test suite (backend + frontend), the same gates CI runs.
+# Written to work on a freshly checked-out repo: Go downloads modules on demand,
+# and the frontend deps are installed with `npm ci` when node_modules is absent.
 cmd_dev_test() {
-    log_info "Running backend tests..."
+    local missing_deps=()
+    command -v go  >/dev/null 2>&1 || missing_deps+=("go")
+    command -v npm >/dev/null 2>&1 || missing_deps+=("npm")
+    if [[ ${#missing_deps[@]} -gt 0 ]]; then
+        log_error "Missing required tools for tests: ${missing_deps[*]}"
+        echo "Install the missing tools and try again." >&2
+        exit 1
+    fi
+
+    log_info "Building backend..."
+    (cd "$BACKEND_DIR" && go build ./...)
+
+    log_info "Running backend tests (go test ./...)..."
+    # DB-backed tests self-skip unless IRL_TEST_DATABASE_URL is set; pure-logic
+    # tests always run. See CLAUDE.md → DB-backed tests.
     (cd "$BACKEND_DIR" && go test ./...)
+
+    if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
+        log_info "Installing frontend dependencies (npm ci)..."
+        if [[ -f "$FRONTEND_DIR/package-lock.json" ]]; then
+            (cd "$FRONTEND_DIR" && npm ci)
+        else
+            (cd "$FRONTEND_DIR" && npm install)
+        fi
+    fi
+
+    log_info "Running frontend checks (typecheck + lint + test)..."
+    (cd "$FRONTEND_DIR" && npm run check)
+
+    log_success "All tests passed"
 }
 
 cmd_helm_push() {
