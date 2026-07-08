@@ -375,14 +375,12 @@ func (a *App) handleSaveNotifications(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Capture removals: admins who had a preference but are no longer present.
-	newSet := map[string]struct{}{}
+	requestedSet := map[string]struct{}{}
 	for _, row := range req.Admins {
-		if row.NotifType != "" {
-			newSet[row.UserID] = struct{}{}
-		}
+		requestedSet[row.UserID] = struct{}{}
 	}
 	for uid, op := range oldByUser {
-		if _, stillPresent := newSet[uid]; stillPresent {
+		if _, stillPresent := requestedSet[uid]; stillPresent {
 			continue
 		}
 		// This admin was in the old set but is now off.
