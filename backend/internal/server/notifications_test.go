@@ -123,6 +123,28 @@ func TestSaveNotificationsHandler(t *testing.T) {
 		t.Errorf("after save: email=%v slack=%v, want 1 email / 0 slack", email, slack)
 	}
 
+	// Check the activity log entry.
+	var detailRaw string
+	err := a.DB.QueryRowContext(ctx,
+		`SELECT detail FROM activity_log WHERE event_id=$1 ORDER BY created_at DESC LIMIT 1`,
+		eventID).Scan(&detailRaw)
+	if err != nil {
+		t.Fatalf("read activity detail: %v", err)
+	}
+	var detail struct {
+		Changes []struct {
+			Field string `json:"field"`
+			From  string `json:"from"`
+			To    string `json:"to"`
+		} `json:"changes"`
+	}
+	if err := json.Unmarshal([]byte(detailRaw), &detail); err != nil {
+		t.Fatalf("unmarshal activity detail: %v", err)
+	}
+	if len(detail.Changes) != 1 || detail.Changes[0].Field != "Admin admin@oglimmer.com" {
+		t.Errorf("unexpected activity detail changes: %+v", detail.Changes)
+	}
+
 	// Setting the admin to "off" (omitted/empty type) clears the row.
 	off := notificationsReq{IRLTeamDailySummary: false}
 	off.Admins = append(off.Admins, row("", false, false))
@@ -132,5 +154,19 @@ func TestSaveNotificationsHandler(t *testing.T) {
 	email, slack = a.notifyTargets(ctx, eventID, notifTypeActivity)
 	if len(email) != 0 || len(slack) != 0 {
 		t.Errorf("after off: email=%v slack=%v, want empty", email, slack)
+	}
+
+	// Verify the activity detail shows the change to "off".
+	err = a.DB.QueryRowContext(ctx,
+		`SELECT detail FROM activity_log WHERE event_id=$1 ORDER BY created_at DESC LIMIT 1`,
+		eventID).Scan(&detailRaw)
+	if err != nil {
+		t.Fatalf("read activity detail after off: %v", err)
+	}
+	if err := json.Unmarshal([]byte(detailRaw), &detail); err != nil {
+		t.Fatalf("unmarshal activity detail after off: %v", err)
+	}
+	if len(detail.Changes) != 1 || detail.Changes[0].To != "off" {
+		t.Errorf("unexpected off change: %+v", detail.Changes)
 	}
 }

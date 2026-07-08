@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -223,12 +224,68 @@ func (a *App) handleSaveNotifications(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Capture old state inside the transaction so the diff is consistent.
+	type oldPref struct {
+		Email        string
+		NotifType    string
+		ChannelEmail bool
+		ChannelSlack bool
+	}
+	oldByUser := map[string]oldPref{}
+
 	tx, err := a.DB.BeginTx(r.Context(), nil)
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return
 	}
 	defer tx.Rollback()
+
+	// Read current notification rows (joined with users for the email).
+	rows, err := tx.QueryContext(r.Context(),
+		`SELECT n.user_id, u.email, n.notif_type, n.channel_email, n.channel_slack
+		   FROM event_admin_notifications n
+		   JOIN users u ON u.id = n.user_id
+		  WHERE n.event_id = $1`, id)
+	if err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
+	for rows.Next() {
+		var uid string
+		var op oldPref
+		if err := rows.Scan(&uid, &op.Email, &op.NotifType, &op.ChannelEmail, &op.ChannelSlack); err != nil {
+			rows.Close()
+			serverErr(w, r, err, "db error")
+			return
+		}
+		oldByUser[uid] = op
+	}
+	if err := rows.Err(); err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
+
+	// Old daily-activity-email flag.
+	var oldDAE bool
+	if err := tx.QueryRowContext(r.Context(),
+		`SELECT daily_activity_email FROM events WHERE id = $1`, id).Scan(&oldDAE); err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
+
+	// Build the list of changes for the activity log.
+	changes := []ActivityChange{}
+	if oldDAE != req.IRLTeamDailySummary {
+		fromS := "off"
+		if oldDAE {
+			fromS = "on"
+		}
+		toS := "off"
+		if req.IRLTeamDailySummary {
+			toS = "on"
+		}
+		changes = append(changes, ActivityChange{Field: "IRL team daily summary", From: fromS, To: toS})
+	}
 
 	res, err := tx.ExecContext(r.Context(),
 		`UPDATE events SET daily_activity_email = $1, updated_at = now() WHERE id = $2`,
@@ -270,10 +327,55 @@ func (a *App) handleSaveNotifications(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := currentUser(r)
-	if err := a.logActivity(r.Context(), a.DB, id, &user.ID, user.Email, "",
-		actionNotificationsSaved, "Updated notification settings", nil, false); err != nil {
-		log.Printf("WARN: log notifications save for %s: %v", id, err)
+	// Complete the diff for each requested admin *after* the commit, using the
+	// old state we captured.
+	for _, row := range req.Admins {
+		old, existed := oldByUser[row.UserID]
+		email := ""
+		if existed {
+			email = old.Email
+		} else {
+			// The admin may not have had a row before; get the email from users.
+			if err := a.DB.QueryRowContext(r.Context(),
+				`SELECT email FROM users WHERE id = $1`, row.UserID).Scan(&email); err != nil {
+				log.Printf("WARN: notifications activity diff: user %s: %v", row.UserID, err)
+				continue
+			}
+		}
+		oldType := ""
+		oldEmailCh := false
+		oldSlackCh := false
+		if existed {
+			oldType = old.NotifType
+			oldEmailCh = old.ChannelEmail
+			oldSlackCh = old.ChannelSlack
+		}
+		if oldType == row.NotifType && oldEmailCh == row.ChannelEmail && oldSlackCh == row.ChannelSlack {
+			continue // no change for this admin
+		}
+		fromS := "off"
+		if oldType != "" {
+			fromS = fmt.Sprintf("%s (email=%t, slack=%t)", oldType, oldEmailCh, oldSlackCh)
+		}
+		toS := "off"
+		if row.NotifType != "" {
+			toS = fmt.Sprintf("%s (email=%t, slack=%t)", row.NotifType, row.ChannelEmail, row.ChannelSlack)
+		}
+		changes = append(changes, ActivityChange{
+			Field: fmt.Sprintf("Admin %s", email),
+			From:  fromS,
+			To:    toS,
+		})
 	}
+
+	summary := "Updated notification settings"
+	if len(changes) > 0 {
+		summary += fmt.Sprintf(" (%d change(s))", len(changes))
+	}
+
+	user := currentUser(r)
+	a.logActivity(r.Context(), a.DB, id, &user.ID, user.Email, "",
+		actionNotificationsSaved, summary,
+		map[string]any{"changes": changes}, false)
 	a.handleGetNotifications(w, r)
 }

@@ -9,6 +9,16 @@ defineProps<{
   timezone: string
   showActor?: boolean
 }>()
+
+function isArray(val: unknown): val is unknown[] {
+  return Array.isArray(val)
+}
+
+function fmt(v: unknown): string {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v)
+  return JSON.stringify(v)
+}
 </script>
 
 <template>
@@ -27,7 +37,8 @@ defineProps<{
         <span v-else class="badge ontime">On time</span>
         <span class="summary">{{ e.summary }}</span>
       </div>
-      <ul v-if="e.detail?.changes?.length" class="changes">
+      <!-- Submission field changes -->
+      <ul v-if="isArray(e.detail?.changes) && e.detail.changes.length" class="changes">
         <li v-for="c in e.detail.changes" :key="c.field">
           <span class="field">{{ c.field }}</span>
           <span class="from">{{ c.from || '—' }}</span>
@@ -35,6 +46,13 @@ defineProps<{
           <span class="to">{{ c.to || '—' }}</span>
         </li>
       </ul>
+      <!-- Generic detail (e.g. campaigns, reminders) -->
+      <dl v-if="e.detail && !isArray(e.detail.changes)" class="kv-detail">
+        <template v-for="(v, k) in e.detail" :key="k">
+          <dt>{{ k }}</dt>
+          <dd>{{ fmt(v) }}</dd>
+        </template>
+      </dl>
       <div class="meta">
         {{ formatInZone(e.createdAt, timezone) }}
         <span v-if="showActor && e.actorEmail"> · {{ e.actorEmail }}</span>
@@ -132,5 +150,20 @@ defineProps<{
 }
 .muted {
   color: var(--muted);
+}
+.kv-detail {
+  margin: 0.35rem 0 0 0;
+  padding: 0;
+  font-size: 0.85rem;
+}
+.kv-detail dt {
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 0.25rem;
+}
+.kv-detail dd {
+  margin: 0 0 0 1.2rem;
+  color: var(--muted);
+  word-break: break-all;
 }
 </style>

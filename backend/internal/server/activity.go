@@ -31,6 +31,14 @@ const (
 	actionNotificationsSaved    = "notifications.saved"
 )
 
+// ActivityChange is one before/after pair in the detail of an activity log entry.
+// Matches the frontend type ActivityChange.
+type ActivityChange struct {
+	Field string `json:"field"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+}
+
 // Activity categories classify *what was done*, not who did it. A participant
 // action (submitting one's own attendance) is "user" even when performed by an
 // admin account; configuration, roster management, admin edits, and reminders
