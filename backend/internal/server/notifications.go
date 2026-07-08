@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -267,7 +268,7 @@ func (a *App) handleSaveNotifications(w http.ResponseWriter, r *http.Request) {
 
 	// Old daily-activity-email flag.
 	var oldDAE bool
-	err := tx.QueryRowContext(r.Context(),
+	err = tx.QueryRowContext(r.Context(),
 		`SELECT daily_activity_email FROM events WHERE id = $1`, id).Scan(&oldDAE)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
