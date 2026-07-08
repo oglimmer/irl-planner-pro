@@ -139,13 +139,21 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 		}
 		chDetail := detail["channels"].(map[string]map[string]int)
 		parts := make([]string, 0, len(channels))
+		totalSent := 0
+		totalFailed := 0
 		for _, ch := range channels { // stable order from configuredChannels()
 			s := *stats[ch]
 			chDetail[ch] = map[string]int{"sent": s.sent, "failed": s.failed}
 			parts = append(parts, fmt.Sprintf("%s (sent=%d, failed=%d)", ch, s.sent, s.failed))
+			totalSent += s.sent
+			totalFailed += s.failed
+		}
+		totalAttempts := totalSent + totalFailed
+		if totalAttempts == 0 {
+			continue // no actual sends for this window — skip activity log
 		}
 		summary := fmt.Sprintf("Sent %s reminder to %d non-responder(s): %s",
-			win.Kind, len(nonResponders), strings.Join(parts, ", "))
+			win.Kind, totalAttempts, strings.Join(parts, ", "))
 
 		if err := a.logActivity(ctx, a.DB, e.ID, nil, "", "",
 			actionReminderSent, summary, detail, false); err != nil {

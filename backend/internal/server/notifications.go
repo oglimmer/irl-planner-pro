@@ -374,8 +374,10 @@ func (a *App) handleSaveNotifications(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := currentUser(r)
-	a.logActivity(r.Context(), a.DB, id, &user.ID, user.Email, "",
+	if err := a.logActivity(r.Context(), a.DB, id, &user.ID, user.Email, "",
 		actionNotificationsSaved, summary,
-		map[string]any{"changes": changes}, false)
+		map[string]any{"changes": changes}, false); err != nil {
+		log.Printf("WARN: log notifications save for %s: %v", id, err)
+	}
 	a.handleGetNotifications(w, r)
 }
