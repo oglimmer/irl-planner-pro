@@ -267,8 +267,13 @@ func (a *App) handleSaveNotifications(w http.ResponseWriter, r *http.Request) {
 
 	// Old daily-activity-email flag.
 	var oldDAE bool
-	if err := tx.QueryRowContext(r.Context(),
-		`SELECT daily_activity_email FROM events WHERE id = $1`, id).Scan(&oldDAE); err != nil {
+	err := tx.QueryRowContext(r.Context(),
+		`SELECT daily_activity_email FROM events WHERE id = $1`, id).Scan(&oldDAE)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "event not found")
+			return
+		}
 		serverErr(w, r, err, "db error")
 		return
 	}
@@ -365,6 +370,25 @@ func (a *App) handleSaveNotifications(w http.ResponseWriter, r *http.Request) {
 			Field: fmt.Sprintf("Admin %s", email),
 			From:  fromS,
 			To:    toS,
+		})
+	}
+
+	// Capture removals: admins who had a preference but are no longer present.
+	newSet := map[string]struct{}{}
+	for _, row := range req.Admins {
+		if row.NotifType != "" {
+			newSet[row.UserID] = struct{}{}
+		}
+	}
+	for uid, op := range oldByUser {
+		if _, stillPresent := newSet[uid]; stillPresent {
+			continue
+		}
+		// This admin was in the old set but is now off.
+		changes = append(changes, ActivityChange{
+			Field: fmt.Sprintf("Admin %s", op.Email),
+			From:  fmt.Sprintf("%s (email=%t, slack=%t)", op.NotifType, op.ChannelEmail, op.ChannelSlack),
+			To:    "off",
 		})
 	}
 

@@ -152,8 +152,8 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 		if totalAttempts == 0 {
 			continue // no actual sends for this window — skip activity log
 		}
-		summary := fmt.Sprintf("Sent %s reminder to %d non-responder(s): %s",
-			win.Kind, totalAttempts, strings.Join(parts, ", "))
+		summary := fmt.Sprintf("Attempted %s reminder for %d non-responder(s): %s",
+			win.Kind, len(nonResponders), strings.Join(parts, ", "))
 
 		if err := a.logActivity(ctx, a.DB, e.ID, nil, "", "",
 			actionReminderSent, summary, detail, false); err != nil {
