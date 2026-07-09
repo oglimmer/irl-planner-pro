@@ -63,14 +63,14 @@ func (a *App) notifyTargets(ctx context.Context, eventID, notifType string) (ema
 // WARN and never propagates (notifications must never break a request).
 func (a *App) dispatch(emailTo, slackTo []string, subject, body string) int {
 	sent := 0
-	if len(emailTo) > 0 && a.Email.Configured() {
+	if len(emailTo) > 0 && a.Email != nil && a.Email.Configured() {
 		if err := a.Email.Send(emailTo, subject, body); err != nil {
 			log.Printf("WARN: notification email failed: %v", err)
 		} else {
 			sent++
 		}
 	}
-	if len(slackTo) > 0 && a.Slack.Configured() {
+	if len(slackTo) > 0 && a.Slack != nil && a.Slack.Configured() {
 		if err := a.Slack.Send(slackTo, subject, body); err != nil {
 			log.Printf("WARN: notification slack failed: %v", err)
 		} else {
@@ -94,13 +94,13 @@ func (a *App) handleSendTestNotification(w http.ResponseWriter, r *http.Request)
 	var err error
 	switch channel {
 	case channelEmail:
-		if !a.Email.Configured() {
+		if a.Email == nil || !a.Email.Configured() {
 			writeErr(w, http.StatusBadRequest, "email is not configured on this server")
 			return
 		}
 		err = a.Email.Send([]string{user.Email}, subject, body)
 	case channelSlack:
-		if !a.Slack.Configured() {
+		if a.Slack == nil || !a.Slack.Configured() {
 			writeErr(w, http.StatusBadRequest, "slack is not configured on this server")
 			return
 		}

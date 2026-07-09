@@ -114,8 +114,8 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 			subject := renderTemplate(subjectTmpl, vars)
 			body := renderTemplate(bodyTmpl, vars)
 			for _, ch := range channels {
-				sent, status, errStr := a.sendReminder(ctx, e, rc, win, ch, subject, body)
-				if sent {
+				success, status, errStr := a.sendReminder(ctx, e, rc, win, ch, subject, body)
+				if success {
 					totalSent++
 					recipDetails = append(recipDetails, messageRecipDetail{Email: rc.Email, Channel: ch, Status: status, Error: errStr})
 				}
@@ -134,8 +134,8 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 // sendReminder delivers one scheduled reminder to one non-responder over one
 // channel, exactly-once via a per-channel claim. A send failure releases the
 // claim so the next due tick retries (matching the manual follow-up path).
-// Returns whether a new claim was made, the delivery status ("sent"/"failed")
-// and any error message.
+// Returns whether the message was actually sent (success), the status string
+// ("sent"/"failed"), and any error message.
 func (a *App) sendReminder(ctx context.Context, e *Event, rc contact, win reminderWindow, channel, subject, body string) (bool, string, string) {
 	key := reminderClaimKey(win.PeriodKey, channel)
 	claimed, err := a.claimReminder(ctx, e.ID, rc.Email, win.Kind, key)
@@ -151,7 +151,7 @@ func (a *App) sendReminder(ctx context.Context, e *Event, rc contact, win remind
 		a.unclaimReminder(ctx, e.ID, rc.Email, win.Kind, key)
 		a.logSend(ctx, e.ID, rc.Email, win.Kind, channel, "failed", err.Error())
 		metrics.MessageSendsTotal.WithLabelValues(win.Kind, channel, "failed").Inc()
-		return true, "failed", err.Error()
+		return false, "failed", err.Error()
 	}
 	a.logSend(ctx, e.ID, rc.Email, win.Kind, channel, "sent", "")
 	metrics.RemindersSentTotal.WithLabelValues(win.Kind).Inc()

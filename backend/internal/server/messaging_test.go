@@ -142,11 +142,19 @@ func TestInvitationActivityDetail(t *testing.T) {
 		t.Fatalf("status %d", w.Code)
 	}
 
-	time.Sleep(200 * time.Millisecond) // wait for async goroutine
-
-	entries, err := a.queryActivity(ctx, eventID, "", "")
-	if err != nil {
-		t.Fatalf("query activity: %v", err)
+	// Poll until the activity entry appears (async write).
+	var entries []ActivityEntry
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var err error
+		entries, err = a.queryActivity(ctx, eventID, "", "")
+		if err != nil {
+			t.Fatalf("query activity: %v", err)
+		}
+		if len(entries) > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
