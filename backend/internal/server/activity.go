@@ -42,6 +42,11 @@ const (
 	categoryAdmin = "admin"
 )
 
+// maxDetailedSends bounds how many message_send_log rows the detailed activity
+// feed pulls into memory (newest first). Keeps the admin timeline responsive on
+// events with many recipients or repeated campaigns.
+const maxDetailedSends = 500
+
 // actionCategory maps an action verb to its category. Category is a pure
 // function of the action, so it is derived here at write time; migration 0011
 // backfills historical rows with the same mapping — keep the two in sync.
@@ -143,7 +148,9 @@ func (a *App) queryDetailedActivity(ctx context.Context, eventID string) ([]Acti
 	}
 	rows, err := a.DB.QueryContext(ctx,
 		`SELECT recipient, kind, channel, status, COALESCE(error, ''), created_at
-		   FROM message_send_log WHERE event_id = $1`, eventID)
+		   FROM message_send_log WHERE event_id = $1
+		  ORDER BY created_at DESC
+		  LIMIT $2`, eventID, maxDetailedSends)
 	if err != nil {
 		return nil, err
 	}
