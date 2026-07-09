@@ -142,7 +142,7 @@ func (a *App) queryDetailedActivity(ctx context.Context, eventID string) ([]Acti
 		return nil, err
 	}
 	rows, err := a.DB.QueryContext(ctx,
-		`SELECT recipient, kind, channel, status, error, created_at
+		`SELECT recipient, kind, channel, status, COALESCE(error, ''), created_at
 		   FROM message_send_log WHERE event_id = $1`, eventID)
 	if err != nil {
 		return nil, err
