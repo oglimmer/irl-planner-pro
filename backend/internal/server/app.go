@@ -16,8 +16,6 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"irlplanner/internal/config"
-	"irlplanner/internal/email"
-	"irlplanner/internal/slack"
 )
 
 // Sender is the delivery interface satisfied by email.Sender and slack.Notifier.

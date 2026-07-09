@@ -11,8 +11,6 @@ import (
 	"irlplanner/internal/metrics"
 )
 
-const actionScheduledRemindersSent = "reminders.scheduled_sent"
-
 // reminderWindow is one due reminder occurrence (a kind + an idempotency key).
 type reminderWindow struct {
 	Kind      string // "weekly" | "deadline"
