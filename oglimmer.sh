@@ -461,10 +461,17 @@ cmd_dev_status() {
 }
 
 cmd_dev_logs() {
-    if [[ -f "$DEV_LOG_FILE" ]]; then
+    if [[ ! -f "$DEV_LOG_FILE" ]]; then
+        echo "no log file found"
+        return
+    fi
+    # Follow only when attached to a terminal. In non-interactive use (pipes,
+    # CI, command substitution) `tail -f` would block forever, so just print
+    # the current tail of the log and return.
+    if [[ -t 1 ]]; then
         tail -f "$DEV_LOG_FILE"
     else
-        echo "no log file found"
+        tail -n 200 "$DEV_LOG_FILE"
     fi
 }
 
@@ -812,6 +819,12 @@ execute_release() {
     if [[ -n "$RELEASE_BUMP" ]]; then
         bump="$RELEASE_BUMP"
         log_info "Bump type from --bump: $bump"
+    elif [[ ! -t 0 ]]; then
+        # No TTY on stdin: the interactive `select` prompt below would block
+        # forever (or read EOF and fail confusingly). Require --bump instead.
+        log_error "release needs a bump type when run non-interactively."
+        echo "Pass --bump major|minor|bugfix." >&2
+        exit 1
     else
         # Explain bump types
         echo "Select which part to bump (semantic versioning):"
