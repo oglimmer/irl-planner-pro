@@ -126,6 +126,9 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 			}
 		}
 	}
+	if len(recipDetails) > maxRecipDetailEntries {
+		recipDetails = recipDetails[:maxRecipDetailEntries]
+	}
 	if len(recipDetails) > 0 {
 		summary := fmt.Sprintf("Sent %d scheduled reminder(s), failed %d via %s", totalSent, totalFailed, strings.Join(channels, ", "))
 		if err := a.logActivity(ctx, a.DB, e.ID, nil, "", "", actionScheduledRemindersSent, summary,

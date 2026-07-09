@@ -479,6 +479,9 @@ func (a *App) sendCampaign(w http.ResponseWriter, r *http.Request, c campaign) {
 			sent++
 			metrics.RemindersSentTotal.WithLabelValues(c.metricKind).Inc()
 		}
+		if len(recipDetails) > maxRecipDetailEntries {
+			recipDetails = recipDetails[:maxRecipDetailEntries]
+		}
 		if err := a.logActivity(ctx, a.DB, e.ID, &actorID, actorEmail, "",
 			c.action, c.summary(sent, failed, channels),
 			map[string]any{

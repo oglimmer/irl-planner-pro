@@ -123,7 +123,7 @@ func TestInvitationActivityDetail(t *testing.T) {
 	ctx := context.Background()
 
 	adminID := mkAdmin(t, a, ctx, "admin@oglimmer.com")
-	eventID := mkEventForTest(t, a, ctx, adminID, "detail-event", "2026-09-01", "2026-09-03")
+	eventID := mkEventForTest(t, a, ctx, adminID, "inv-detail-"+strfmt(t), "2026-09-01", "2026-09-03")
 
 	addAttendee(t, a, ctx, eventID, "alice@oglimmer.com", "Alice", "")
 	addAttendee(t, a, ctx, eventID, "bob@oglimmer.com", "Bob", "")
@@ -195,4 +195,17 @@ func addAttendee(t *testing.T, a *App, ctx context.Context, eventID, email, firs
 		eventID, u.ID); err != nil {
 		t.Fatalf("add attendee %s: %v", email, err)
 	}
+}
+
+func strfmt(t *testing.T) string {
+	t.Helper()
+	// Turn the test name into a valid, lowercase slug segment (a-z0-9-).
+	s := strings.ToLower(strings.ReplaceAll(t.Name(), "/", "-"))
+	s = strings.Map(func(r rune) rune {
+		if ('a' <= r && r <= 'z') || ('0' <= r && r <= '9') || r == '-' {
+			return r
+		}
+		return '-'
+	}, s)
+	return strings.Trim(s, "-")
 }
