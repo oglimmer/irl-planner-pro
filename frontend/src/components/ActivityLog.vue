@@ -37,7 +37,7 @@ defineProps<{
       </ul>
       <!-- Per‑recipient delivery details (manual + scheduled campaigns). -->
       <ul v-if="e.detail?.recipients?.length" class="recipients">
-        <li v-for="r in e.detail.recipients" :key="`${r.email}-${r.channel}`" class="recipient">
+        <li v-for="(r, i) in e.detail.recipients" :key="`${r.email}-${r.channel}-${i}`" class="recipient">
           <span class="email">{{ r.email }}</span>
           <span class="channel">{{ r.channel }}</span>
           <span :class="['status', r.status === 'failed' ? 'fail' : 'ok']">

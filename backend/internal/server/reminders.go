@@ -106,7 +106,7 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 	// Same editable template the Messaging tab saves; falls back to the default.
 	subjectTmpl := firstNonEmpty(e.ReminderSubject, defaultReminderSubject)
 	bodyTmpl := firstNonEmpty(e.ReminderBody, defaultReminderBody)
-	var totalSent int
+	var totalSent, totalFailed int
 	var recipDetails []messageRecipDetail
 	for _, win := range windows {
 		for _, rc := range nonResponders {
@@ -115,15 +115,19 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 			body := renderTemplate(bodyTmpl, vars)
 			for _, ch := range channels {
 				success, status, errStr := a.sendReminder(ctx, e, rc, win, ch, subject, body)
-				if success {
-					totalSent++
+				if status != "" {
 					recipDetails = append(recipDetails, messageRecipDetail{Email: rc.Email, Channel: ch, Status: status, Error: errStr})
+					if success {
+						totalSent++
+					} else {
+						totalFailed++
+					}
 				}
 			}
 		}
 	}
-	if totalSent > 0 {
-		summary := fmt.Sprintf("Sent %d scheduled reminder(s) to non‑responders via %s", totalSent, strings.Join(channels, ", "))
+	if len(recipDetails) > 0 {
+		summary := fmt.Sprintf("Sent %d scheduled reminder(s), failed %d via %s", totalSent, totalFailed, strings.Join(channels, ", "))
 		if err := a.logActivity(ctx, a.DB, e.ID, nil, "", "", actionScheduledRemindersSent, summary,
 			map[string]any{"recipients": recipDetails}, false); err != nil {
 			log.Printf("WARN: log scheduled reminders for %s: %v", e.ID, err)
