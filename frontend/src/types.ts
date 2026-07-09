@@ -280,6 +280,13 @@ export interface ActivityChange {
   to: string
 }
 
+export interface MessageRecipient {
+  email: string
+  channel: string           // "email" | "slack"
+  status: string            // "sent" | "failed"
+  error?: string
+}
+
 export interface ActivityEntry {
   id: string
   actorEmail: string
@@ -290,7 +297,10 @@ export interface ActivityEntry {
   // reminders). An admin submitting their own attendance produces a 'user' entry.
   category: 'user' | 'admin'
   summary: string
-  detail?: { changes?: ActivityChange[] }
+  detail?: {
+    changes?: ActivityChange[]
+    recipients?: MessageRecipient[]
+  }
   afterDeadline: boolean
   createdAt: string
 }

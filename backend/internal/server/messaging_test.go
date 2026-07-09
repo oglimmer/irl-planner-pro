@@ -1,9 +1,36 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 )
+
+// mockSender is a fake notifier that records recipients and always succeeds.
+type mockSender struct {
+	mu       sync.Mutex
+	emails   []string
+	subjects []string
+	bodies   []string
+}
+
+func (m *mockSender) Configured() bool { return true }
+func (m *mockSender) Send(to []string, subject, body string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range to {
+		m.emails = append(m.emails, r)
+		m.subjects = append(m.subjects, subject)
+		m.bodies = append(m.bodies, body)
+	}
+	return nil
+}
 
 func TestFormatDeadline(t *testing.T) {
 	tests := []struct {
@@ -89,4 +116,75 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestInvitationActivityDetail(t *testing.T) {
+	a := testDBApp(t)
+	ctx := context.Background()
+
+	adminID := mkAdmin(t, a, ctx, "admin@oglimmer.com")
+	eventID := mkEventForTest(t, a, ctx, adminID, "detail-event", "2026-09-01", "2026-09-03")
+
+	addAttendee(t, a, ctx, eventID, "alice@oglimmer.com", "Alice", "")
+	addAttendee(t, a, ctx, eventID, "bob@oglimmer.com", "Bob", "")
+
+	emailMock := &mockSender{}
+	a.Email = emailMock
+	a.Slack = noopSender{}
+
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/events/"+eventID+"/messaging/invite", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", eventID)
+	r = r.WithContext(context.WithValue(withAdmin(ctx, adminID), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	a.handleSendInvitation(w, r)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status %d", w.Code)
+	}
+
+	time.Sleep(200 * time.Millisecond) // wait for async goroutine
+
+	entries, err := a.queryActivity(ctx, eventID, "", "")
+	if err != nil {
+		t.Fatalf("query activity: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	entry := entries[0]
+	if entry.Action != actionInvitationSent {
+		t.Fatalf("action = %s", entry.Action)
+	}
+
+	type detailPayload struct {
+		Recipients []messageRecipDetail `json:"recipients"`
+	}
+	var detail detailPayload
+	if entry.Detail == nil {
+		t.Fatal("detail is nil")
+	}
+	if err := json.Unmarshal(entry.Detail, &detail); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(detail.Recipients) != 2 {
+		t.Fatalf("expected 2 recipients, got %d", len(detail.Recipients))
+	}
+	for _, rd := range detail.Recipients {
+		if rd.Status != "sent" {
+			t.Errorf("recipient %s status = %s", rd.Email, rd.Status)
+		}
+	}
+}
+
+func addAttendee(t *testing.T, a *App, ctx context.Context, eventID, email, firstName, _ string) {
+	t.Helper()
+	u, err := a.Store.findOrCreateUser(ctx, email, firstName, "", "")
+	if err != nil {
+		t.Fatalf("create user %s: %v", email, err)
+	}
+	if _, err := a.DB.ExecContext(ctx,
+		`INSERT INTO event_attendees (event_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+		eventID, u.ID); err != nil {
+		t.Fatalf("add attendee %s: %v", email, err)
+	}
 }

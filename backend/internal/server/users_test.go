@@ -45,6 +45,11 @@ func testDBApp(t *testing.T) *App {
 		Cfg:   config.Config{JWTSecret: "test-secret-at-least-32-characters-long"},
 		DB:    d,
 		Store: NewStore(d),
+		// Use no‑op senders to avoid nil‑pointer panics in tests that do not
+		// exercise email/slack. Real tests that need to inspect sent messages
+		// replace these with mock senders.
+		Email: noopSender{},
+		Slack: noopSender{},
 	}
 }
 

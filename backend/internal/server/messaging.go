@@ -34,6 +34,15 @@ const (
 	channelSlack = "slack"
 )
 
+// messageRecipDetail captures one per‑channel delivery attempt so the activity
+// log shows exactly what was sent to whom and whether it succeeded.
+type messageRecipDetail struct {
+	Email   string `json:"email"`
+	Channel string `json:"channel"`
+	Status  string `json:"status"` // "sent" | "failed"
+	Error   string `json:"error,omitempty"`
+}
+
 // contact is a recipient with just enough identity to personalize a message.
 type contact struct {
 	Email     string
@@ -419,6 +428,7 @@ func (a *App) sendCampaign(w http.ResponseWriter, r *http.Request, c campaign) {
 	go func() {
 		ctx := context.Background()
 		sent, skipped, failed := 0, 0, 0
+		var recipDetails []messageRecipDetail
 		for _, rc := range recipients {
 			claimed, err := a.claimReminder(ctx, e.ID, rc.Email, c.kind, periodKey)
 			if err != nil {
@@ -440,12 +450,23 @@ func (a *App) sendCampaign(w http.ResponseWriter, r *http.Request, c campaign) {
 			anySent := false
 			for _, ch := range channels {
 				if err := a.sendVia(ch, []string{rc.Email}, subject, body); err != nil {
+					recipDetails = append(recipDetails, messageRecipDetail{
+						Email:   rc.Email,
+						Channel: ch,
+						Status:  "failed",
+						Error:   err.Error(),
+					})
 					log.Printf("WARN: %s send to %s via %s: %v", c.kind, rc.Email, ch, err)
 					a.logSend(ctx, e.ID, rc.Email, c.kind, ch, "failed", err.Error())
 					metrics.MessageSendsTotal.WithLabelValues(c.metricKind, ch, "failed").Inc()
 					continue
 				}
 				anySent = true
+				recipDetails = append(recipDetails, messageRecipDetail{
+					Email:   rc.Email,
+					Channel: ch,
+					Status:  "sent",
+				})
 				a.logSend(ctx, e.ID, rc.Email, c.kind, ch, "sent", "")
 				metrics.MessageSendsTotal.WithLabelValues(c.metricKind, ch, "sent").Inc()
 			}
@@ -460,7 +481,10 @@ func (a *App) sendCampaign(w http.ResponseWriter, r *http.Request, c campaign) {
 		}
 		if err := a.logActivity(ctx, a.DB, e.ID, &actorID, actorEmail, "",
 			c.action, c.summary(sent, failed, channels),
-			map[string]any{"channels": channels, "sent": sent, "skipped": skipped, "failed": failed}, false); err != nil {
+			map[string]any{
+				"channels":   channels,
+				"recipients": recipDetails,
+			}, false); err != nil {
 			log.Printf("WARN: log %s for %s: %v", c.kind, e.ID, err)
 		}
 		log.Printf("messaging: %s for event %s via %s — sent %d, skipped %d, failed %d", c.kind, e.ID, strings.Join(channels, ","), sent, skipped, failed)

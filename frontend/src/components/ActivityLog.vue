@@ -35,6 +35,17 @@ defineProps<{
           <span class="to">{{ c.to || '—' }}</span>
         </li>
       </ul>
+      <!-- Per‑recipient delivery details (manual + scheduled campaigns). -->
+      <ul v-if="e.detail?.recipients?.length" class="recipients">
+        <li v-for="r in e.detail.recipients" :key="`${r.email}-${r.channel}`" class="recipient">
+          <span class="email">{{ r.email }}</span>
+          <span class="channel">{{ r.channel }}</span>
+          <span :class="['status', r.status === 'failed' ? 'fail' : 'ok']">
+            {{ r.status }}
+            <template v-if="r.error">: {{ r.error }}</template>
+          </span>
+        </li>
+      </ul>
       <div class="meta">
         {{ formatInZone(e.createdAt, timezone) }}
         <span v-if="showActor && e.actorEmail"> · {{ e.actorEmail }}</span>
@@ -93,6 +104,16 @@ defineProps<{
 }
 .changes .arrow {
   color: var(--muted);
+}
+.recipients {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  font-size: 0.82rem;
+}
+.recipients li {
+  display: flex;
+  gap: 0.4rem;
 }
 .changes .to {
   color: var(--text);

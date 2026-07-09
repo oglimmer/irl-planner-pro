@@ -20,6 +20,18 @@ import (
 	"irlplanner/internal/slack"
 )
 
+// Sender is the delivery interface satisfied by email.Sender and slack.Notifier.
+type Sender interface {
+	Configured() bool
+	Send(to []string, subject, body string) error
+}
+
+// noopSender is a Sender that does nothing; used in tests and when no transport is configured.
+type noopSender struct{}
+
+func (noopSender) Configured() bool                { return false }
+func (noopSender) Send(_ []string, _, _ string) error { return nil }
+
 type App struct {
 	Cfg  config.Config
 	DB   *sql.DB      // raw pool; used directly for some queries and all tx work
@@ -29,14 +41,10 @@ type App struct {
 	// Callers use a.Store.* directly.
 	Store *Store
 
-	// Email sends outbound notifications (reminders, digests, admin alerts).
-	// Its zero value is "not configured" — Send is a no-op guarded by callers.
-	Email email.Sender
-
-	// Slack is the Slack channel for the Messaging tab: bot DMs via the Slack
-	// Web API. Configured() reports whether a bot token is set; when unset, Send
-	// errors and the channel surfaces as "not configured" (see internal/slack).
-	Slack slack.Notifier
+	// Email sends outbound email notifications.
+	Email Sender
+	// Slack sends outbound Slack DMs.
+	Slack Sender
 
 	// ready gates the readiness probe. The backend is ready as soon as the DB
 	// is migrated, so this flips true at startup.

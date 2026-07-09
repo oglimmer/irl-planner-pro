@@ -11,6 +11,8 @@ import (
 	"irlplanner/internal/metrics"
 )
 
+const actionScheduledRemindersSent = "reminders.scheduled_sent"
+
 // reminderWindow is one due reminder occurrence (a kind + an idempotency key).
 type reminderWindow struct {
 	Kind      string // "weekly" | "deadline"
@@ -106,18 +108,27 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 	// Same editable template the Messaging tab saves; falls back to the default.
 	subjectTmpl := firstNonEmpty(e.ReminderSubject, defaultReminderSubject)
 	bodyTmpl := firstNonEmpty(e.ReminderBody, defaultReminderBody)
+	var totalSent int
+	var recipDetails []messageRecipDetail
 	for _, win := range windows {
 		for _, rc := range nonResponders {
 			vars := a.messageVars(e, rc)
 			subject := renderTemplate(subjectTmpl, vars)
 			body := renderTemplate(bodyTmpl, vars)
-			// Deliver on each configured channel as a direct message to the
-			// non-responder (email + Slack DM). Each channel is claimed
-			// independently so a failure on one retries without re-sending the
-			// other.
 			for _, ch := range channels {
-				a.sendReminder(ctx, e, rc, win, ch, subject, body)
+				sent, status, errStr := a.sendReminder(ctx, e, rc, win, ch, subject, body)
+				if sent {
+					totalSent++
+					recipDetails = append(recipDetails, messageRecipDetail{Email: rc.Email, Channel: ch, Status: status, Error: errStr})
+				}
 			}
+		}
+	}
+	if totalSent > 0 {
+		summary := fmt.Sprintf("Sent %d scheduled reminder(s) to non‑responders via %s", totalSent, strings.Join(channels, ", "))
+		if err := a.logActivity(ctx, a.DB, e.ID, nil, "", "", actionScheduledRemindersSent, summary,
+			map[string]any{"recipients": recipDetails}, false); err != nil {
+			log.Printf("WARN: log scheduled reminders for %s: %v", e.ID, err)
 		}
 	}
 }
@@ -125,26 +136,29 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 // sendReminder delivers one scheduled reminder to one non-responder over one
 // channel, exactly-once via a per-channel claim. A send failure releases the
 // claim so the next due tick retries (matching the manual follow-up path).
-func (a *App) sendReminder(ctx context.Context, e *Event, rc contact, win reminderWindow, channel, subject, body string) {
+// Returns whether a new claim was made, the delivery status ("sent"/"failed")
+// and any error message.
+func (a *App) sendReminder(ctx context.Context, e *Event, rc contact, win reminderWindow, channel, subject, body string) (bool, string, string) {
 	key := reminderClaimKey(win.PeriodKey, channel)
 	claimed, err := a.claimReminder(ctx, e.ID, rc.Email, win.Kind, key)
 	if err != nil {
 		log.Printf("WARN: reminder claim: %v", err)
-		return
+		return false, "", ""
 	}
 	if !claimed {
-		return // already sent for this window+channel
+		return false, "", "" // already sent for this window+channel
 	}
 	if err := a.sendVia(channel, []string{rc.Email}, subject, body); err != nil {
 		log.Printf("WARN: reminder %s to %s: %v", channel, rc.Email, err)
 		a.unclaimReminder(ctx, e.ID, rc.Email, win.Kind, key)
 		a.logSend(ctx, e.ID, rc.Email, win.Kind, channel, "failed", err.Error())
 		metrics.MessageSendsTotal.WithLabelValues(win.Kind, channel, "failed").Inc()
-		return
+		return true, "failed", err.Error()
 	}
 	a.logSend(ctx, e.ID, rc.Email, win.Kind, channel, "sent", "")
 	metrics.RemindersSentTotal.WithLabelValues(win.Kind).Inc()
 	metrics.MessageSendsTotal.WithLabelValues(win.Kind, channel, "sent").Inc()
+	return true, "sent", ""
 }
 
 // configuredChannels lists the delivery channels currently wired up, in send

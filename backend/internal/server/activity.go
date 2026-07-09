@@ -28,6 +28,7 @@ const (
 	actionMessageTemplateSaved  = "message.template_saved"
 	actionInvitationSent        = "message.invitation_sent"
 	actionFollowupSent          = "message.followup_sent"
+	actionScheduledRemindersSent = "reminders.scheduled_sent"
 	actionNotificationsSaved    = "notifications.saved"
 )
 
