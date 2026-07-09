@@ -293,6 +293,11 @@ export interface ActivityEntry {
   detail?: { changes?: ActivityChange[] }
   afterDeadline: boolean
   createdAt: string
+  // Only present on the "detailed" admin feed (GET .../activity?detailed=true),
+  // where a campaign send is expanded into one entry per recipient/channel
+  // delivery outcome.
+  channel?: string
+  status?: string
 }
 
 // Result of a CSV attendee import: `added` are newly linked to the event,

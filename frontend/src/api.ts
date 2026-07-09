@@ -162,8 +162,12 @@ export const api = {
     request<Event>('/api/admin/events', { method: 'POST', body: JSON.stringify(data) }),
   updateEvent: (id: string, data: EventInput) =>
     request<Event>(`/api/admin/events/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  eventActivity: (id: string) =>
-    request<ActivityEntry[]>(`/api/admin/events/${id}/activity`),
+  // detailed=true expands campaign sends into per-recipient/channel delivery
+  // entries (channel + status set on each), for the admin timeline view.
+  eventActivity: (id: string, detailed = false) =>
+    request<ActivityEntry[]>(
+      `/api/admin/events/${id}/activity${detailed ? '?detailed=true' : ''}`,
+    ),
   // lock=true saves and locks the response (attendee can no longer self-edit);
   // lock=false is a plain save that leaves it attendee-editable. The lock is
   // sticky server-side, so a plain save never unlocks an already-locked response.

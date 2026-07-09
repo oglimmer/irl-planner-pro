@@ -65,7 +65,7 @@ async function loadResponses() {
 
 async function loadActivity() {
   try {
-    activity.value = await api.eventActivity(props.id)
+    activity.value = await api.eventActivity(props.id, true)
   } catch (e) {
     error.value = errMsg(e)
   }

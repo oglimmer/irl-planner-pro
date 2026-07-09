@@ -26,6 +26,7 @@ defineProps<{
         </span>
         <span v-else class="badge ontime">On time</span>
         <span class="summary">{{ e.summary }}</span>
+        <span v-if="e.channel" class="badge channel" :class="e.status">{{ e.channel }}</span>
       </div>
       <ul v-if="e.detail?.changes?.length" class="changes">
         <li v-for="c in e.detail.changes" :key="c.field">
@@ -124,6 +125,21 @@ defineProps<{
 .badge.ontime {
   background: rgb(var(--success-rgb) / 0.12);
   color: var(--success);
+}
+/* Delivery channel badge on the detailed admin feed: neutral by default,
+   green when sent, red-tinted when the send failed. */
+.badge.channel {
+  background: var(--bg-2);
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.badge.channel.sent {
+  background: rgb(var(--success-rgb) / 0.12);
+  color: var(--success);
+}
+.badge.channel.failed {
+  background: var(--danger);
+  color: #fff;
 }
 .meta {
   color: var(--muted);

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -53,7 +54,10 @@ func actionCategory(action string) string {
 	}
 }
 
-// ActivityEntry is the API shape for one activity-log row.
+// ActivityEntry is the API shape for one activity-log row. Channel and Status
+// are only populated on the "detailed" feed (see queryDetailedActivity),
+// where a campaign send is expanded into one entry per recipient/channel
+// delivery outcome ("sent" or "failed").
 type ActivityEntry struct {
 	ID            string          `json:"id"`
 	ActorEmail    string          `json:"actorEmail"`
@@ -64,6 +68,8 @@ type ActivityEntry struct {
 	Detail        json.RawMessage `json:"detail,omitempty"`
 	AfterDeadline bool            `json:"afterDeadline"`
 	CreatedAt     time.Time       `json:"createdAt"`
+	Channel       string          `json:"channel,omitempty"`
+	Status        string          `json:"status,omitempty"`
 }
 
 // logActivity appends one entry to the timeline. actorID may be nil for system
@@ -125,6 +131,59 @@ func (a *App) queryActivity(ctx context.Context, eventID, subjectEmail, category
 	return out, rows.Err()
 }
 
+// queryDetailedActivity extends queryActivity with one entry per
+// message_send_log row for the event, merged into the same timeline and
+// re-sorted by time. This surfaces individual per-recipient, per-channel
+// deliveries (invitation/follow-up/reminder sends) alongside the coarser
+// campaign-summary entries already in activity_log.
+func (a *App) queryDetailedActivity(ctx context.Context, eventID string) ([]ActivityEntry, error) {
+	entries, err := a.queryActivity(ctx, eventID, "", "")
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.DB.QueryContext(ctx,
+		`SELECT recipient, kind, channel, status, error, created_at
+		   FROM message_send_log WHERE event_id = $1`, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var recipient, kind, channel, status, sendErr string
+		var createdAt time.Time
+		if err := rows.Scan(&recipient, &kind, &channel, &status, &sendErr, &createdAt); err != nil {
+			return nil, err
+		}
+		summary := fmt.Sprintf("%s %s via %s", deliveryVerb(status), recipient, channel)
+		if status == "failed" && sendErr != "" {
+			summary += ": " + sendErr
+		}
+		entries = append(entries, ActivityEntry{
+			ID:           fmt.Sprintf("send-%s-%s-%s-%d", kind, channel, recipient, createdAt.UnixNano()),
+			SubjectEmail: recipient,
+			Action:       "message." + kind + "_" + status,
+			Category:     categoryAdmin,
+			Summary:      summary,
+			CreatedAt:    createdAt,
+			Channel:      channel,
+			Status:       status,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].CreatedAt.After(entries[j].CreatedAt) })
+	return entries, nil
+}
+
+// deliveryVerb turns a message_send_log status into a human summary verb.
+func deliveryVerb(status string) string {
+	if status == "failed" {
+		return "Delivery failed to"
+	}
+	return "Delivered to"
+}
+
 // handleMyActivity returns the caller's own activity entries for an event (by
 // slug). Employees see only their own history.
 func (a *App) handleMyActivity(w http.ResponseWriter, r *http.Request) {
@@ -155,6 +214,17 @@ func (a *App) handleEventActivity(w http.ResponseWriter, r *http.Request) {
 	category := r.URL.Query().Get("category")
 	if category != "" && category != categoryUser && category != categoryAdmin {
 		writeErr(w, http.StatusBadRequest, "category must be 'user' or 'admin'")
+		return
+	}
+	// The detailed feed expands campaign sends into per-recipient/channel
+	// delivery entries; it ignores the category filter (it's always "admin").
+	if r.URL.Query().Get("detailed") == "true" {
+		entries, err := a.queryDetailedActivity(r.Context(), id)
+		if err != nil {
+			serverErr(w, r, err, "db error")
+			return
+		}
+		writeJSON(w, http.StatusOK, entries)
 		return
 	}
 	entries, err := a.queryActivity(r.Context(), id, "", category)

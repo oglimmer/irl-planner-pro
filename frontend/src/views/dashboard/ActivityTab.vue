@@ -23,7 +23,10 @@ const filtered = computed(() => {
     rows = rows.filter((e) => e.category === category.value)
   }
   const q = search.value.trim().toLowerCase()
-  if (q) rows = rows.filter((e) => matchesQuery(q, e.summary, e.actorEmail, e.subjectEmail))
+  if (q)
+    rows = rows.filter((e) =>
+      matchesQuery(q, e.summary, e.actorEmail, e.subjectEmail, e.channel, e.status),
+    )
   const dir = newestFirst.value ? -1 : 1
   return [...rows].sort((a, b) => dir * a.createdAt.localeCompare(b.createdAt))
 })
