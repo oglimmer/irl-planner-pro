@@ -460,3 +460,38 @@ func TestDiffSubmissionReqClearedFieldShowsEmptyTo(t *testing.T) {
 		t.Error("expected a cleared Arrival details change")
 	}
 }
+
+// A first response diffs against the zero submission, so every set field shows
+// as empty→value — the detail the timeline and admin alert now carry on create.
+func TestDiffSubmissionReqFirstResponseListsSetFields(t *testing.T) {
+	changes := diffSubmissionReq(submissionReq{}, submissionReq{
+		Attending:   "yes",
+		ArrivalDay:  strp("2026-10-12"),
+		ArrivalMode: func() *string { m := "flight"; return &m }(),
+	})
+	got := map[string]string{}
+	for _, c := range changes {
+		if c.From != "" {
+			t.Errorf("first-response change should have empty from, got %+v", c)
+		}
+		got[c.Field] = c.To
+	}
+	if got["Attending"] != "Yes" || got["Arrival day"] != "2026-10-12" || got["Arrival mode"] != "flight" {
+		t.Errorf("unexpected set fields: %+v", got)
+	}
+}
+
+func TestFormatChanges(t *testing.T) {
+	if s := formatChanges(nil); s != "" {
+		t.Errorf("no changes should render empty, got %q", s)
+	}
+	s := formatChanges([]fieldChange{
+		{Field: "Attending", From: "", To: "Yes"},            // set
+		{Field: "Arrival mode", From: "flight", To: "train"}, // changed
+		{Field: "Comments", From: "hi", To: ""},              // cleared
+	})
+	want := "\nDetails:\n  Attending: Yes\n  Arrival mode: flight → train\n  Comments: hi → (cleared)\n"
+	if s != want {
+		t.Errorf("formatChanges mismatch:\n got %q\nwant %q", s, want)
+	}
+}

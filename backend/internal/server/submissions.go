@@ -591,13 +591,14 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 	// event's submission deadline — the flag the admin timeline highlights.
 	afterDeadline := time.Now().After(e.SubmissionDeadline)
 	action, summary := submissionActivity(existed, isAdmin, ownerName, actor, *req, prev.Attending)
-	// On an update, record exactly which fields changed so the timeline shows
-	// what was edited, not just that something was. Omitted on first response.
+	// Record exactly which fields the attendee set or changed so the timeline and
+	// the admin notification show the actual details, not just "responded". On a
+	// first response prev is the zero submission, so diffSubmissionReq lists every
+	// field that was set (empty→value); on an edit it lists only what changed.
+	changes := diffSubmissionReq(prev, *req)
 	var detail any
-	if existed {
-		if changes := diffSubmissionReq(prev, *req); len(changes) > 0 {
-			detail = map[string]any{"changes": changes}
-		}
+	if len(changes) > 0 {
+		detail = map[string]any{"changes": changes}
 	}
 	actorID := actor.ID
 	if err := a.logActivity(ctx, tx, e.ID, &actorID, actor.Email, ownerEmail, action, summary, detail, afterDeadline); err != nil {
@@ -618,8 +619,10 @@ func (a *App) applySubmission(ctx context.Context, e *Event, req *submissionReq,
 	metrics.SubmissionMutationsTotal.WithLabelValues(label, "success").Inc()
 
 	// Notify "any activity" admins on every submission write — create or edit
-	// (best-effort, async; channels per their per-event preference).
-	a.notifySubmissionActivity(e, ownerEmail, actor, existed, summary)
+	// (best-effort, async; channels per their per-event preference). The field
+	// changes ride along so the alert carries the actual details, not just the
+	// headline.
+	a.notifySubmissionActivity(e, ownerEmail, actor, existed, summary, changes)
 
 	return a.Store.loadSubmission(ctx, e.ID, ownerID)
 }
