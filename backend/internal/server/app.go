@@ -27,7 +27,7 @@ type Sender interface {
 // noopSender is a Sender that does nothing; used in tests and when no transport is configured.
 type noopSender struct{}
 
-func (noopSender) Configured() bool                { return false }
+func (noopSender) Configured() bool                   { return false }
 func (noopSender) Send(_ []string, _, _ string) error { return nil }
 
 type App struct {

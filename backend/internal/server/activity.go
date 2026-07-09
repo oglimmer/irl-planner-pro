@@ -16,20 +16,20 @@ import (
 
 // Activity action vocabulary (see DESIGN.md §5.8).
 const (
-	actionSubmissionCreated     = "submission.created"
-	actionSubmissionUpdated     = "submission.updated"
-	actionAdminEditedSubmission = "admin.edited_submission"
-	actionEventCreated          = "event.created"
-	actionEventUpdated          = "event.updated"
-	actionAttendeesImported     = "attendees.imported"
-	actionAttendeeAdded         = "attendee.added"
-	actionAttendeeRemoved       = "attendee.removed"
-	actionReminderSent          = "reminder.sent"
-	actionMessageTemplateSaved  = "message.template_saved"
-	actionInvitationSent        = "message.invitation_sent"
-	actionFollowupSent          = "message.followup_sent"
+	actionSubmissionCreated      = "submission.created"
+	actionSubmissionUpdated      = "submission.updated"
+	actionAdminEditedSubmission  = "admin.edited_submission"
+	actionEventCreated           = "event.created"
+	actionEventUpdated           = "event.updated"
+	actionAttendeesImported      = "attendees.imported"
+	actionAttendeeAdded          = "attendee.added"
+	actionAttendeeRemoved        = "attendee.removed"
+	actionReminderSent           = "reminder.sent"
+	actionMessageTemplateSaved   = "message.template_saved"
+	actionInvitationSent         = "message.invitation_sent"
+	actionFollowupSent           = "message.followup_sent"
 	actionScheduledRemindersSent = "reminders.scheduled_sent"
-	actionNotificationsSaved    = "notifications.saved"
+	actionNotificationsSaved     = "notifications.saved"
 )
 
 // Activity categories classify *what was done*, not who did it. A participant
