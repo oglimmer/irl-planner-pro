@@ -23,6 +23,7 @@ const tab = ref<'responses' | 'activity' | 'attendees' | 'financial' | 'messagin
 const dashboard = ref<Dashboard | null>(null)
 const submissions = ref<Submission[]>([])
 const activity = ref<ActivityEntry[]>([])
+const activityLoaded = ref(false)
 const directory = ref<UserSummary[]>([])
 
 const shareUrl = computed(() =>
@@ -66,9 +67,15 @@ async function loadResponses() {
 async function loadActivity() {
   try {
     activity.value = await api.eventActivity(props.id, true)
+    activityLoaded.value = true
   } catch (e) {
     error.value = errMsg(e)
   }
+}
+
+function openActivity() {
+  tab.value = 'activity'
+  if (!activityLoaded.value) void loadActivity()
 }
 
 async function loadDirectory() {
@@ -82,7 +89,8 @@ async function loadDirectory() {
 // An admin saved an edit to someone's response — refresh the responses (now
 // showing the change + lock) and the activity timeline (which logged the edit).
 function onResponseSaved() {
-  void Promise.all([loadResponses(), loadActivity()])
+  void loadResponses()
+  if (activityLoaded.value) void loadActivity()
 }
 
 // An attendee was added/removed/imported — refresh the shared dashboard (both
@@ -100,7 +108,6 @@ onMounted(async () => {
   } catch (e) {
     error.value = errMsg(e)
   }
-  loadActivity()
   loadDirectory()
 })
 </script>
@@ -127,7 +134,7 @@ onMounted(async () => {
 
       <div class="tabs">
         <button :class="{ active: tab === 'responses' }" @click="tab = 'responses'">Responses</button>
-        <button :class="{ active: tab === 'activity' }" @click="tab = 'activity'">Activity</button>
+        <button :class="{ active: tab === 'activity' }" @click="openActivity">Activity</button>
         <button :class="{ active: tab === 'attendees' }" @click="tab = 'attendees'">Attendees</button>
         <button :class="{ active: tab === 'financial' }" @click="tab = 'financial'">Financial</button>
         <button :class="{ active: tab === 'messaging' }" @click="tab = 'messaging'">Messaging</button>
