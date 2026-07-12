@@ -173,8 +173,11 @@ frontend:
 # Bundled Postgres (single-replica, PVC-backed). Set enabled=false to use an
 # external database — then provide the full DSN via the sealed secret's
 # DATABASE_URL key.
+# Migrated to the central shared PostgreSQL (postgres.default.svc) — DATABASE_URL
+# is supplied via the sealed secret (db irl_planner_pro_prod / user
+# irl-planner-pro-app).
 postgres:
-  enabled: true
+  enabled: false
   image:
     repository: postgres
     # Pinned to major 16 — the PVC's data dir was initialized by PG 16 and a
