@@ -195,7 +195,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             </fieldset>
 
             <fieldset class="leg">
-              <legend>Travel cost</legend>
+              <legend>Flight cost</legend>
               <div class="grid2">
                 <label>Total cost<input :value="form.travelCost ?? ''" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" @input="setTravelCost"></label>
                 <label>Currency

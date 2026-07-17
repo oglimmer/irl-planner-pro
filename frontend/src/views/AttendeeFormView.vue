@@ -714,7 +714,7 @@ onMounted(load)
 
           <h3 class="section-head">Other</h3>
           <div class="row">
-            <label>Total travel cost (optional)
+            <label>Flight cost (optional)
               <input
                 :value="form.travelCost ?? ''"
                 type="number"
@@ -732,10 +732,8 @@ onMounted(load)
             </label>
           </div>
           <p class="field-note">
-            Enter your total travel cost as a single figure — fares, tickets, and any
-            other travel-related expenses (travel only, not food). This just helps us
-            estimate the overall offsite budget, so a rough number is fine: put in
-            whatever you already know and update it later if needed.
+            Enter your flight cost only — no need to add train, taxi, or other
+            travel.
           </p>
           <label>Comments
             <textarea v-model="form.comments" rows="2" />

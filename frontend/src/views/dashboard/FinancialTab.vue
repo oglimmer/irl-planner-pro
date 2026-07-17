@@ -94,7 +94,7 @@ function cell(row: FinancialReport['rows'][number], target: string): string {
           </tfoot>
         </table>
       </div>
-      <p v-else class="muted">No travel costs reported yet.</p>
+      <p v-else class="muted">No flight costs reported yet.</p>
     </template>
   </div>
 </template>

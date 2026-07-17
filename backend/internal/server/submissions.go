@@ -243,10 +243,10 @@ func normalizeTravelCost(amount **float64, currency *string) error {
 		return nil
 	}
 	if cur == "" {
-		return errors.New("a currency is required for the travel cost")
+		return errors.New("a currency is required for the flight cost")
 	}
 	if !supportedCurrencies[cur] {
-		return errors.New("travel cost currency is not a supported code")
+		return errors.New("flight cost currency is not a supported code")
 	}
 	*currency = cur
 	return nil
@@ -681,7 +681,7 @@ func diffSubmissionReq(prev, next submissionReq) []fieldChange {
 	add("Extra stay end", optStr(prev.ExtraStayEnd), optStr(next.ExtraStayEnd))
 	add("Self-funded early arrival", boolStr(prev.ExtraStaySelfFunded), boolStr(next.ExtraStaySelfFunded))
 	add("Comments", prev.Comments, next.Comments)
-	add("Travel cost", costStr(prev.TravelCost, prev.TravelCostCurrency), costStr(next.TravelCost, next.TravelCostCurrency))
+	add("Flight cost", costStr(prev.TravelCost, prev.TravelCostCurrency), costStr(next.TravelCost, next.TravelCostCurrency))
 	return changes
 }
 

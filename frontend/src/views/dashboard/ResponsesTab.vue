@@ -113,7 +113,7 @@ const responseColumns: ResponseColumn[] = [
   { key: 'comments', label: 'Comments', text: (r) => r.sub?.comments ?? '' },
   {
     key: 'travelCost',
-    label: 'Travel cost',
+    label: 'Flight cost',
     text: (r) => (r.sub?.travelCost != null ? `${r.sub.travelCost.toFixed(2)} ${r.sub.travelCostCurrency}` : ''),
     sort: (r) => r.sub?.travelCost ?? -1,
   },
