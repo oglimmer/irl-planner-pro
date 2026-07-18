@@ -731,10 +731,6 @@ onMounted(load)
               </select>
             </label>
           </div>
-          <p class="field-note">
-            Enter your flight cost only — no need to add train, taxi, or other
-            travel.
-          </p>
           <label>Comments
             <textarea v-model="form.comments" rows="2" />
           </label>
