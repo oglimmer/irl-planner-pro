@@ -1,0 +1,41 @@
+1. Public URL:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+   https://{{ $host.host }}/
+{{- end }}
+{{- else }}
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "irl.frontend.fullname" . }} 8080:{{ .Values.frontend.service.port }}
+{{- end }}
+
+2. Application secret. The chart does NOT create one — apply your own
+   Secret (or SealedSecret) named "{{ include "irl.secretName" . }}" in
+   namespace "{{ .Release.Namespace }}" before/while installing.
+   Override the name with --set existingSecret=<your-secret>.
+
+   kubectl create secret generic {{ include "irl.secretName" . }} \
+     --namespace {{ .Release.Namespace }} \
+     --dry-run=client -o yaml \
+{{- if .Values.postgres.enabled }}
+     --from-literal=POSTGRES_PASSWORD=<db-password> \
+{{- else }}
+     --from-literal=DATABASE_URL='postgres://user:pass@host:5432/db?sslmode=require' \
+{{- end }}
+     --from-literal=JWT_SECRET=$(openssl rand -hex 32) \
+{{- if eq .Values.auth.mode "oidc" }}
+     --from-literal=OIDC_CLIENT_SECRET=<google-oauth-client-secret> \
+{{- end }}
+     | kubeseal --format yaml | kubectl apply -f -
+
+{{- if eq .Values.auth.mode "oidc" }}
+
+3. OIDC redirect URI to register with the IdP ({{ .Values.auth.oidc.issuerURL }}):
+   {{ .Values.auth.oidc.redirectURL | default (printf "%s/api/auth/oidc/callback" (.Values.publicBaseURL | trimSuffix "/")) }}
+{{- end }}
+
+4. The FIRST user to sign in becomes admin automatically (when the users table
+   is empty); thereafter admins promote/demote others in-app.
+{{- if .Values.postgres.enabled }}
+
+5. Postgres data lives on PVC {{ include "irl.postgres.fullname" . }}-data —
+   snapshot/backup it before destroying the release. Events are never deleted.
+{{- end }}

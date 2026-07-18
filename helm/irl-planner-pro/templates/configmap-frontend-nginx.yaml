@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "irl.frontend.fullname" . }}-nginx
+  labels:
+    {{- include "irl.frontend.labels" . | nindent 4 }}
+data:
+  # SPA-only nginx config. Unlike the baked-in compose config, this drops the
+  # `proxy_pass http://backend:8080` blocks: in Helm the cluster Ingress does
+  # path → Service routing before traffic reaches this pod, so the proxy blocks
+  # are unreachable here AND would crash nginx at startup (the `backend` upstream
+  # host does not resolve in-cluster). The security-headers snippet baked into
+  # the image at /etc/nginx/snippets/security-headers.conf is reused.
+  default.conf: |
+    # Emit HSTS only for requests the edge served over HTTPS.
+    map $http_x_forwarded_proto $hsts_header {
+        https   "max-age=31536000; includeSubDomains";
+        default "";
+    }
+
+    server {
+        listen 80;
+        server_name _;
+
+        client_max_body_size 4m;
+
+        include /etc/nginx/snippets/security-headers.conf;
+
+        gzip on;
+        gzip_vary on;
+        gzip_comp_level 6;
+        gzip_min_length 1024;
+        gzip_proxied any;
+        gzip_types text/plain text/css application/json application/javascript
+                   text/xml application/xml application/xml+rss text/javascript
+                   font/woff2 image/svg+xml;
+
+        # Hashed build artifacts — safe to cache forever.
+        location /assets/ {
+            root /usr/share/nginx/html;
+            access_log off;
+            add_header Cache-Control "public, max-age=31536000, immutable";
+            include /etc/nginx/snippets/security-headers.conf;
+            try_files $uri =404;
+        }
+
+        # SPA entry — must always revalidate so deploys take effect.
+        location = /index.html {
+            root /usr/share/nginx/html;
+            add_header Cache-Control "no-cache";
+            include /etc/nginx/snippets/security-headers.conf;
+        }
+
+        # SPA fallback.
+        location / {
+            root /usr/share/nginx/html;
+            try_files $uri /index.html;
+        }
+    }

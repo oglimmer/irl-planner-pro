@@ -1,0 +1,134 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":enableVulnerabilityAlerts",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigests",
+    ":pinDevDependencies",
+    "abandonments:recommended"
+  ],
+  "configMigration": true,
+  "timezone": "Europe/Berlin",
+  "prHourlyLimit": 10,
+  "prConcurrentLimit": 20,
+  "rebaseWhen": "behind-base-branch",
+  "rangeStrategy": "bump",
+  "automergeType": "branch",
+  "packageRules": [
+    {
+      "description": "Group each manager's non-major updates into one PR per manager",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "pinDigest",
+        "digest"
+      ],
+      "groupName": "{{manager}} non-major dependencies"
+    },
+    {
+      "description": "Automerge minor, patch, pin, pinDigest, digest updates (low-risk, non-major)",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "pinDigest",
+        "digest"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Automerge all devDependencies (build/test tooling, not shipped to consumers)",
+      "matchDepTypes": [
+        "devDependencies"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Automerge Maven/Gradle wrapper updates",
+      "matchManagers": [
+        "maven-wrapper",
+        "gradle-wrapper"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Never automerge 0.x releases — semver allows breaking changes before 1.0",
+      "matchCurrentVersion": "/^0\\./",
+      "automerge": false
+    },
+    {
+      "description": "Keep Docker :latest live — never pin a moving tag to a digest",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchCurrentValue": "/^latest$/",
+      "pinDigests": false
+    },
+    {
+      "description": "ArgoCD Image Updater owns the app image tags in the Helm values (digest write-back to backend/frontend.image.tag). Renovate must not pin or bump them — a Renovate pin on an empty/non-'latest' tag once rendered an invalid 'repo:@sha256:' reference (commit 6fd0f09).",
+      "matchFileNames": [
+        "helm/irl-planner-pro/values.yaml"
+      ],
+      "matchPackageNames": [
+        "ghcr.io/oglimmer/irl-planner-pro-backend",
+        "ghcr.io/oglimmer/irl-planner-pro-frontend"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "No release-age delay on Docker digest pins — a pin records which image a tag resolves to, not a new version (version bumps keep their soak)",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchUpdateTypes": [
+        "pin",
+        "pinDigest",
+        "digest"
+      ],
+      "minimumReleaseAge": "0 days"
+    },
+    {
+      "description": "Isolate major updates behind Dependency Dashboard approval",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Never offer a Postgres major bump — the bundled DB's data dir is tied to its major version, so a major upgrade needs a deliberate pg_upgrade / dump+restore, not an image swap (see helm/irl-planner-pro/values.yaml postgres.image.tag)",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "postgres"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
+    }
+  ],
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 5am on monday"
+    ],
+    "automerge": true
+  },
+  "vulnerabilityAlerts": {
+    "minimumReleaseAge": "0 days",
+    "labels": [
+      "security"
+    ],
+    "schedule": [
+      "at any time"
+    ],
+    "automerge": true
+  }
+}

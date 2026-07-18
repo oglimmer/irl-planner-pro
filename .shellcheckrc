@@ -1,0 +1,4 @@
+# SC1091: can't follow sourced files that aren't present at lint time.
+# oglimmer.sh does `source .env`, a runtime file absent during linting, so
+# following it is neither possible nor useful here.
+disable=SC1091

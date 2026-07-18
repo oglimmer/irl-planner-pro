@@ -1,0 +1,186 @@
+package server
+
+import (
+	"database/sql"
+	"encoding/csv"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+)
+
+// handleExportCSV streams a CSV of event attendees whose attending state matches
+// the ?attending= filter (a comma-separated subset of yes,no,not_sure,
+// no_response). An empty filter exports everyone. Rows for no-response attendees
+// carry empty submission columns, so the export doubles as a non-responder list.
+func (a *App) handleExportCSV(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	e, err := a.Store.loadEventByColumn(r.Context(), "id", id, time.Now())
+	if err == sql.ErrNoRows {
+		writeErr(w, http.StatusNotFound, "event not found")
+		return
+	}
+	if err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
+	loc, lerr := loadLocation(e.Timezone)
+	if lerr != nil {
+		loc = time.UTC
+	}
+
+	filter := parseAttendingFilter(r.URL.Query().Get("attending"))
+
+	rows, err := a.DB.QueryContext(r.Context(),
+		`SELECT u.first_name, u.last_name, u.email, s.attending,
+		        s.arrival_day, s.arrival_time, s.arrival_mode, s.arrival_details,
+		        s.departure_day, s.departure_time, s.departure_mode, s.departure_details,
+		        s.arrival_independent, s.departure_independent, s.long_haul, s.extra_stay_start, s.extra_stay_end,
+		        s.extra_stay_self_funded, u.allergies, s.comments,
+		        s.travel_cost, s.travel_cost_currency,
+		        s.updated_at
+		   FROM event_attendees ea
+		   JOIN users u ON u.id = ea.user_id
+		   LEFT JOIN submissions s ON s.event_id = ea.event_id AND s.user_id = ea.user_id
+		  WHERE ea.event_id = $1 AND NOT u.archived
+		  ORDER BY u.first_name, u.last_name, u.email`, id)
+	if err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
+	defer rows.Close()
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+e.Slug+`-responses.csv"`)
+	cw := csv.NewWriter(w)
+	defer cw.Flush()
+
+	_ = cw.Write([]string{
+		"name", "email", "attending", "arrival_day", "arrival_time", "arrival_mode",
+		"arrival_details", "departure_day", "departure_time", "departure_mode",
+		"departure_details", "arrival_independent", "departure_independent", "long_haul", "extra_night_before", "extra_night_after",
+		"self_funded_early_arrival", "allergies", "comments", "travel_cost", "travel_cost_currency", "last_updated",
+	})
+
+	for rows.Next() {
+		var firstName, lastName, email string
+		var attending, arrTime, arrMode, arrDetails sql.NullString
+		var depTime, depMode, depDetails, allergies, comments, travelCurrency sql.NullString
+		var arrDay, depDay, extraStart, extraEnd, updatedAt sql.NullTime
+		var arrivalIndependent, departureIndependent, longHaul, selfFundedEarly sql.NullBool
+		var travelCost sql.NullFloat64
+		if err := rows.Scan(&firstName, &lastName, &email, &attending,
+			&arrDay, &arrTime, &arrMode, &arrDetails,
+			&depDay, &depTime, &depMode, &depDetails,
+			&arrivalIndependent, &departureIndependent, &longHaul, &extraStart, &extraEnd,
+			&selfFundedEarly, &allergies, &comments, &travelCost, &travelCurrency, &updatedAt); err != nil {
+			serverErr(w, r, err, "db error")
+			return
+		}
+		state := "no_response"
+		if attending.Valid {
+			state = attending.String
+		}
+		if len(filter) > 0 && !filter[state] {
+			continue
+		}
+		name := strings.TrimSpace(firstName + " " + lastName)
+		if name == "" {
+			name = email
+		}
+		_ = cw.Write([]string{
+			name, email, state,
+			dateOrEmpty(arrDay), arrTime.String, arrMode.String, arrDetails.String,
+			dateOrEmpty(depDay), depTime.String, depMode.String, depDetails.String,
+			boolOrEmpty(arrivalIndependent), boolOrEmpty(departureIndependent), boolOrEmpty(longHaul), dateOrEmpty(extraStart), dateOrEmpty(extraEnd),
+			boolOrEmpty(selfFundedEarly), allergies.String, comments.String, costOrEmpty(travelCost), travelCurrency.String, timeInZoneOrEmpty(updatedAt, loc),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		serverErr(w, r, err, "db error")
+	}
+}
+
+// handleListSubmissions returns every submission for an event (admin table view).
+func (a *App) handleListSubmissions(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	rows, err := a.DB.QueryContext(r.Context(),
+		`SELECT s.user_id FROM submissions s WHERE s.event_id = $1`, id)
+	if err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
+	var userIDs []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			rows.Close()
+			serverErr(w, r, err, "db error")
+			return
+		}
+		userIDs = append(userIDs, uid)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
+	out := []Submission{}
+	for _, uid := range userIDs {
+		s, err := a.Store.loadSubmission(r.Context(), id, uid)
+		if err != nil {
+			serverErr(w, r, err, "db error")
+			return
+		}
+		out = append(out, *s)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// parseAttendingFilter parses the comma-separated ?attending= filter into a set.
+// An empty/absent value yields an empty set, meaning "no filter" (export all).
+func parseAttendingFilter(s string) map[string]bool {
+	set := map[string]bool{}
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		switch p {
+		case "yes", "no", "not_sure", "no_response":
+			set[p] = true
+		}
+	}
+	return set
+}
+
+func dateOrEmpty(t sql.NullTime) string {
+	if !t.Valid {
+		return ""
+	}
+	return t.Time.Format(dateLayout)
+}
+
+func costOrEmpty(f sql.NullFloat64) string {
+	if !f.Valid {
+		return ""
+	}
+	return strconv.FormatFloat(f.Float64, 'f', 2, 64)
+}
+
+func boolOrEmpty(b sql.NullBool) string {
+	if !b.Valid {
+		return ""
+	}
+	if b.Bool {
+		return "yes"
+	}
+	return "no"
+}
+
+func timeInZoneOrEmpty(t sql.NullTime, loc *time.Location) string {
+	if !t.Valid {
+		return ""
+	}
+	return t.Time.In(loc).Format("2006-01-02 15:04 MST")
+}

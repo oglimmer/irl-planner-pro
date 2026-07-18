@@ -1,0 +1,6 @@
+---
+# Declare the in-cluster ARC (Actions Runner Controller) runner scale set so
+# actionlint doesn't flag `runs-on: arc-irl-planner-pro` as an unknown label.
+self-hosted-runner:
+  labels:
+    - arc-irl-planner-pro

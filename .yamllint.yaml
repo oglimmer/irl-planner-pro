@@ -1,0 +1,13 @@
+---
+# Relaxed yamllint: catch real errors (syntax, duplicate keys, bad indentation)
+# without nagging about cosmetics. Helm templates are Go-templated and not valid
+# YAML, so they are excluded in .pre-commit-config.yaml, not here.
+extends: relaxed
+
+rules:
+  line-length: disable
+  comments:
+    min-spaces-from-content: 1
+  document-start: disable
+  truthy:
+    check-keys: false        # GitHub Actions uses `on:` which trips truthy

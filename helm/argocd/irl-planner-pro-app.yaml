@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: irl-planner-pro
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    notifications.argoproj.io/subscribe.on-sync-succeeded.discord: ""
+    notifications.argoproj.io/subscribe.on-sync-failed.discord: ""
+    notifications.argoproj.io/subscribe.on-health-degraded.discord: ""
+    argocd-image-updater.argoproj.io/image-list: >-
+      backend=ghcr.io/oglimmer/irl-planner-pro-backend:latest,
+      frontend=ghcr.io/oglimmer/irl-planner-pro-frontend:latest
+    argocd-image-updater.argoproj.io/backend.update-strategy: digest
+    argocd-image-updater.argoproj.io/frontend.update-strategy: digest
+    # Tell image-updater which Helm parameters to write the new digest into.
+    # Without these it falls back to the default image.name/image.tag keys,
+    # which this chart does not read — the digest would land nowhere useful
+    # and rollouts would silently stop happening.
+    argocd-image-updater.argoproj.io/backend.helm.image-name: backend.image.repository
+    argocd-image-updater.argoproj.io/backend.helm.image-tag: backend.image.tag
+    argocd-image-updater.argoproj.io/frontend.helm.image-name: frontend.image.repository
+    argocd-image-updater.argoproj.io/frontend.helm.image-tag: frontend.image.tag
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/oglimmer/irl-planner-pro.git
+    targetRevision: main
+    path: helm/irl-planner-pro
+    helm:
+      valueFiles:
+        - values.yaml
+      parameters:
+        - name: backend.image.tag
+          value: latest
+        - name: frontend.image.tag
+          value: latest
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: irl-planner-pro
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

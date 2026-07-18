@@ -1,0 +1,29 @@
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Backend (Go)
+backend/server
+backend/.env
+# go test -coverprofile output
+*.out
+coverage.txt
+
+# Frontend (Node / Vite)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+npm-debug.log*
+
+# Logs / temp
+*.log
+tmp/
+scratchpad/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
