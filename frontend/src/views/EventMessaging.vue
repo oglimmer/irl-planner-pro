@@ -180,7 +180,7 @@ async function sendFlightFollowup() {
   const n = stats.value?.flightCostMissing ?? 0
   const ok = await confirm({
     title: 'Send flight-cost reminder now?',
-    message: `Remind ${n} attendee(s) who said yes but haven't added a flight cost, via ${channelLabel.value}. Scheduled reminders still send on their own. A repeat within the same day is skipped.`,
+    message: `Remind ${n} attendee(s) who said yes, are flying, but haven't added a flight cost, via ${channelLabel.value}. Scheduled reminders still send on their own. A repeat within the same day is skipped.`,
     confirmLabel: 'Send reminder',
   })
   if (!ok) return
@@ -290,9 +290,10 @@ onMounted(load)
       <div class="card">
         <h3>Flight-cost reminders</h3>
         <p class="muted">
-          Attendees who responded “yes” but left their flight cost blank are
-          nudged automatically on this event’s schedule (same timing and channels
-          as the follow-up above). Flight cost stays optional — this only reminds.
+          Attendees who responded “yes”, are flying on at least one leg, but left
+          their flight cost blank are nudged automatically on this event’s schedule
+          (same timing and channels as the follow-up above). People travelling only
+          by train, car or other are never chased. This only reminds.
           Use the button to send an extra reminder right now. People who haven’t
           responded at all get the follow-up above instead, never both.
         </p>

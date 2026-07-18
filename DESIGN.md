@@ -810,10 +810,17 @@ never trusted).
   control and for historical data. Mutually exclusive with `extra_stay_start` (the
   company-paid night wins). Only meaningful for a day-before arrival on a
   non-independent arrival leg; blanked otherwise.
-- **Flight cost** (optional). The attendee's **flight** fare only — *not* total
-  travel spend: train, taxi, and other legs are deliberately excluded so the figure
-  is unambiguous (the label and form help text say "flight only"). A **value +
-  currency**. Stored on the submission (`travel_cost NUMERIC(14,2)` +
+- **Travel cost** (optional). The attendee's **fare for the way they travel** —
+  *not* total travel spend (taxis, transfers and incidentals stay out, so the
+  figure remains one comparable number). The label follows the chosen travel
+  modes rather than always saying "flight", so a train traveller is not asked for
+  a flight cost: `travelCostLabel` in `lib/submissionRules.ts` renders "Flight
+  cost" if either non-independent leg is a flight (flight wins a mixed trip),
+  "Car travel cost" / "Train cost" when both legs agree on that mode, and the
+  generic "Travel cost" for a mixed car/train trip, an unchosen mode, or two
+  self-arranged legs. Independent legs are ignored because their mode is blanked
+  on write — the same rule the flight-cost reminder audience uses (§9.1.1), which
+  keeps "who is asked" and "who is chased" in step. A **value + currency**. Stored on the submission (`travel_cost NUMERIC(14,2)` +
   `travel_cost_currency`, migration 0018 — the DB columns keep the historical
   `travel_cost` name; only the user-facing label changed); only meaningful on
   `attending = yes` and blanked on the other branches. The currency is an ISO-4217
@@ -935,9 +942,13 @@ form.
 ### 9.1.1 Flight-cost reminder stream
 On the **same tick, windows, hour, channels, and deadline gate** as the
 non-responder reminders above, a second stream nudges attendees who **have
-responded `attending = 'yes'` but left their flight cost blank** (`submissions`
-row present, `travel_cost IS NULL`; `no`/`not_sure` responders are excluded since
-flight cost is only meaningful for `yes`). Flight cost stays **optional** — this
+responded `attending = 'yes'`, are **flying on at least one leg**, but left their
+flight cost blank** (`submissions` row present, `travel_cost IS NULL`,
+`arrival_mode = 'flight' OR departure_mode = 'flight'`). `no`/`not_sure`
+responders are excluded since flight cost is only meaningful for `yes`, and
+train/car/other-only travellers are excluded since the field is a **flight** fare
+they can never have — an independent leg has its mode blanked on write, so the
+mode check covers that case too. Flight cost stays **optional** — this
 is a nudge, never a requirement, and it does not block or invalidate a response.
 
 The two streams are **disjoint by construction**: the non-responder audience

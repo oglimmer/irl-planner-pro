@@ -26,6 +26,25 @@ export interface SubmissionFormState {
   departureDetails: string
 }
 
+// travelCostLabel names the cost field after the way the attendee actually
+// travels, so a train traveller is not asked for a "flight cost". A leg the
+// attendee self-arranges has its mode blanked on write (submissions.go), so it
+// is ignored here too — which keeps the label in step with the flight-cost
+// reminder audience (messaging.go only chases people with a 'flight' mode on a
+// real leg). Flight wins over the others: a mixed trip still has a fare to
+// report. Anything else (mixed car/train, or no mode chosen yet) falls back to
+// the generic wording.
+export function travelCostLabel(form: SubmissionFormState): string {
+  const modes = [
+    form.arrivalIndependent ? null : form.arrivalMode,
+    form.departureIndependent ? null : form.departureMode,
+  ].filter((m): m is TravelMode => m != null)
+  if (modes.includes('flight')) return 'Flight cost'
+  if (modes.length && modes.every((m) => m === 'car')) return 'Car travel cost'
+  if (modes.length && modes.every((m) => m === 'train')) return 'Train cost'
+  return 'Travel cost'
+}
+
 export type FieldKey =
   | 'notSureReason'
   | 'arrivalDay'

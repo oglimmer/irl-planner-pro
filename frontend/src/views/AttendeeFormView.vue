@@ -4,7 +4,7 @@ import { api, errMsg } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { useConfirm } from '../composables/useConfirm'
 import { addDays, formatDate, formatDateRange, formatDeadline, tripLength as tripLengthOf } from '../lib/datetime'
-import { extraNightErrors, fieldChecks, missingRequiredCount, type FieldKey } from '../lib/submissionRules'
+import { extraNightErrors, fieldChecks, missingRequiredCount, travelCostLabel, type FieldKey } from '../lib/submissionRules'
 import { CURRENCIES } from '../lib/currencies'
 import ActivityLog from '../components/ActivityLog.vue'
 import SubmitFeedback from '../components/SubmitFeedback.vue'
@@ -164,6 +164,8 @@ const arrivalDetailsLabel = computed(() =>
 const departureDetailsLabel = computed(() =>
   form.departureMode === 'flight' ? 'Flight number' : 'Travel details (optional)',
 )
+
+const costLabel = computed(() => travelCostLabel(form))
 
 // The self-arranged option in each leg's Day dropdown names the core check-in /
 // check-out date (the event's first / last day) so the dates read at a glance
@@ -714,7 +716,7 @@ onMounted(load)
 
           <h3 class="section-head">Other</h3>
           <div class="row">
-            <label>Flight cost
+            <label>{{ costLabel }}
               <input
                 :value="form.travelCost ?? ''"
                 type="number"

@@ -63,9 +63,13 @@ func (s *Store) nonResponderContacts(ctx context.Context, eventID string) ([]con
 		  ORDER BY u.email`, eventID)
 }
 
-// flightCostMissingContacts returns attendees who HAVE responded "yes" but left
-// their flight cost blank (the flight-cost nudge audience). Flight cost is only
-// meaningful for attending = 'yes', so "no"/"not_sure" responders are excluded.
+// flightCostMissingContacts returns attendees who HAVE responded "yes", are
+// flying on at least one leg, but left their flight cost blank (the flight-cost
+// nudge audience). Flight cost is only meaningful for attending = 'yes', so
+// "no"/"not_sure" responders are excluded; and it is a *flight* fare, so
+// train/car/other-only travellers are excluded too — otherwise we would chase
+// people for a number they can never have. An independent leg has its mode
+// blanked on write, so the mode check alone covers that case.
 // This set is disjoint from nonResponderContacts (which requires no submission),
 // so nobody receives both the "please respond" and the "add your flight cost"
 // reminder.
@@ -77,6 +81,7 @@ func (s *Store) flightCostMissingContacts(ctx context.Context, eventID string) (
 		   JOIN submissions s ON s.event_id = ea.event_id AND s.user_id = ea.user_id
 		  WHERE ea.event_id = $1 AND NOT u.archived
 		    AND s.attending = 'yes' AND s.travel_cost IS NULL
+		    AND (s.arrival_mode = 'flight' OR s.departure_mode = 'flight')
 		  ORDER BY u.email`, eventID)
 }
 

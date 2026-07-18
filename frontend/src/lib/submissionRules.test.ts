@@ -3,6 +3,7 @@ import {
   extraNightErrors,
   fieldChecks,
   missingRequiredCount,
+  travelCostLabel,
   type StayFormState,
 } from './submissionRules'
 
@@ -197,5 +198,36 @@ describe('extraNightErrors — extra-night consistency', () => {
     expect(
       check({ attending: 'yes', arrivalIndependent: true, longHaul: true, extraStayStart: BEFORE }),
     ).toEqual([])
+  })
+})
+
+describe('travelCostLabel', () => {
+  const label = (o: Partial<StayFormState>) => travelCostLabel(form(o))
+
+  it('names the mode when both legs match', () => {
+    expect(label({ arrivalMode: 'flight', departureMode: 'flight' })).toBe('Flight cost')
+    expect(label({ arrivalMode: 'car', departureMode: 'car' })).toBe('Car travel cost')
+    expect(label({ arrivalMode: 'train', departureMode: 'train' })).toBe('Train cost')
+  })
+
+  it('lets flight win a mixed trip', () => {
+    expect(label({ arrivalMode: 'flight', departureMode: 'train' })).toBe('Flight cost')
+    expect(label({ arrivalMode: 'car', departureMode: 'flight' })).toBe('Flight cost')
+  })
+
+  it('falls back to generic wording for mixed non-flight or unchosen modes', () => {
+    expect(label({ arrivalMode: 'car', departureMode: 'train' })).toBe('Travel cost')
+    expect(label({ arrivalMode: 'other', departureMode: 'other' })).toBe('Travel cost')
+    expect(label({})).toBe('Travel cost')
+  })
+
+  // An independent leg has its mode blanked on write, so it must not colour the
+  // label — this is what keeps the wording in step with who gets the flight-cost
+  // reminder (messaging.go ignores independent legs too).
+  it('ignores a self-arranged leg', () => {
+    expect(label({ arrivalIndependent: true, arrivalMode: 'flight', departureMode: 'train' }))
+      .toBe('Train cost')
+    expect(label({ arrivalIndependent: true, departureIndependent: true, arrivalMode: 'flight' }))
+      .toBe('Travel cost')
   })
 })
