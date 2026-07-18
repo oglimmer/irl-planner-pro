@@ -101,6 +101,7 @@ func (s *Store) loadEventByColumn(ctx context.Context, column, value string, now
 		        e.start_date, e.end_date, e.submission_deadline, e.reminder_days_before,
 		        e.weekly_reminders, e.reminder_hour, e.daily_activity_email,
 		        e.invite_subject, e.invite_body, e.reminder_subject, e.reminder_body,
+		        e.flight_reminder_subject, e.flight_reminder_body,
 		        e.created_at, e.updated_at,
 		        i.etag
 		   FROM events e LEFT JOIN event_images i ON i.event_id = e.id
@@ -109,6 +110,7 @@ func (s *Store) loadEventByColumn(ctx context.Context, column, value string, now
 			&start, &end, &deadline, &e.ReminderDaysBefore,
 			&e.WeeklyReminders, &e.ReminderHour, &e.DailyActivityEmail,
 			&e.InviteSubject, &e.InviteBody, &e.ReminderSubject, &e.ReminderBody,
+			&e.FlightReminderSubject, &e.FlightReminderBody,
 			&e.CreatedAt, &e.UpdatedAt,
 			&imageEtag)
 	if err != nil {

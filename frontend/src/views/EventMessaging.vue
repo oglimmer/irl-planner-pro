@@ -23,6 +23,8 @@ const inviteSubject = ref('')
 const inviteBody = ref('')
 const reminderSubject = ref('')
 const reminderBody = ref('')
+const flightReminderSubject = ref('')
+const flightReminderBody = ref('')
 
 // Placeholder tokens shown as a hint. Held in script so the literal "{{…}}"
 // never appears inside a template interpolation (which the compiler would try
@@ -32,6 +34,7 @@ const placeholderTokens = ['{{name}}', '{{event}}', '{{city}}', '{{link}}', '{{d
 const savingTemplates = ref(false)
 const inviting = ref(false)
 const followingUp = ref(false)
+const flightFollowingUp = ref(false)
 
 // The channels a send will actually go out on: those wired up on the server.
 const activeChannels = computed(() =>
@@ -63,6 +66,8 @@ function seed(s: MessagingStatus) {
   inviteBody.value = s.templates.inviteBody || s.defaults.inviteBody
   reminderSubject.value = s.templates.reminderSubject || s.defaults.reminderSubject
   reminderBody.value = s.templates.reminderBody || s.defaults.reminderBody
+  flightReminderSubject.value = s.templates.flightReminderSubject || s.defaults.flightReminderSubject
+  flightReminderBody.value = s.templates.flightReminderBody || s.defaults.flightReminderBody
 }
 
 async function load() {
@@ -109,6 +114,8 @@ async function saveTemplates() {
       inviteBody: inviteBody.value,
       reminderSubject: reminderSubject.value,
       reminderBody: reminderBody.value,
+      flightReminderSubject: flightReminderSubject.value,
+      flightReminderBody: flightReminderBody.value,
     })
     notice.value = 'Templates saved.'
     await load()
@@ -169,6 +176,29 @@ async function sendFollowup() {
   }
 }
 
+async function sendFlightFollowup() {
+  const n = stats.value?.flightCostMissing ?? 0
+  const ok = await confirm({
+    title: 'Send flight-cost reminder now?',
+    message: `Remind ${n} attendee(s) who said yes but haven't added a flight cost, via ${channelLabel.value}. Scheduled reminders still send on their own. A repeat within the same day is skipped.`,
+    confirmLabel: 'Send reminder',
+  })
+  if (!ok) return
+  flightFollowingUp.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const res = await api.sendFlightFollowup(props.eventId)
+    notice.value = `Sending the flight-cost reminder to ${res.queued} attendee(s) via ${res.channels.join(' and ')} in the background. This can take a few minutes.`
+    scheduleRefresh(3000)
+    scheduleRefresh(15000)
+  } catch (e) {
+    error.value = errMsg(e)
+  } finally {
+    flightFollowingUp.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -184,6 +214,7 @@ onMounted(load)
           <div><strong>{{ stats?.attendees ?? 0 }}</strong><span>attendees</span></div>
           <div><strong>{{ stats?.invited ?? 0 }}</strong><span>invited</span></div>
           <div><strong>{{ stats?.nonResponders ?? 0 }}</strong><span>not responded</span></div>
+          <div><strong>{{ stats?.flightCostMissing ?? 0 }}</strong><span>no flight cost</span></div>
         </div>
         <p v-if="anyChannelConfigured" class="muted hint">
           Every send goes out over <strong>{{ channelLabel }}</strong> at once.
@@ -251,6 +282,38 @@ onMounted(load)
             @click="sendFollowup"
           >
             {{ followingUp ? 'Sending…' : `Send follow-up now (${stats?.nonResponders ?? 0})` }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Flight-cost reminders -->
+      <div class="card">
+        <h3>Flight-cost reminders</h3>
+        <p class="muted">
+          Attendees who responded “yes” but left their flight cost blank are
+          nudged automatically on this event’s schedule (same timing and channels
+          as the follow-up above). Flight cost stays optional — this only reminds.
+          Use the button to send an extra reminder right now. People who haven’t
+          responded at all get the follow-up above instead, never both.
+        </p>
+        <label>
+          Subject
+          <input v-model="flightReminderSubject" type="text" :placeholder="defaults?.flightReminderSubject">
+        </label>
+        <label>
+          Body
+          <textarea v-model="flightReminderBody" rows="7" :placeholder="defaults?.flightReminderBody" />
+        </label>
+        <div class="actions">
+          <button class="btn secondary" :disabled="savingTemplates" @click="saveTemplates">
+            {{ savingTemplates ? 'Saving…' : 'Save templates' }}
+          </button>
+          <button
+            class="btn"
+            :disabled="flightFollowingUp || !anyChannelConfigured || (stats?.flightCostMissing ?? 0) === 0"
+            @click="sendFlightFollowup"
+          >
+            {{ flightFollowingUp ? 'Sending…' : `Send flight-cost reminder now (${stats?.flightCostMissing ?? 0})` }}
           </button>
         </div>
       </div>

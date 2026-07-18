@@ -98,36 +98,52 @@ func (a *App) processEventReminders(ctx context.Context, e *Event, now time.Time
 	if len(channels) == 0 {
 		return
 	}
-	nonResponders, err := a.Store.nonResponderContacts(ctx, e.ID)
+	// Two disjoint reminder streams share the same windows, channels, and hour:
+	//   1. non-responders — "please respond" (admin-editable template).
+	//   2. responded "yes" but no flight cost — "add your flight cost" (fixed copy).
+	// The audiences never overlap (stream 2 requires a submission, stream 1 requires
+	// none), and each uses a distinct reminder_kind so their idempotency claims and
+	// metrics stay independent — so nobody gets both notifications.
+	a.remindAudience(ctx, e, windows, channels, a.Store.nonResponderContacts,
+		firstNonEmpty(e.ReminderSubject, defaultReminderSubject),
+		firstNonEmpty(e.ReminderBody, defaultReminderBody), "")
+	a.remindAudience(ctx, e, windows, channels, a.Store.flightCostMissingContacts,
+		firstNonEmpty(e.FlightReminderSubject, defaultFlightReminderSubject),
+		firstNonEmpty(e.FlightReminderBody, defaultFlightReminderBody), "flightcost_")
+}
+
+// remindAudience sends the given reminder copy to one audience over every window
+// and channel. kindPrefix qualifies each window's kind (e.g. "flightcost_") so a
+// stream's claims/metrics don't collide with another's; pass "" for the base kind.
+func (a *App) remindAudience(ctx context.Context, e *Event, windows []reminderWindow, channels []string,
+	audience func(context.Context, string) ([]contact, error), subjectTmpl, bodyTmpl, kindPrefix string) {
+	recipients, err := audience(ctx, e.ID)
 	if err != nil {
-		log.Printf("WARN: reminder: non-responders for %s: %v", e.ID, err)
+		log.Printf("WARN: reminder audience (%q) for %s: %v", kindPrefix, e.ID, err)
 		return
 	}
-	// Same editable template the Messaging tab saves; falls back to the default.
-	subjectTmpl := firstNonEmpty(e.ReminderSubject, defaultReminderSubject)
-	bodyTmpl := firstNonEmpty(e.ReminderBody, defaultReminderBody)
 	for _, win := range windows {
-		for _, rc := range nonResponders {
+		kind := kindPrefix + win.Kind
+		for _, rc := range recipients {
 			vars := a.messageVars(e, rc)
 			subject := renderTemplate(subjectTmpl, vars)
 			body := renderTemplate(bodyTmpl, vars)
-			// Deliver on each configured channel as a direct message to the
-			// non-responder (email + Slack DM). Each channel is claimed
-			// independently so a failure on one retries without re-sending the
-			// other.
+			// Deliver on each configured channel as a direct message (email +
+			// Slack DM). Each channel is claimed independently so a failure on one
+			// retries without re-sending the other.
 			for _, ch := range channels {
-				a.sendReminder(ctx, e, rc, win, ch, subject, body)
+				a.sendReminder(ctx, e, rc, win, kind, ch, subject, body)
 			}
 		}
 	}
 }
 
-// sendReminder delivers one scheduled reminder to one non-responder over one
-// channel, exactly-once via a per-channel claim. A send failure releases the
+// sendReminder delivers one scheduled reminder to one recipient over one channel,
+// exactly-once via a per-channel claim keyed by kind. A send failure releases the
 // claim so the next due tick retries (matching the manual follow-up path).
-func (a *App) sendReminder(ctx context.Context, e *Event, rc contact, win reminderWindow, channel, subject, body string) {
+func (a *App) sendReminder(ctx context.Context, e *Event, rc contact, win reminderWindow, kind, channel, subject, body string) {
 	key := reminderClaimKey(win.PeriodKey, channel)
-	claimed, err := a.claimReminder(ctx, e.ID, rc.Email, win.Kind, key)
+	claimed, err := a.claimReminder(ctx, e.ID, rc.Email, kind, key)
 	if err != nil {
 		log.Printf("WARN: reminder claim: %v", err)
 		return
@@ -137,14 +153,14 @@ func (a *App) sendReminder(ctx context.Context, e *Event, rc contact, win remind
 	}
 	if err := a.sendVia(channel, []string{rc.Email}, subject, body); err != nil {
 		log.Printf("WARN: reminder %s to %s: %v", channel, rc.Email, err)
-		a.unclaimReminder(ctx, e.ID, rc.Email, win.Kind, key)
-		a.logSend(ctx, e.ID, rc.Email, win.Kind, channel, "failed", err.Error())
-		metrics.MessageSendsTotal.WithLabelValues(win.Kind, channel, "failed").Inc()
+		a.unclaimReminder(ctx, e.ID, rc.Email, kind, key)
+		a.logSend(ctx, e.ID, rc.Email, kind, channel, "failed", err.Error())
+		metrics.MessageSendsTotal.WithLabelValues(kind, channel, "failed").Inc()
 		return
 	}
-	a.logSend(ctx, e.ID, rc.Email, win.Kind, channel, "sent", "")
-	metrics.RemindersSentTotal.WithLabelValues(win.Kind).Inc()
-	metrics.MessageSendsTotal.WithLabelValues(win.Kind, channel, "sent").Inc()
+	a.logSend(ctx, e.ID, rc.Email, kind, channel, "sent", "")
+	metrics.RemindersSentTotal.WithLabelValues(kind).Inc()
+	metrics.MessageSendsTotal.WithLabelValues(kind, channel, "sent").Inc()
 }
 
 // configuredChannels lists the delivery channels currently wired up, in send

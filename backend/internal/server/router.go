@@ -165,6 +165,7 @@ func NewRouter(app *App) http.Handler {
 				r.Put("/admin/events/{id}/messaging", app.handleSaveMessaging)
 				r.Post("/admin/events/{id}/messaging/invite", app.handleSendInvitation)
 				r.Post("/admin/events/{id}/messaging/followup", app.handleSendFollowup)
+				r.Post("/admin/events/{id}/messaging/flight-followup", app.handleSendFlightFollowup)
 
 				// Per-event notification matrix: the IRL team daily-summary
 				// toggle plus each admin's stream + channel preferences

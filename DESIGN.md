@@ -275,6 +275,8 @@ CREATE TABLE events (
     invite_body        TEXT NOT NULL DEFAULT '',
     reminder_subject   TEXT NOT NULL DEFAULT '',
     reminder_body      TEXT NOT NULL DEFAULT '',
+    flight_reminder_subject TEXT NOT NULL DEFAULT '',  -- flight-cost nudge copy (§9.1.1), migration 0020
+    flight_reminder_body    TEXT NOT NULL DEFAULT '',
     created_by         UUID NOT NULL REFERENCES users(id),
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -418,7 +420,7 @@ CREATE TABLE reminder_log (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_id      UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     recipient     TEXT NOT NULL,                       -- attendee email
-    reminder_kind TEXT NOT NULL CHECK (reminder_kind IN ('weekly','deadline','daily_digest','invitation','manual')),
+    reminder_kind TEXT NOT NULL CHECK (reminder_kind IN ('weekly','deadline','daily_digest','invitation','manual','flightcost_weekly','flightcost_deadline','manual_flightcost')),
     period_key    TEXT NOT NULL,                       -- e.g. '2026-W40' or '2026-10-12'
     sent_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (event_id, recipient, reminder_kind, period_key)
@@ -430,6 +432,14 @@ sends: the `invitation` kind (fixed period key `invitation`) emails each
 attendee at most once, and the `manual` kind (event-local date period key)
 stops a repeated same-day "send follow-up now" from double-sending. A failed
 send releases its claim so the next attempt retries.
+
+The flight-cost reminder stream (§9) mirrors these kinds under its own names —
+`flightcost_weekly` / `flightcost_deadline` (scheduled) and `manual_flightcost`
+(the admin "send flight-cost reminder now") — so its claims never collide with
+the non-responder stream. Because a distinct `reminder_kind` is a distinct claim
+and the two audiences are disjoint (a person either has a submission or doesn't),
+nobody is ever claimed by both streams for the same window (migration 0019 admits
+the new kinds).
 
 ### 5.8 `activity_log`
 The human-readable audit trail of everything that happens on an event. Drives the
@@ -696,6 +706,7 @@ GET    /api/admin/events/:id/messaging           templates + defaults + audience
 PUT    /api/admin/events/:id/messaging           save the editable invite/reminder templates
 POST   /api/admin/events/:id/messaging/invite    send invitation to not-yet-invited attendees ({ channel }: email|slack)
 POST   /api/admin/events/:id/messaging/followup  send follow-up to current non-responders now ({ channel }: email|slack)
+POST   /api/admin/events/:id/messaging/flight-followup  send flight-cost reminder to attendees who said yes but have no flight cost (§9.1.1)
 ```
 
 There is no delete endpoint — events persist and become read-only-to-employees
@@ -799,14 +810,18 @@ never trusted).
   control and for historical data. Mutually exclusive with `extra_stay_start` (the
   company-paid night wins). Only meaningful for a day-before arrival on a
   non-independent arrival leg; blanked otherwise.
-- **Total travel cost** (optional). One figure capturing **all** of the attendee's
-  personal travel spend — ticket fare, ticket price and any other travel cost — as
-  a **value + currency**. Stored on the submission (`travel_cost NUMERIC(14,2)` +
-  `travel_cost_currency`, migration 0018); only meaningful on `attending = yes` and
-  blanked on the other branches. The currency is an ISO-4217 code drawn from the
-  set the Frankfurter FX API can convert (see the Financial tab, §10); a stored
-  amount always carries a supported currency so it stays convertible. An amount of
-  0 / blank clears the pair. Rolled up and converted in the admin **Financial tab**.
+- **Flight cost** (optional). The attendee's **flight** fare only — *not* total
+  travel spend: train, taxi, and other legs are deliberately excluded so the figure
+  is unambiguous (the label and form help text say "flight only"). A **value +
+  currency**. Stored on the submission (`travel_cost NUMERIC(14,2)` +
+  `travel_cost_currency`, migration 0018 — the DB columns keep the historical
+  `travel_cost` name; only the user-facing label changed); only meaningful on
+  `attending = yes` and blanked on the other branches. The currency is an ISO-4217
+  code drawn from the set the Frankfurter FX API can convert (see the Financial tab,
+  §10); a stored amount always carries a supported currency so it stays convertible.
+  An amount of 0 / blank clears the pair. Rolled up and converted in the admin
+  **Financial tab**. Attendees who respond `yes` but leave this blank get a dedicated
+  reminder (§ reminders) — it is a nudge, not a requirement.
 - **Comments** (free text). (Allergies / dietary preferences are **not** asked here
   — they live on the profile; see Step 1.)
 
@@ -870,7 +885,8 @@ install model. An empty `SLACK_BOT_TOKEN` disables Slack (the tab shows it as
 selectable but "not configured"). Each per-recipient send is recorded in
 `message_send_log` with its `channel`, and the same `reminder_log` idempotency
 claim makes Slack sends exactly-once and retry-safe, identical to email.
-The scheduled attendee reminders (§9.1) remain email-only. Admin notices
+The scheduled attendee reminders (§9.1, §9.1.1) go out over every configured
+channel (email + Slack DM), each claimed independently per channel. Admin notices
 (§9.2–9.3) can also go over Slack when an opted-in admin selects that channel.
 
 ### 9.0 Per-event notification preferences
@@ -915,6 +931,32 @@ is no opt-out flow.
 Reminder timing is configured per event (`reminder_days_before`,
 `weekly_reminders`, `reminder_hour`, `daily_activity_email`) via the event edit
 form.
+
+### 9.1.1 Flight-cost reminder stream
+On the **same tick, windows, hour, channels, and deadline gate** as the
+non-responder reminders above, a second stream nudges attendees who **have
+responded `attending = 'yes'` but left their flight cost blank** (`submissions`
+row present, `travel_cost IS NULL`; `no`/`not_sure` responders are excluded since
+flight cost is only meaningful for `yes`). Flight cost stays **optional** — this
+is a nudge, never a requirement, and it does not block or invalidate a response.
+
+The two streams are **disjoint by construction**: the non-responder audience
+requires *no* submission, this one requires *a* submission, so no attendee is ever
+in both — nobody receives both the "please respond" and the "add your flight cost"
+message. Each send claims `reminder_log` under a distinct `reminder_kind`
+(`flightcost_weekly` / `flightcost_deadline`; the admin manual send uses
+`manual_flightcost`), keeping the two streams' idempotency and metrics independent
+(§5.7, migration 0019). The copy is **admin-editable per event** in the Messaging
+tab, exactly like the invite/reminder templates
+(`flight_reminder_subject`/`flight_reminder_body`, migration 0020; empty ⇒ the
+`defaultFlightReminder*` fallback in `messaging.go`), reusing the existing reminder
+timing config — no new timing knobs. Implemented as a shared `remindAudience`
+helper in `reminders.go` that both streams call.
+
+An admin can also send this reminder **on demand** from the Messaging tab
+("Send flight-cost reminder now", `POST …/messaging/flight-followup`), idempotent
+per event-local day like the non-responder follow-up. The tab shows a live count
+of how many attendees are missing a flight cost.
 
 ### 9.2 Admin "submission changed" notification
 On every submission create or edit (`PUT …/submission` and the admin
@@ -999,7 +1041,7 @@ for "which people", any future filter dimension (e.g. long-haul only, by arrival
 day) extends both the table and the export for free.
 
 ### Financial tab (`GET /api/admin/events/:id/financial`)
-A dedicated **Financial** tab in `EventDashboardView.vue` rolls up the travel
+A dedicated **Financial** tab in `EventDashboardView.vue` rolls up the flight
 costs attendees declared on the form (§8). The endpoint joins every non-archived
 attendee who has a `travel_cost` (only `attending = yes` responses carry one) and
 returns each person's amount in its **original currency** plus its value converted
@@ -1030,7 +1072,9 @@ to **USD, GBP and EUR**, with grand totals per target currency:
   row is only ever unconvertible during an FX outage.
 - The tab **fetches lazily** on first open (the FX call shouldn't run on every
   dashboard load) and offers a manual **Refresh**. Costs also appear as an optional
-  **Travel cost** column in the Responses table and two columns in the CSV export.
+  **Flight cost** column in the Responses table and two columns in the CSV export
+  (the CSV column keys keep the historical `travel_cost` / `travel_cost_currency`
+  names).
 
 ### Attendee CSV import
 `POST /api/events/:id/attendees` accepts `multipart/form-data`. Parsed with

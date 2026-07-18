@@ -43,15 +43,17 @@ type Event struct {
 	// Message templates for the Messaging tab. Empty string ⇒ no override; the
 	// backend renders a generated default instead (see messaging.go). Edited via
 	// PUT /api/admin/events/{id}/messaging.
-	InviteSubject   string     `json:"inviteSubject"`
-	InviteBody      string     `json:"inviteBody"`
-	ReminderSubject string     `json:"reminderSubject"`
-	ReminderBody    string     `json:"reminderBody"`
-	ImageURL        string     `json:"imageUrl"` // "" when no image; carries a ?v=<etag> cache-buster
-	IsPast          bool       `json:"isPast"`
-	Days            []EventDay `json:"days"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
+	InviteSubject         string     `json:"inviteSubject"`
+	InviteBody            string     `json:"inviteBody"`
+	ReminderSubject       string     `json:"reminderSubject"`
+	ReminderBody          string     `json:"reminderBody"`
+	FlightReminderSubject string     `json:"flightReminderSubject"`
+	FlightReminderBody    string     `json:"flightReminderBody"`
+	ImageURL              string     `json:"imageUrl"` // "" when no image; carries a ?v=<etag> cache-buster
+	IsPast                bool       `json:"isPast"`
+	Days                  []EventDay `json:"days"`
+	CreatedAt             time.Time  `json:"createdAt"`
+	UpdatedAt             time.Time  `json:"updatedAt"`
 }
 
 type eventReq struct {

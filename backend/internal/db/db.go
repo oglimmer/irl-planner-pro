@@ -66,6 +66,12 @@ var migration0017 string
 //go:embed migrations/0018_submission_travel_cost.sql
 var migration0018 string
 
+//go:embed migrations/0019_flightcost_reminder_kinds.sql
+var migration0019 string
+
+//go:embed migrations/0020_event_flight_reminder_templates.sql
+var migration0020 string
+
 // migrations lists all embedded migrations in apply order.
 // Each entry must have a corresponding //go:embed var above.
 // Adding a new migration requires (1) the file, (2) the embed var, (3) an
@@ -92,6 +98,8 @@ var migrations = []struct {
 	{"0016_user_archived", migration0016},
 	{"0017_submission_self_funded_early", migration0017},
 	{"0018_submission_travel_cost", migration0018},
+	{"0019_flightcost_reminder_kinds", migration0019},
+	{"0020_event_flight_reminder_templates", migration0020},
 }
 
 // Open opens the application's *sql.DB through pgx's database/sql adapter and

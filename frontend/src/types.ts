@@ -113,6 +113,8 @@ export interface MessageTemplates {
   inviteBody: string
   reminderSubject: string
   reminderBody: string
+  flightReminderSubject: string
+  flightReminderBody: string
 }
 
 export interface MessagingChannel {
@@ -125,6 +127,7 @@ export interface MessagingStats {
   attendees: number
   invited: number
   nonResponders: number
+  flightCostMissing: number
 }
 
 // MessagingFailure is one recent failed send, shown to the admin so they can act

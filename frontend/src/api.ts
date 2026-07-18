@@ -220,6 +220,10 @@ export const api = {
     request<SendMessageResult>(`/api/admin/events/${id}/messaging/invite`, { method: 'POST' }),
   sendFollowup: (id: string) =>
     request<SendMessageResult>(`/api/admin/events/${id}/messaging/followup`, { method: 'POST' }),
+  // Nudge attendees who responded "yes" but left their flight cost blank. Fixed
+  // copy (not template-editable) — same message the scheduler sends.
+  sendFlightFollowup: (id: string) =>
+    request<SendMessageResult>(`/api/admin/events/${id}/messaging/flight-followup`, { method: 'POST' }),
 
   // Per-event notification matrix: IRL team daily-summary toggle + each
   // admin's stream and channel preferences.

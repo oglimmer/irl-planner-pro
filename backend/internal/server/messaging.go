@@ -63,6 +63,23 @@ func (s *Store) nonResponderContacts(ctx context.Context, eventID string) ([]con
 		  ORDER BY u.email`, eventID)
 }
 
+// flightCostMissingContacts returns attendees who HAVE responded "yes" but left
+// their flight cost blank (the flight-cost nudge audience). Flight cost is only
+// meaningful for attending = 'yes', so "no"/"not_sure" responders are excluded.
+// This set is disjoint from nonResponderContacts (which requires no submission),
+// so nobody receives both the "please respond" and the "add your flight cost"
+// reminder.
+func (s *Store) flightCostMissingContacts(ctx context.Context, eventID string) ([]contact, error) {
+	return s.scanContacts(ctx,
+		`SELECT u.email, u.first_name
+		   FROM event_attendees ea
+		   JOIN users u ON u.id = ea.user_id
+		   JOIN submissions s ON s.event_id = ea.event_id AND s.user_id = ea.user_id
+		  WHERE ea.event_id = $1 AND NOT u.archived
+		    AND s.attending = 'yes' AND s.travel_cost IS NULL
+		  ORDER BY u.email`, eventID)
+}
+
 func (s *Store) scanContacts(ctx context.Context, query, eventID string) ([]contact, error) {
 	rows, err := s.db.QueryContext(ctx, query, eventID)
 	if err != nil {
@@ -99,22 +116,32 @@ const (
 	defaultInviteBody      = "Hi {{name}},\n\nYou're invited to {{event}} in {{city}}.\n\nPlease share your attendance and travel details here:\n{{link}}\n\nKindly respond by {{deadline}}.\n\nThanks,\nThe IRL team\n"
 	defaultReminderSubject = "Reminder: please respond for {{event}}"
 	defaultReminderBody    = "Hi {{name}},\n\nWe haven't received your attendance details for {{event}} yet.\n\nPlease respond here:\n{{link}}\n\nThe deadline is {{deadline}}.\n\nThanks,\nThe IRL team\n"
+	// Flight-cost nudge, sent to attendees who responded "yes" but left the
+	// (optional) flight cost blank. Uses the same {{placeholder}} vocabulary and
+	// the same schedule/channels as the non-responder reminder. Admin-editable per
+	// event (flight_reminder_subject/body, migration 0020); this is the fallback.
+	defaultFlightReminderSubject = "Reminder: add your flight cost for {{event}}"
+	defaultFlightReminderBody    = "Hi {{name}},\n\nThanks for confirming you're attending {{event}}. We still need your flight cost to estimate the overall offsite budget.\n\nPlease add it here — flight only, no need for train, taxi, or other travel:\n{{link}}\n\nThe deadline is {{deadline}}.\n\nThanks,\nThe IRL team\n"
 )
 
 // messageTemplates is the editable per-event copy, on the wire and in storage.
 type messageTemplates struct {
-	InviteSubject   string `json:"inviteSubject"`
-	InviteBody      string `json:"inviteBody"`
-	ReminderSubject string `json:"reminderSubject"`
-	ReminderBody    string `json:"reminderBody"`
+	InviteSubject         string `json:"inviteSubject"`
+	InviteBody            string `json:"inviteBody"`
+	ReminderSubject       string `json:"reminderSubject"`
+	ReminderBody          string `json:"reminderBody"`
+	FlightReminderSubject string `json:"flightReminderSubject"`
+	FlightReminderBody    string `json:"flightReminderBody"`
 }
 
 func defaultTemplates() messageTemplates {
 	return messageTemplates{
-		InviteSubject:   defaultInviteSubject,
-		InviteBody:      defaultInviteBody,
-		ReminderSubject: defaultReminderSubject,
-		ReminderBody:    defaultReminderBody,
+		InviteSubject:         defaultInviteSubject,
+		InviteBody:            defaultInviteBody,
+		ReminderSubject:       defaultReminderSubject,
+		ReminderBody:          defaultReminderBody,
+		FlightReminderSubject: defaultFlightReminderSubject,
+		FlightReminderBody:    defaultFlightReminderBody,
 	}
 }
 
@@ -197,9 +224,10 @@ type messagingStatus struct {
 }
 
 type messagingStats struct {
-	Attendees     int `json:"attendees"`
-	Invited       int `json:"invited"`
-	NonResponders int `json:"nonResponders"`
+	Attendees         int `json:"attendees"`
+	Invited           int `json:"invited"`
+	NonResponders     int `json:"nonResponders"`
+	FlightCostMissing int `json:"flightCostMissing"` // responded "yes" but no flight cost
 }
 
 // handleGetMessaging returns the templates, defaults, audience stats, and
@@ -225,6 +253,11 @@ func (a *App) handleGetMessaging(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, r, err, "db error")
 		return
 	}
+	flightMissing, err := a.Store.flightCostMissingContacts(r.Context(), id)
+	if err != nil {
+		serverErr(w, r, err, "db error")
+		return
+	}
 	invited, err := a.Store.invitedCount(r.Context(), id)
 	if err != nil {
 		serverErr(w, r, err, "db error")
@@ -237,16 +270,19 @@ func (a *App) handleGetMessaging(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, messagingStatus{
 		Templates: messageTemplates{
-			InviteSubject:   e.InviteSubject,
-			InviteBody:      e.InviteBody,
-			ReminderSubject: e.ReminderSubject,
-			ReminderBody:    e.ReminderBody,
+			InviteSubject:         e.InviteSubject,
+			InviteBody:            e.InviteBody,
+			ReminderSubject:       e.ReminderSubject,
+			ReminderBody:          e.ReminderBody,
+			FlightReminderSubject: e.FlightReminderSubject,
+			FlightReminderBody:    e.FlightReminderBody,
 		},
 		Defaults: defaultTemplates(),
 		Stats: messagingStats{
-			Attendees:     len(attendees),
-			Invited:       invited,
-			NonResponders: len(nonResponders),
+			Attendees:         len(attendees),
+			Invited:           invited,
+			NonResponders:     len(nonResponders),
+			FlightCostMissing: len(flightMissing),
 		},
 		Channels: a.channelStatuses(),
 		Failures: failures,
@@ -270,19 +306,22 @@ func (a *App) handleSaveMessaging(w http.ResponseWriter, r *http.Request) {
 	}
 	req.InviteSubject = strings.TrimSpace(req.InviteSubject)
 	req.ReminderSubject = strings.TrimSpace(req.ReminderSubject)
-	if len(req.InviteSubject) > maxSubjectLen || len(req.ReminderSubject) > maxSubjectLen {
+	req.FlightReminderSubject = strings.TrimSpace(req.FlightReminderSubject)
+	if len(req.InviteSubject) > maxSubjectLen || len(req.ReminderSubject) > maxSubjectLen || len(req.FlightReminderSubject) > maxSubjectLen {
 		writeErr(w, http.StatusBadRequest, fmt.Sprintf("subject must be at most %d characters", maxSubjectLen))
 		return
 	}
-	if len(req.InviteBody) > maxBodyLen || len(req.ReminderBody) > maxBodyLen {
+	if len(req.InviteBody) > maxBodyLen || len(req.ReminderBody) > maxBodyLen || len(req.FlightReminderBody) > maxBodyLen {
 		writeErr(w, http.StatusBadRequest, fmt.Sprintf("body must be at most %d characters", maxBodyLen))
 		return
 	}
 
 	res, err := a.DB.ExecContext(r.Context(),
-		`UPDATE events SET invite_subject=$1, invite_body=$2, reminder_subject=$3, reminder_body=$4, updated_at=now()
-		   WHERE id=$5`,
-		req.InviteSubject, req.InviteBody, req.ReminderSubject, req.ReminderBody, id)
+		`UPDATE events SET invite_subject=$1, invite_body=$2, reminder_subject=$3, reminder_body=$4,
+		        flight_reminder_subject=$5, flight_reminder_body=$6, updated_at=now()
+		   WHERE id=$7`,
+		req.InviteSubject, req.InviteBody, req.ReminderSubject, req.ReminderBody,
+		req.FlightReminderSubject, req.FlightReminderBody, id)
 	if err != nil {
 		serverErr(w, r, err, "db error")
 		return
@@ -337,6 +376,29 @@ func (a *App) handleSendFollowup(w http.ResponseWriter, r *http.Request) {
 		},
 		metricKind:     "manual",
 		emptyAudienceM: "everyone has responded — no follow-up needed",
+	})
+}
+
+// handleSendFlightFollowup sends the flight-cost nudge to attendees who responded
+// "yes" but left their flight cost blank, now. Idempotent per event-local day.
+// Uses the editable flight-reminder copy (falling back to the default) — the same
+// message the scheduler sends. Its own reminder_kind keeps it disjoint from the
+// non-responder follow-up so a person is never claimed by both.
+func (a *App) handleSendFlightFollowup(w http.ResponseWriter, r *http.Request) {
+	a.sendCampaign(w, r, campaign{
+		kind:        "manual_flightcost",
+		periodKey:   "", // resolved per-event to the event-local date below
+		action:      actionFlightFollowupSent,
+		subjectTmpl: func(e *Event) string { return firstNonEmpty(e.FlightReminderSubject, defaultFlightReminderSubject) },
+		bodyTmpl:    func(e *Event) string { return firstNonEmpty(e.FlightReminderBody, defaultFlightReminderBody) },
+		audience: func(ctx context.Context, id string) ([]contact, error) {
+			return a.Store.flightCostMissingContacts(ctx, id)
+		},
+		summary: func(sent, failed int, chs []string) string {
+			return sendSummary("Sent flight-cost reminder to", sent, failed, "attendee(s)", chs)
+		},
+		metricKind:     "manual_flightcost",
+		emptyAudienceM: "no attendees are missing a flight cost — nothing to send",
 	})
 }
 
