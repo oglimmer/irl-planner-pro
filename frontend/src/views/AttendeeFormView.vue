@@ -714,7 +714,7 @@ onMounted(load)
 
           <h3 class="section-head">Other</h3>
           <div class="row">
-            <label>Flight cost (optional)
+            <label>Flight cost
               <input
                 :value="form.travelCost ?? ''"
                 type="number"
