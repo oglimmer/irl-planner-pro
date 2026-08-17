@@ -61,6 +61,10 @@ spec:
         - name: SIGN_IN_DOMAIN
           value: {{ . | quote }}
         {{- end }}
+        {{- with .Values.travelPolicyURL }}
+        - name: TRAVEL_POLICY_URL
+          value: {{ . | quote }}
+        {{- end }}
         - name: DEFAULT_EVENT_TIMEZONE
           value: {{ .Values.defaultEventTimezone | quote }}
         {{- if .Values.postgres.enabled }}

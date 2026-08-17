@@ -10,6 +10,7 @@ export const useAuthStore = defineStore('auth', () => {
   const defaultEventTimezone = ref<string>('Europe/Paris')
   const peopleTeamEmail = ref<string>('people@oglimmer.com')
   const signInDomain = ref<string>('')
+  const travelPolicyUrl = ref<string>('')
   let modePromise: Promise<AuthMode> | null = null
   let freshUserPromise: Promise<void> | null = null
 
@@ -56,6 +57,7 @@ export const useAuthStore = defineStore('auth', () => {
           defaultEventTimezone.value = c.defaultEventTimezone
           if (c.peopleTeamEmail) peopleTeamEmail.value = c.peopleTeamEmail
           signInDomain.value = c.signInDomain ?? ''
+          travelPolicyUrl.value = c.travelPolicyUrl ?? ''
           return c.mode
         })
         .catch((e) => {
@@ -136,6 +138,7 @@ export const useAuthStore = defineStore('auth', () => {
     defaultEventTimezone,
     peopleTeamEmail,
     signInDomain,
+    travelPolicyUrl,
     ensureMode,
     ensureFreshUser,
     refreshUser,

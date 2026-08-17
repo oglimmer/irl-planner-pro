@@ -704,6 +704,14 @@ onMounted(load)
                 <small>The company books and pays for the night of {{ formatDate(beforeDate) }}.</small>
               </span>
             </label>
+            <p v-if="auth.travelPolicyUrl" class="field-note">
+              See the
+              <a
+                :href="auth.travelPolicyUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+              >Traveling to the IRL policy</a>.
+            </p>
           </div>
 
           <h3 class="section-head">Other</h3>

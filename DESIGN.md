@@ -791,6 +791,9 @@ never trusted).
     `extra_stay_start = start_date − 1` together; the company books and pays the
     night. Leaving it unticked (or picking a later arrival day) is the only
     alternative — an early arrival with no confirmation is rejected.
+  Beside the confirmation the form links the company travel policy, taken from
+  `TRAVEL_POLICY_URL` and served to the SPA via `GET /api/auth/config` (like
+  `PEOPLE_TEAM_EMAIL`); empty hides the link rather than shipping a company URL.
   Self-funding the night (`extra_stay_self_funded`) is **no longer offered in the
   employee form** — the flag/column is retained and the IRL team can still set it
   via the admin editor (see [Self-funded early arrival](#self-funded)); the form
@@ -1197,6 +1200,10 @@ IRL_TEAM_EMAIL=irl@oglimmer.com             # daily activity digest (when daily_
 # People team. Address employees are told to email in the "can't attend"
 # instructions (§8) — distinct from IRL_TEAM_EMAIL (the activity digest).
 PEOPLE_TEAM_EMAIL=people@oglimmer.com
+
+# Travel policy document linked from the long-haul confirmation on the form (§8).
+# Empty hides the link, so no company URL is baked into the SPA.
+TRAVEL_POLICY_URL=
 
 # Currency conversion for the admin Financial tab (§10). Base URL of the
 # Frankfurter FX API; the default public host needs no key. Point at a mirror or

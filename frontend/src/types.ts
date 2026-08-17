@@ -7,6 +7,7 @@ export interface AuthConfig {
   defaultEventTimezone: string
   peopleTeamEmail: string // address shown in the "can't attend" instructions
   signInDomain: string // email domain shown in the sign-in copy ('' → generic)
+  travelPolicyUrl: string // travel-policy link on the attendee form ('' → hidden)
 }
 
 export interface User {

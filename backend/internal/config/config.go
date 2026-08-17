@@ -60,6 +60,11 @@ type Config struct {
 	// generic copy with no domain.
 	SignInDomain string
 
+	// TravelPolicyURL is the company's travel-policy document linked from the
+	// long-haul confirmation on the attendee form. Surfaced to the SPA via
+	// /api/auth/config; empty hides the link entirely.
+	TravelPolicyURL string
+
 	// DefaultEventTimezone is the IANA tz pre-filled when creating a new event.
 	DefaultEventTimezone string
 
@@ -121,6 +126,7 @@ func Load() Config {
 		IRLTeamEmail:         strings.TrimSpace(getenv("IRL_TEAM_EMAIL", "")),
 		PeopleTeamEmail:      strings.TrimSpace(getenv("PEOPLE_TEAM_EMAIL", "people@oglimmer.com")),
 		SignInDomain:         strings.TrimSpace(getenv("SIGN_IN_DOMAIN", "")),
+		TravelPolicyURL:      strings.TrimSpace(getenv("TRAVEL_POLICY_URL", "")),
 		DefaultEventTimezone: getenv("DEFAULT_EVENT_TIMEZONE", "Europe/Paris"),
 		FrankfurterBaseURL:   strings.TrimRight(getenv("FRANKFURTER_BASE_URL", "https://api.frankfurter.dev/v1"), "/"),
 

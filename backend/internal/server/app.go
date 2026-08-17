@@ -117,6 +117,7 @@ type AuthConfig struct {
 	DefaultEventTimezone string `json:"defaultEventTimezone"`
 	PeopleTeamEmail      string `json:"peopleTeamEmail"` // address shown in the "can't attend" instructions (§8)
 	SignInDomain         string `json:"signInDomain"`    // email domain shown in the sign-in copy ("" → generic)
+	TravelPolicyURL      string `json:"travelPolicyUrl"` // travel-policy link on the attendee form ("" → hidden)
 }
 
 func (a *App) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
@@ -131,5 +132,6 @@ func (a *App) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
 		DefaultEventTimezone: a.Cfg.DefaultEventTimezone,
 		PeopleTeamEmail:      a.Cfg.PeopleTeamEmail,
 		SignInDomain:         domain,
+		TravelPolicyURL:      a.Cfg.TravelPolicyURL,
 	})
 }

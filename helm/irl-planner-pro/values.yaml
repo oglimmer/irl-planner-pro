@@ -44,6 +44,10 @@ peopleTeamEmail: "people@oglimmer.com"
 # Empty with no workspace domain → generic copy with no domain.
 signInDomain: ""
 
+# Travel policy document (TRAVEL_POLICY_URL). Linked next to the long-haul
+# confirmation on the attendee form. Empty hides the link entirely.
+travelPolicyURL: ""
+
 # IANA timezone pre-filled when an admin creates a new event
 # (DEFAULT_EVENT_TIMEZONE).
 defaultEventTimezone: "Europe/Paris"
